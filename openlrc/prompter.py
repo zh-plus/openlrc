@@ -12,7 +12,8 @@ class BaseTranslatePrompter:
 'If a sentence is not suitable for translation, please do not translate it, but you need to complete the translation of other suitable sentences.
 'If you are not sure whether a sentence is suitable for translation, please translate it.
 'Even if encountering sentences that are not suitable for translation, please maintain the output format.'
-'Even if only one sentence is translated, please maintain the output format. Dont add any other words.'''
+'Even if only one sentence is translated, please maintain the output format. Dont add any other words.
+'Use '<' and '>' to replace the double quote in the translated sentences.'''
 
 
 class LovelyPrompter(BaseTranslatePrompter):
