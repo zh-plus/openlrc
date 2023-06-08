@@ -6,6 +6,11 @@ translate/polish ([OpenAI-GPT](https://github.com/openai/openai-python)) the tex
 
 ## Installation
 
+Please install CUDA and cuDNN first according to https://opennmt.net/CTranslate2/installation.html to enable 
+`faster-whisper``.
+
+This project can be installed from PyPI:
+
 ```shell
 pip install openlyc
 ```
