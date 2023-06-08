@@ -114,6 +114,10 @@ class LRC:
             target_lang=Language.get(target_lang).display_name('en')
         )
 
+        # Prevent translating text into Traditional Chinese
+        if target_lang == 'zh-cn':
+            system_prompt.replace(Language.get(target_lang).display_name('en'), 'Mandarin Chinese')
+
         for chunk in chunks:
             # Format the input
             raw_content = format_texts(chunk)
