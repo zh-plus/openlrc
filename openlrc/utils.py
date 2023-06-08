@@ -12,19 +12,30 @@ def json2dict(json_str):
 
     try:
         result = json.loads(json_str)
+        return result
     except json.decoder.JSONDecodeError as e:
-        logger.warning(f'Error: Trying to convert into json: \n {json_str}\n')
+        logger.warning(f'Fail to convert into json: \n {json_str}\n')
 
-        # Try to fix the json string, only keep the content from first '{' to last '}'
-        result = json_str[json_str.find('{'):json_str.rfind('}') + 1]
-        logger.warning(f'Error: Trying to fix the json string: \n {result}\n Into: \n {result}\n')
-        try:
-            result = json.loads(result)
-        except json.decoder.JSONDecodeError:
-            logger.error(f'Error: Failed to convert into json: \n {json_str}\n')
-            raise e
+    # Try to fix the json string, only keep the content from first '{' to last '}'
+    fixed_json_str1 = json_str[json_str.find('{'):json_str.rfind('}') + 1]
+    logger.warning(
+        f'Trying to fix the json string by keep only "{{content}}": \n {json_str}\n Into: \n {fixed_json_str1}\n')
+    try:
+        result = json.loads(fixed_json_str1)
+        return result
+    except json.decoder.JSONDecodeError:
+        logger.error(f'Failed to convert into json: \n {json_str}\n')
 
-    return result
+    # Try to replace chinese "，" with english ","
+    fixed_json_str2 = fixed_json_str1.replace('，', ',')
+    logger.warning(
+        f'Trying to fix the json string by replace chinese quote with eng quote: \n {fixed_json_str1}\n Into: \n {fixed_json_str2}\n'
+    )
+    try:
+        result = json.loads(fixed_json_str2)
+        return result
+    except json.decoder.JSONDecodeError as e:
+        raise e
 
 
 def get_token_number(text):
