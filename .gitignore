@@ -1,0 +1,6 @@
+# Project exclude paths
+.idea
+test.py
+/data/
+/dist/
+/openfaker.egg-info/
