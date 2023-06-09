@@ -147,6 +147,9 @@ class LRC:
                 except openai.error.RateLimitError:
                     logger.warning('Rate limit exceeded. Wait 10s before retry.')
                     time.sleep(10)
+                except openai.error.APIConnectionError:
+                    logger.warning('API connection error. Wait 30s before retry.')
+                    time.sleep(30)
 
             target_content = response.choices[0].message.content
             logger.info(f'Target content: {target_content}')
