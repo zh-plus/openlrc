@@ -37,6 +37,8 @@ lrcer('./data/test.mp3')  # Generate ./data/test.lrc
     - [ ] Audiobook
 - [ ] Make translate prompt more robust.
 - [ ] Add local LLM support.
+- [ ] Multi-thead support for both whisper model and GPT request.
+- [ ] Automatically fix json encoder error using GPT.
 
 ## Credits
 
