@@ -24,7 +24,7 @@ def json2dict(json_str):
         result = json.loads(fixed_json_str1)
         return result
     except json.decoder.JSONDecodeError:
-        logger.error(f'Failed to convert into json: \n {json_str}\n')
+        logger.warning(f'Failed to convert into json: \n {json_str}\n')
 
     # Try to replace chinese "，" with english ","
     fixed_json_str2 = fixed_json_str1.replace('，', ',')
@@ -34,7 +34,16 @@ def json2dict(json_str):
     try:
         result = json.loads(fixed_json_str2)
         return result
+    except json.decoder.JSONDecodeError:
+        logger.warning(f'Failed to convert into json: \n {fixed_json_str2}\n')
+
+    # Try to remove the content between last found "]" and "}"
+    fixed_json_str3 = fixed_json_str2[:fixed_json_str2.rfind(']') + 1] + '}'
+    try:
+        result = json.loads(fixed_json_str3)
+        return result
     except json.decoder.JSONDecodeError as e:
+        logger.error(f'Failed to convert into json: \n {fixed_json_str3}\n')
         raise e
 
 
