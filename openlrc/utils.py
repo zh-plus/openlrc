@@ -37,13 +37,18 @@ def json2dict(json_str):
     except json.decoder.JSONDecodeError:
         logger.warning(f'Failed to convert into json: \n {fixed_json_str2}\n')
 
-    # Try to remove the content between last found "]" and "}"
-    fixed_json_str3 = fixed_json_str2[:fixed_json_str2.rfind(']') + 1] + '}'
+    # The content after last found " should be "}]"
+    fixed_json_str3 = fixed_json_str2[:fixed_json_str2.rfind('"') + 1] + ']}'
     try:
         result = json.loads(fixed_json_str3)
         return result
     except json.decoder.JSONDecodeError as e:
         logger.error(f'Failed to convert into json: \n {fixed_json_str3}\n')
+
+        # Save the json string to file
+        with open('error.json', 'w', encoding='utf-8') as f:
+            f.write(fixed_json_str3)
+
         raise e
 
 
