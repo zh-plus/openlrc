@@ -18,6 +18,11 @@ enable `faster-whisper`.
     ```shell
     pip install openlrc
     ```
+   or install directly from GitHub:
+
+    ```shell
+    pip install git+https://github.com/zh-plus/Open-Lyrics
+    ```
 
 ## Usage
 
