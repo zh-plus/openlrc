@@ -8,17 +8,16 @@ translate/polish ([OpenAI-GPT](https://github.com/openai/openai-python)) the tex
 
 ## Installation
 
-Please install CUDA and cuDNN first according to https://opennmt.net/CTranslate2/installation.html to
+1. Please install CUDA and cuDNN first according to https://opennmt.net/CTranslate2/installation.html to
 enable `faster-whisper`.
 
-Add your [OpenAI API key](https://platform.openai.com/account/api-keys) to environment variable `OPENAI_API_KEY`.
+2. Add your [OpenAI API key](https://platform.openai.com/account/api-keys) to environment variable `OPENAI_API_KEY`.
 
-shell
-This project can be installed from PyPI:
+3. This project can be installed from PyPI:
 
-```shell
-pip install openlrc
-```
+    ```shell
+    pip install openlrc
+    ```
 
 ## Usage
 
