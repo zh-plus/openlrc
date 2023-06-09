@@ -97,10 +97,10 @@ class LRC:
         """
         Use GPT-3.5 to translate lyrics.
         TODO: dynamically adjust the chunk size.
+        :param prompter: Translate prompter.
         :param chunk_size: Use smaller chunk size to avoid exceeding the token limit & output complete message.
         :param src_lang: Source language.
         :param target_lang: Target language.
-        :param prompter: Translate prompter.
         :param intercept_line: Intercepted lyrics line number.
         :param force_translate: Force translation even if the source language is the same as the target language.
         :return: The translated lrc file path.

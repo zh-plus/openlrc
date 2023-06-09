@@ -13,7 +13,7 @@ class LRCer:
     def __init__(self, model_name='large-v2'):
         self.model = WhisperModel(model_name, compute_type="float16")
 
-    def __call__(self, audio_path, target_lang='en', prompter='base_trans'):
+    def __call__(self, audio_path, target_lang='zh-cn', prompter='base_trans'):
         if prompter not in prompter_map:
             raise ValueError(f'Prompter {prompter} not found.')
         prompter = prompter_map[prompter]()  # Initialize appropriate prompter
@@ -47,13 +47,13 @@ class LRCer:
 
         with Timer('Translating...'):
             lrc_name = transcribed_optimized_lrc.translate(
-                prompter=prompter
+                prompter=prompter, target_lang=target_lang
             )  # xxx_transcribed_optimized_translated.lrc
 
         self.post_process(lrc_name, output_lrc_name=change_ext(audio_path, 'lrc'),
                           remove_files=[
                               transcribed_optimized_path,
-                              # lrc_name
+                              lrc_name
                           ])  # xxx.lrc
 
     @staticmethod
