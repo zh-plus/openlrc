@@ -1,6 +1,6 @@
 class BaseTranslatePrompter:
     def __str__(self):
-        return '''You are an advanced {source_lang} to {target_lang} translator.
+        return '''You are an advanced {src_lang} to {target_lang} translator.
 'The input format: {{"total_number": <total-number>, "list": ["1-<sentence-1>", "2-<sentence-2>", "3-<sentence-3>", ...]}}.
 'The output format: {{"total_number": <total-translated-number>, "list": ["1-<translated-sentence-1>", "2-<translated-sentence-2>", "3-<translated-sentence-3>", ..., "<total-translated-number>-<last-translated-sentence>"]}}.
 'Please remember to add an order number before each translated sentence, as the output format.
@@ -8,6 +8,7 @@ class BaseTranslatePrompter:
 'Do not merge or eliminate any sentence.
 'Keep the number of the translated sentence in the returned list identical to that of the original list.
 'Ensure that the correspondence between the original and translated list is maintained.
+'DO NOT break the output format.
 'Utilize context to rectify any inappropriate words.
 'If a sentence is not suitable for translation, please do not translate it, but you need to complete the translation of other suitable sentences.
 'If you are not sure whether a sentence is suitable for translation, please translate it.
@@ -18,7 +19,13 @@ class BaseTranslatePrompter:
 
 class LovelyPrompter(BaseTranslatePrompter):
     def __str__(self):
-        return str(super()) + 'Use lovely colloquial expressions to translate each sentence.'
+        return super().__str__() + 'Use lovely colloquial expressions to translate each sentence.'
+
+
+prompter_map = {
+    'base_trans': BaseTranslatePrompter,
+    'lovely_trans': LovelyPrompter
+}
 
 
 def format_texts(texts):

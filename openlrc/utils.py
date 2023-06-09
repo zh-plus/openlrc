@@ -1,10 +1,10 @@
-import time
 import json
-
+import time
 from os.path import splitext
-from openlrc.logger import logger
 
 import tiktoken
+
+from openlrc.logger import logger
 
 
 def json2dict(json_str):
@@ -43,17 +43,19 @@ def json2dict(json_str):
         result = json.loads(fixed_json_str3)
         return result
     except json.decoder.JSONDecodeError as e:
-        logger.error(f'Failed to convert into json: \n {fixed_json_str3}\n')
+        logger.error(f'Failed to convert returned content into json: \n {fixed_json_str3}\n\n')
 
         # Save the json string to file
-        with open('error.json', 'w', encoding='utf-8') as f:
+        with open('test_return.json', 'w', encoding='utf-8') as f:
             f.write(fixed_json_str3)
+
+        logger.info(f'The json file is saved to test_return.json')
 
         raise e
 
 
-def get_token_number(text):
-    encoder = tiktoken.encoding_for_model("gpt-3.5-turbo")
+def get_token_number(text, model="gpt-3.5-turbo"):
+    encoder = tiktoken.encoding_for_model(model)
 
     return len(encoder.encode(text))
 

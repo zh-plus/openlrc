@@ -1,17 +1,15 @@
 import math
-import os
 import sys
-import time
 from dataclasses import dataclass
 from typing import List, Union
 
-import openai
 from langcodes import Language
 
+from openlrc.chatbot import GPTBot
 from openlrc.exceptions import SameLanguageException
 from openlrc.logger import logger
 from openlrc.prompter import BaseTranslatePrompter, format_texts
-from openlrc.utils import extend_filename, get_token_number, json2dict
+from openlrc.utils import extend_filename, json2dict
 
 
 @dataclass
@@ -83,88 +81,66 @@ class LRC:
 
         return file
 
-    def translate(self, chunk_size=20, source_lang=None, target_lang='zh-cn', prompter=BaseTranslatePrompter(),
-                  intercept_line=None, force_translate=False):
-        """
-        Use GPT-3.5 to translate lyrics.
-        :param chunk_size: use smaller chunk size to avoid exceeding the token limit & output complete message.
-        :param source_lang: source language.
-        :param target_lang: target language.
-        :param prompter: translate prompter.
-        :param intercept_line: intercepted lyrics line number.
-        :return:
-        """
-        if not force_translate and \
-                Language.get(self.lang if not source_lang else source_lang).language_name() \
-                == Language.get(target_lang).language_name():
-            raise SameLanguageException()
-
-        # Set OpenAI API key
-        openai.api_key = os.getenv("OPENAI_API_KEY")
-
-        lyrics = [element.text for element in self.elements[:intercept_line]]
-
-        # Split lyrics into different chunks
-        chunks = [lyrics[i:i + chunk_size] for i in range(0, len(lyrics), chunk_size)]
-
-        json_content = {'total_number': 0, 'list': []}
-
+    def get_system_prompt(self, src_lang, target_lang, prompter):
         system_prompt = str(prompter).format(
-            source_lang=Language.get(self.lang if not source_lang else source_lang).display_name('en'),
+            src_lang=Language.get(self.lang if not src_lang else src_lang).display_name('en'),
             target_lang=Language.get(target_lang).display_name('en')
         )
-
         # Prevent translating text into Traditional Chinese
         if target_lang == 'zh-cn':
             system_prompt.replace(Language.get(target_lang).display_name('en'), 'Mandarin Chinese')
 
-        for chunk in chunks:
-            # Format the input
-            raw_content = format_texts(chunk)
+        return system_prompt
 
-            logger.info(f'Raw content: {raw_content}')
-            token_number = get_token_number(raw_content + system_prompt)
-            logger.info(f'Total token number: {token_number}')
+    def translate(self, prompter=BaseTranslatePrompter(), chunk_size=20, src_lang=None, target_lang='zh-cn',
+                  intercept_line=None, force_translate=False):
+        """
+        Use GPT-3.5 to translate lyrics.
+        TODO: dynamically adjust the chunk size.
+        :param chunk_size: Use smaller chunk size to avoid exceeding the token limit & output complete message.
+        :param src_lang: Source language.
+        :param target_lang: Target language.
+        :param prompter: Translate prompter.
+        :param intercept_line: Intercepted lyrics line number.
+        :param force_translate: Force translation even if the source language is the same as the target language.
+        :return: The translated lrc file path.
+        """
+        if not force_translate and \
+                Language.get(self.lang if not src_lang else src_lang).language_name() \
+                == Language.get(target_lang).language_name():
+            raise SameLanguageException()
 
-            assert token_number < 4096, 'Token number exceeds the limit.'
+        # Resulted json content
+        json_content = {'total_number': 0, 'list': []}
 
-            while 1:
-                try:
-                    response = openai.ChatCompletion.create(
-                        model="gpt-3.5-turbo",
-                        messages=[
-                            {
-                                'role': 'system',
-                                'content': system_prompt
-                            },
-                            {
-                                'role': 'user',
-                                'content': raw_content
-                            }
-                        ]
-                    )
-                    break
-                except openai.error.RateLimitError:
-                    logger.warning('Rate limit exceeded. Wait 10s before retry.')
-                    time.sleep(10)
-                except openai.error.APIConnectionError:
-                    logger.warning('API connection error. Wait 30s before retry.')
-                    time.sleep(30)
+        system_prompt = self.get_system_prompt(src_lang, target_lang, prompter)
+        translate_bot = GPTBot(system_prompt=system_prompt)
 
-            target_content = response.choices[0].message.content
-            logger.info(f'Target content: {target_content}')
+        lyrics = [element.text for element in self.elements[:intercept_line]]
+        # Split lyrics into different chunks
+        chunks = [lyrics[i:i + chunk_size] for i in range(0, len(lyrics), chunk_size)]
+        user_prompts = [format_texts(chunk) for chunk in chunks]  # Format the chunks into a single string
 
-            chunk_json_content = json2dict(target_content)
-            logger.info(f'Length of the translated chunk: {len(chunk_json_content["list"])}')
+        logger.info(f'Translating {len(user_prompts)} user_prompts of lyrics with async call.')
 
+        # Start translate
+        responses = translate_bot.message(user_prompts)
+        for i, response in enumerate(responses):
+            content = response.choices[0].message.content
+            logger.debug(f'Target content - chunk{i}: {content}')
+
+            chunk_json_content = json2dict(content)
+            logger.debug(f'Length of the translated chunk: {len(chunk_json_content["list"])}')
+
+            chunk_size = len(chunks[i])
             # Helping OpenAI clean up their mess.
-            if len(chunk_json_content['list']) < len(chunk):
+            if len(chunk_json_content['list']) < chunk_size:
                 logger.warning('The number of translated sentences is less than that of the original list. '
                                'Add <MANUALLY-ADDED> label')
-                chunk_json_content['list'] += ['<MANUALLY-ADDED>'] * (len(chunk) - len(chunk_json_content['list']))
-            elif len(chunk_json_content['list']) > len(chunk):
+                chunk_json_content['list'] += ['<MANUALLY-ADDED>'] * (chunk_size - len(chunk_json_content['list']))
+            elif len(chunk_json_content['list']) > chunk_size:
                 logger.warning('The number of translated sentences is more than that of the original list. Truncated')
-                chunk_json_content['list'] = chunk_json_content['list'][:len(chunk)]
+                chunk_json_content['list'] = chunk_json_content['list'][:chunk_size]
 
             json_content['total_number'] += chunk_json_content['total_number']
             json_content['list'] += chunk_json_content['list']
@@ -232,7 +208,7 @@ class LRCOptimizer:
             else:
                 new_elements[-1].end = element.end
 
-        logger.info(f'Merge same text: {len(self.lrc.elements)} -> {len(new_elements)}')
+        logger.debug(f'Merge same text: {len(self.lrc.elements)} -> {len(new_elements)}')
 
         self.lrc.elements = new_elements
 
@@ -249,7 +225,7 @@ class LRCOptimizer:
                 new_elements[-1].text += ' ' + element.text
                 new_elements[-1].end = element.end
 
-        logger.info(f'Merge short text: {len(self.lrc.elements)} -> {len(new_elements)}')
+        logger.debug(f'Merge short text: {len(self.lrc.elements)} -> {len(new_elements)}')
 
         self.lrc.elements = new_elements
 
@@ -274,9 +250,9 @@ class LRCOptimizer:
             repeat_text = get_repeat(elements[i].text)
             if repeat_text:
                 elements[i].text = repeat_text + '...(Repeat)'
-                logger.info(f'Merge same words: {repeat_text}')
+                logger.debug(f'Merge same words: {repeat_text}')
 
-        logger.info('Merge same words done.')
+        logger.debug('Merge same words done.')
 
         self.lrc.elements = elements
 
@@ -288,15 +264,16 @@ class LRCOptimizer:
                 logger.warning(f'Cut long text: {element.text}\n Into: {element.text[:keep]}...')
                 elements[i].text = element.text[:keep] + f'(Cut to {keep})'
 
-        logger.info('Cut long text done.')
+        logger.debug('Cut long text done.')
 
         self.lrc.elements = elements
 
     def perform_all(self):
-        self.merge_same_lyrics()
-        self.merge_short_lyrics()
-        self.merge_same_words()
-        self.cut_long_lyrics()
+        for _ in range(2):
+            self.merge_same_lyrics()
+            self.merge_short_lyrics()
+            self.merge_same_words()
+            self.cut_long_lyrics()
 
     def save(self, output_lrc_name=None):
         optimized_name = extend_filename(self.lrc_name, '_optimized') if not output_lrc_name else output_lrc_name

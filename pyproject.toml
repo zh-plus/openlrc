@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openlrc"
-version = "0.0.3"
+version = "0.0.4"
 authors = [
     { name = "Hao Zheng", email = "zhenghaosustc@gmail.com" },
 ]
@@ -17,7 +17,8 @@ dependencies = [
     'tiktoken',
     'langcodes',
     'language-data',
-    'rich'
+    'rich',
+    'tqdm'
 ]
 keywords = [
     'openai-gpt3',

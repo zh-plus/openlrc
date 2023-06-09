@@ -1,32 +1,42 @@
 import os
 
 from faster_whisper import WhisperModel
-
-from openlrc.utils import Timer, change_ext, extend_filename
-from openlrc.lrc import LRC, LRCOptimizer
+from tqdm import tqdm
 
 from openlrc.logger import logger
+from openlrc.lrc import LRC, LRCOptimizer
+from openlrc.prompter import prompter_map
+from openlrc.utils import Timer, change_ext, extend_filename
 
 
 class LRCer:
     def __init__(self, model_name='large-v2'):
         self.model = WhisperModel(model_name, compute_type="float16")
 
-    def __call__(self, audio_path, target_lang='en'):
+    def __call__(self, audio_path, target_lang='en', prompter='base_trans'):
+        if prompter not in prompter_map:
+            raise ValueError(f'Prompter {prompter} not found.')
+        prompter = prompter_map[prompter]()  # Initialize appropriate prompter
+
         transcribed_lrc_path = change_ext(extend_filename(audio_path, '_transcribed'), 'lrc')
         if not os.path.exists(transcribed_lrc_path):
             logger.info(f'Not found transcribed lrc file: {transcribed_lrc_path}')
             with Timer('Transcribing...'):
+                # Temporarily workaround for https://github.com/guillaumekln/faster-whisper/issues/71
+                # TODO: Should remove `temperature=0` to enhance whisper performance after issue fixed
                 segments, info = self.model.transcribe(audio_path, word_timestamps=False, temperature=0)
 
                 logger.info(f'Length of audio {audio_path}: {LRC.format_timestamp(info.duration)}')
                 logger.info(f'Detected language: {info.language}, with probability: {info.language_probability}')
 
-                segments = list(segments)
-                logger.debug(f'Transcribed fast-whisper Segments: {segments}')
+                # From generator to list with progress bar shown
+                seg_list = []
+                for segment in tqdm(segments, 'Transcribing'):
+                    seg_list.append(segment)
+                logger.debug(f'Transcribed fast-whisper Segments: {seg_list}')
 
                 # Save the transcribed lrc
-                self.to_lrc(segments, name=transcribed_lrc_path, lang=info.language)  # xxx_transcribed.lrc
+                self.to_lrc(seg_list, name=transcribed_lrc_path, lang=info.language)  # xxx_transcribed.lrc
         else:
             logger.info(f'Found transcribed lrc file: {transcribed_lrc_path}')
 
@@ -36,12 +46,14 @@ class LRCer:
         transcribed_optimized_lrc = LRC(transcribed_optimized_path)
 
         with Timer('Translating...'):
-            lrc_name = transcribed_optimized_lrc.translate()  # xxx_transcribed_optimized_translated.lrc
+            lrc_name = transcribed_optimized_lrc.translate(
+                prompter=prompter
+            )  # xxx_transcribed_optimized_translated.lrc
 
         self.post_process(lrc_name, output_lrc_name=change_ext(audio_path, 'lrc'),
                           remove_files=[
                               transcribed_optimized_path,
-                              lrc_name
+                              # lrc_name
                           ])  # xxx.lrc
 
     @staticmethod
