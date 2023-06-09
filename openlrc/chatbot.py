@@ -39,7 +39,7 @@ class GPTBot:
             prompt_price, completion_price = pricing['gpt-3.5']
         elif self.model.startswith('gpt-4-32k'):
             prompt_price, completion_price = pricing['gpt-4-32k']
-        elif self.model.startswith('gpt-4-32k'):
+        elif self.model.startswith('gpt-4'):
             prompt_price, completion_price = pricing['gpt-4']
         else:
             raise ChatBotException('Fail to get fee. Invalid model name.')
@@ -83,8 +83,6 @@ class GPTBot:
     async def _amessage(self, messages):
         """
         Async send messages to the GPT chatbot.
-        :param messages:
-        :return:
         """
         async with openai.aiosession.get(ClientSession()):
             results = await asyncio.gather(*(self._create_achat(message) for message in messages))
