@@ -17,7 +17,7 @@ shell
 This project can be installed from PyPI:
 
 ```shell
-pip install openlyc
+pip install openlrc
 ```
 
 ## Usage
