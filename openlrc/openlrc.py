@@ -52,8 +52,8 @@ class LRCer:
 
         self.post_process(lrc_name, output_lrc_name=change_ext(audio_path, 'lrc'),
                           remove_files=[
-                              transcribed_optimized_path,
-                              lrc_name
+                              transcribed_optimized_path,  # xxx_transcribed_optimized.lrc
+                              lrc_name  # xxx_transcribed_optimized_translated.lrc
                           ])  # xxx.lrc
 
     @staticmethod
