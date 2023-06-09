@@ -13,7 +13,7 @@ enable `faster-whisper`.
 
 Add your [OpenAI API key](https://platform.openai.com/account/api-keys) to environment variable `OPENAI_API_KEY`.
 
-```shell
+shell
 This project can be installed from PyPI:
 
 ```shell
