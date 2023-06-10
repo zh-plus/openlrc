@@ -1,7 +1,7 @@
 # Open-Lyrics
 
-Open-Lyrics is a open-source project to transcribe (
-using [faster-whisper](https://github.com/guillaumekln/faster-whisper)) voice file and
+Open-Lyrics is a python library to transcribe (
+[faster-whisper](https://github.com/guillaumekln/faster-whisper)) voice file and
 translate/polish ([OpenAI-GPT](https://github.com/openai/openai-python)) the text.
 
 **This new project is rapidly underway, and we welcome any issues or pull requests.**
