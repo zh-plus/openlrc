@@ -1,25 +1,21 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
 
-[project]
+[virtualenvs]
+create = true
+in-project = true
+
+[tool.poetry]
 name = "openlrc"
-version = "0.0.4"
+version = "0.0.5"
+description = "Transcribe (whisper) and translate (gpt) voice into LRC file."
+license = "MIT"
 authors = [
-    { name = "Hao Zheng", email = "zhenghaosustc@gmail.com" },
+    "Hao Zheng <zhenghaosustc@gmail.com>"
 ]
-description = "Transcribe and translate voice into LRC file."
 readme = "README.md"
-requires-python = ">=3.8"
-dependencies = [
-    'openai',
-    'faster-whisper',
-    'tiktoken',
-    'langcodes',
-    'language-data',
-    'rich',
-    'tqdm'
-]
+homepage = "https://github.com/zh-plus/Open-Lyrics"
 keywords = [
     'openai-gpt3',
     'whisper',
@@ -33,15 +29,22 @@ classifiers = [
     'License :: OSI Approved :: MIT License',
     "Operating System :: OS Independent",
 ]
-
-[tool.hatch.build]
-exclude = [
-    "test*",
-    "/promotion",
-    "/docs",
-    "/tests",
+include = [
+    { path = 'openlrc' },
+    { path = 'README.md' },
+    { path = 'CHANGELOG.md' },
+    { path = 'LICENSE' }
 ]
 
-[project.urls]
-"Homepage" = "https://github.com/zh-plus/Open-Lyrics"
+[tool.poetry.dependencies]
+python = "^3.8"
+openai = "^0.27.6"
+faster-whisper = "^0.6.0"
+tiktoken = "^0.3.1"
+langcodes = "^3.3.0"
+language-data = "^1.1"
+rich = "^12.6.0"
+tqdm = "^4.65.0"
+
+[tool.poetry.urls]
 "Bug Tracker" = "https://github.com/zh-plus/Open-Lyrics/issues"
