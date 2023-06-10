@@ -1,8 +1,8 @@
 # Open-Lyrics
 
-Open-Lyrics is a python library to transcribe (
-[faster-whisper](https://github.com/guillaumekln/faster-whisper)) voice file and
-translate/polish ([OpenAI-GPT](https://github.com/openai/openai-python)) the text.
+Open-Lyrics is a Python library that transcribes voice files using
+[faster-whisper](https://github.com/guillaumekln/faster-whisper), and translates/polishes the resulting text
+into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/openai/openai-python).
 
 **This new project is rapidly underway, and we welcome any issues or pull requests.**
 
