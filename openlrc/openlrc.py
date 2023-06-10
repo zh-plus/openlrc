@@ -24,7 +24,7 @@ class LRCer:
             with Timer('Transcribing...'):
                 # Temporarily workaround for https://github.com/guillaumekln/faster-whisper/issues/71
                 # TODO: Should remove `temperature=0` to enhance whisper performance after issue fixed
-                segments, info = self.model.transcribe(audio_path, word_timestamps=False, temperature=0)
+                segments, info = self.model.transcribe(audio_path, word_timestamps=False)
 
                 logger.info(f'Length of audio {audio_path}: {LRC.format_timestamp(info.duration)}')
                 logger.info(f'Detected language: {info.language}, with probability: {info.language_probability}')

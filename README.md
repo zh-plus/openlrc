@@ -38,9 +38,8 @@ lrcer('./data/test.mp3', target_lang='zh-cn')  # Generate translated ./data/test
 ## Todo
 
 - [x] Batched translate/polish for GPT request (enable contextual ability).
-- [ ] Concurrent support for both whisper model and GPT request.
-    - [ ] Whisper
-    - [x] GPT
+- [x] Concurrent support for GPT request.
+- [ ] Use [whisperx](https://github.com/m-bain/whisperX) for transcription.
 - [ ] Automatically fix json encoder error using GPT.
 - [ ] Make translate prompt more robust.
 - [ ] Add local LLM support.
