@@ -31,9 +31,6 @@ classifiers = [
 ]
 include = [
     { path = 'openlrc' },
-    { path = 'README.md' },
-    { path = 'CHANGELOG.md' },
-    { path = 'LICENSE' }
 ]
 
 [tool.poetry.dependencies]

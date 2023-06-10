@@ -18,6 +18,7 @@ into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/
     ```shell
     pip install openlrc
     ```
+   
    or install directly from GitHub:
 
     ```shell
