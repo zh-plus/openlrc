@@ -35,8 +35,8 @@ class LRCer:
                     seg_list.append(segment)
                 logger.debug(f'Transcribed fast-whisper Segments: {seg_list}')
 
-                # Save the transcribed lrc
-                self.to_lrc(seg_list, name=transcribed_lrc_path, lang=info.language)  # xxx_transcribed.lrc
+            # Save the transcribed lrc
+            self.to_lrc(seg_list, name=transcribed_lrc_path, lang=info.language)  # xxx_transcribed.lrc
         else:
             logger.info(f'Found transcribed lrc file: {transcribed_lrc_path}')
 

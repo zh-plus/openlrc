@@ -261,7 +261,7 @@ class LRCOptimizer:
 
         for i, element in enumerate(elements):
             if len(element.text) > threshold:
-                logger.warning(f'Cut long text: {element.text}\n Into: {element.text[:keep]}...')
+                logger.warning(f'Cut long text: {element.text}\nInto: {element.text[:keep]}...')
                 elements[i].text = element.text[:keep] + f'(Cut to {keep})'
 
         logger.debug('Cut long text done.')

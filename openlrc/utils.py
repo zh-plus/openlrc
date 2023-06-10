@@ -14,7 +14,7 @@ def json2dict(json_str):
         result = json.loads(json_str)
         return result
     except json.decoder.JSONDecodeError as e:
-        logger.warning(f'Fail to convert into json: \n {json_str}\n')
+        logger.warning(f'Fail to convert into json: \n {json_str}\n Trying to fix...')
 
     # Try to fix the json string, only keep the content from first '{' to last '}'
     fixed_json_str1 = json_str[json_str.find('{'):json_str.rfind('}') + 1]
@@ -24,7 +24,7 @@ def json2dict(json_str):
         result = json.loads(fixed_json_str1)
         return result
     except json.decoder.JSONDecodeError:
-        logger.warning(f'Failed to convert into json: \n {json_str}\n')
+        logger.warning(f'Failed to convert into json: \n {fixed_json_str1}\n Trying to fix...')
 
     # Try to replace chinese "，" with english ","
     fixed_json_str2 = fixed_json_str1.replace('，', ',')
@@ -35,21 +35,34 @@ def json2dict(json_str):
         result = json.loads(fixed_json_str2)
         return result
     except json.decoder.JSONDecodeError:
-        logger.warning(f'Failed to convert into json: \n {fixed_json_str2}\n')
+        logger.warning(f'Failed to convert into json: \n {fixed_json_str2}\n Trying to fix...')
 
     # The content after last found " should be "}]"
     fixed_json_str3 = fixed_json_str2[:fixed_json_str2.rfind('"') + 1] + ']}'
     try:
         result = json.loads(fixed_json_str3)
         return result
-    except json.decoder.JSONDecodeError as e:
-        logger.error(f'Failed to convert returned content into json: \n {fixed_json_str3}\n\n')
+    except json.decoder.JSONDecodeError:
+        logger.warning(f'Failed to convert into json: \n {fixed_json_str3}\n Trying to fix...')
 
+    # Try to ensure the sentence lists between "[]" do not contain extra "
+    start_idx = fixed_json_str3.find('[')
+    sentences = fixed_json_str3[start_idx + 2:-3]  # also remove the first and last "
+    sentences = sentences.split('","')
+    sentences = [sentence.replace('"', '\\"') for sentence in sentences]
+    sentences = '","'.join(sentences)
+    fixed_json_str4 = fixed_json_str3[:start_idx + 2] + sentences + fixed_json_str3[-3:]
+    try:
+        result = json.loads(fixed_json_str4)
+        return result
+    except json.decoder.JSONDecodeError as e:
         # Save the json string to file
         with open('test_return.json', 'w', encoding='utf-8') as f:
-            f.write(fixed_json_str3)
+            f.write(fixed_json_str4)
 
         logger.info(f'The json file is saved to test_return.json')
+
+        logger.error(f'Failed to convert returned content into json: \n {fixed_json_str4}\n\n Fix failed!')
 
         raise e
 
