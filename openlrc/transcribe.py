@@ -82,6 +82,21 @@ class Transcriber:
                 start_idx = max(start_idx, 0)  # ensure start_idx is not out of range
                 end_idx = min(end_idx, len(segment['words']) - 1)  # ensure end_idx is not out of range
 
+                if not segment['words']:
+                    start_word = {
+                        'start': segment['start'],
+                        'end': segment['start'],
+                        'word': segment['text'][0]
+                    }
+                    end_word = {
+                        'start': segment['end'],
+                        'end': segment['end'],
+                        'word': segment['text'][-1]
+                    }
+
+                    pcs_result['sentences'].append({'text': sentence, 'start_word': start_word, 'end_word': end_word})
+                    continue
+
                 # start word and end word should not be punctuation
                 while 'start' not in segment['words'][start_idx]:
                     start_idx += 1
