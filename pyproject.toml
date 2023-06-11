@@ -42,7 +42,7 @@ langcodes = "^3.3.0"
 language-data = "^1.1"
 rich = "^12.6.0"
 tqdm = "^4.65.0"
-librosa = "^0.10.0"
+audioread = "^3.0.0"
 opencc = "^1.1.1"
 
 [tool.poetry.urls]

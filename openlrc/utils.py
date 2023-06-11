@@ -3,7 +3,7 @@ import json
 import time
 from os.path import splitext
 
-import librosa
+import audioread
 import tiktoken
 import torch
 
@@ -71,7 +71,7 @@ def json2dict(json_str):
 
 
 def get_audio_duration(path):
-    format_timestamp(librosa.get_duration(filename=path))
+    format_timestamp(audioread.audio_open(path).duration)
 
 
 def release_memory(model):
