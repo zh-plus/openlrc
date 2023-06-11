@@ -93,7 +93,7 @@ class LRC:
 
         return system_prompt
 
-    def translate(self, prompter=BaseTranslatePrompter(), chunk_size=20, src_lang=None, target_lang='zh-cn',
+    def translate(self, prompter=BaseTranslatePrompter(), chunk_size=30, src_lang=None, target_lang='zh-cn',
                   intercept_line=None, force_translate=False):
         """
         Use GPT-3.5 to translate lyrics.
@@ -261,12 +261,23 @@ class LRCOptimizer:
 
         self.lrc.elements = new_elements
 
+    def remove_unk(self):
+        new_elements = self.lrc.elements
+
+        for i, element in enumerate(new_elements):
+            new_elements[i].text = element.text.replace('<unk>', ' ')
+
+        logger.debug('Remove <unk> done.')
+
+        self.lrc.elements = new_elements
+
     def perform_all(self, t2m=False):
         for _ in range(2):
             self.merge_same_lyrics()
             self.merge_short_lyrics()
             # self.merge_same_words()
             self.cut_long_lyrics()
+            self.remove_unk()
 
             if t2m or self.lrc.lang.lower() == 'zh-cn':
                 self.traditional2mandarin()

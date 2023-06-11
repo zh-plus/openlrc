@@ -21,7 +21,7 @@ class LRCer:
             logger.info(f'Not found transcribed lrc file: {transcribed_lrc_path}')
             with Timer('Transcription process'):
                 logger.info(f'Audio length: {audio_path}: {get_audio_duration(audio_path)}')
-                segments, info = self.transcriber.transcribe(audio_path, batch_size=2)
+                segments, info = self.transcriber.transcribe(audio_path, batch_size=4)
                 logger.info(f'Detected language: {info.language}')
 
                 # From generator to list with progress bar shown
