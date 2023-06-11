@@ -1,3 +1,20 @@
+## 0.0.6
+
+This update greatly improves the quality of transcription (both in time-alignment and text-quality).
+
+#### New Features:
+
+- Use whisperx to improve transcription accuracy.
+- Add Traditional Chinese to Mandarin optimization when `target_lang=zh-cn`.
+
+## 0.0.5
+
+#### New Features:
+
+#### Other Changes:
+
+- Update build tool to poetry.
+
 ## 0.0.4
 
 #### New Features:

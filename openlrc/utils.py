@@ -1,8 +1,11 @@
+import gc
 import json
 import time
 from os.path import splitext
 
+import librosa
 import tiktoken
+import torch
 
 from openlrc.logger import logger
 
@@ -67,6 +70,16 @@ def json2dict(json_str):
         raise e
 
 
+def get_audio_duration(path):
+    format_timestamp(librosa.get_duration(filename=path))
+
+
+def release_memory(model):
+    gc.collect()
+    torch.cuda.empty_cache()
+    del model
+
+
 def get_token_number(text, model="gpt-3.5-turbo"):
     encoder = tiktoken.encoding_for_model(model)
 
@@ -111,3 +124,22 @@ class Timer:
 
     def __exit__(self, *args):
         self.stop()
+
+
+def parse_timestamp(time_stamp):
+    minutes, seconds = time_stamp.split(':')
+    seconds, milliseconds = seconds.split('.')
+    return int(minutes) * 60 + int(seconds) + int(milliseconds) / 1000.0
+
+
+def format_timestamp(seconds: float):
+    assert seconds >= 0, "non-negative timestamp expected"
+    milliseconds = round(seconds * 1000.0)
+
+    minutes = milliseconds // 60_000
+    milliseconds -= minutes * 60_000
+
+    seconds = milliseconds // 1_000
+    milliseconds -= seconds * 1_000
+
+    return f"{minutes:02d}:{seconds:02d}.{milliseconds:02d}"

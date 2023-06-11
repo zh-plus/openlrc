@@ -8,7 +8,7 @@ in-project = true
 
 [tool.poetry]
 name = "openlrc"
-version = "0.0.5"
+version = "0.0.6"
 description = "Transcribe (whisper) and translate (gpt) voice into LRC file."
 license = "MIT"
 authors = [
@@ -42,6 +42,9 @@ langcodes = "^3.3.0"
 language-data = "^1.1"
 rich = "^12.6.0"
 tqdm = "^4.65.0"
+librosa = "^0.10.0"
+opencc = "^1.1.1"
+whisperx = { git = "https://github.com/m-bain/whisperx.git" }
 
 [tool.poetry.urls]
 "Bug Tracker" = "https://github.com/zh-plus/Open-Lyrics/issues"
