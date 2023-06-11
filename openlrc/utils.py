@@ -40,7 +40,7 @@ def json2dict(json_str):
     except json.decoder.JSONDecodeError:
         logger.warning(f'Failed to convert into json: \n {fixed_json_str2}\n Trying to fix...')
 
-    # The content after last found " should be "}]"
+    # The content after last found " should be "]}"
     fixed_json_str3 = fixed_json_str2[:fixed_json_str2.rfind('"') + 1] + ']}'
     try:
         result = json.loads(fixed_json_str3)
@@ -58,14 +58,30 @@ def json2dict(json_str):
     try:
         result = json.loads(fixed_json_str4)
         return result
-    except json.decoder.JSONDecodeError as e:
+    except json.decoder.JSONDecodeError:
+        logger.warning(f'Failed to convert returned content into json: \n {fixed_json_str4}\n\n Fix failed!')
+
+    # Use order-label to reconstruct json-string
+    left_str = '"total_number":'
+    right_str = ','
+    total_number_str = fixed_json_str3[fixed_json_str3.find(left_str) + len(left_str): fixed_json_str3.find(right_str)]
+    try:
+        total_number = int(total_number_str)
+        new_list = []
+        for i in range(1, total_number + 1):
+            split_pattern = '", "' if i != total_number else '"]}'
+            start = fixed_json_str3.find(f'{i}-')
+            content = fixed_json_str3[start + len(f'{i}-'): fixed_json_str3.find(split_pattern, start)]
+            new_list.append(f'{i}-{content}')
+        return {"total_number": total_number, "sentences": new_list}
+    except ValueError:
+        logger.warning(f'Failed to convert number: {total_number_str}')
+    except Exception as e:
         # Save the json string to file
         with open('test_return.json', 'w', encoding='utf-8') as f:
             f.write(fixed_json_str4)
 
         logger.info(f'The json file is saved to test_return.json')
-
-        logger.error(f'Failed to convert returned content into json: \n {fixed_json_str4}\n\n Fix failed!')
 
         raise e
 
