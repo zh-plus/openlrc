@@ -44,7 +44,6 @@ rich = "^12.6.0"
 tqdm = "^4.65.0"
 librosa = "^0.10.0"
 opencc = "^1.1.1"
-whisperx = { git = "https://github.com/m-bain/whisperx.git" }
 
 [tool.poetry.urls]
 "Bug Tracker" = "https://github.com/zh-plus/Open-Lyrics/issues"
