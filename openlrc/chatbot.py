@@ -98,14 +98,15 @@ class GPTBot:
 
         # Calculate the total sending token number and approximated billing fee.
         token_numbers = [get_token_number(message + self.system_prompt) for message in messages]
-
+        logger.info(f'Max token num: {max(token_numbers):.0f}, '
+                    f'Avg token num: {sum(token_numbers) / len(token_numbers):.0f}')
         # if any of token number exceeds the limit, raise an exception.
         if any(token_number > 2048 for token_number in token_numbers):
             raise ChatBotException(f'Token number {max(token_numbers)} exceeds the limit.')
 
         # if the approximated billing fee exceeds the limit, raise an exception.
         approximated_fee = self.get_fee(messages)
-        logger.info(f'Approximated billing fee: {approximated_fee} US$')
+        logger.info(f'Approximated billing fee: {approximated_fee:.4f} US$')
         if approximated_fee > self.fee_limit:
             raise ChatBotException(f'Approximated billing fee {approximated_fee} '
                                    f'exceeds the limit: {self.fee_limit}$.')
