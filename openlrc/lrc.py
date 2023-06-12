@@ -6,11 +6,8 @@ from typing import List, Union
 import opencc
 from langcodes import Language
 
-from openlrc.chatbot import GPTBot
-from openlrc.exceptions import SameLanguageException
 from openlrc.logger import logger
-from openlrc.prompter import BaseTranslatePrompter, format_texts
-from openlrc.utils import extend_filename, json2dict, parse_timestamp, format_timestamp
+from openlrc.utils import extend_filename, parse_timestamp, format_timestamp
 
 
 @dataclass
@@ -37,7 +34,7 @@ class LRC:
 
     def __init__(self, lrc_name=None):
         self.lrc_name = lrc_name
-        self.lang = self.get_lang(lrc_name)
+        self.lang = self.get_lrc_lang(lrc_name)
         self.elements: List[LRCElement] = []
 
         if lrc_name:
@@ -93,73 +90,18 @@ class LRC:
 
         return system_prompt
 
-    def translate(self, prompter=BaseTranslatePrompter(), chunk_size=30, src_lang=None, target_lang='zh-cn',
-                  fee_limit=0.1, intercept_line=None, force_translate=False):
-        """
-        Use GPT-3.5 to translate lyrics.
-        TODO: dynamically adjust the chunk size.
-        :param prompter: Translate prompter.
-        :param chunk_size: Use smaller chunk size to avoid exceeding the token limit & output complete message.
-        :param src_lang: Source language.
-        :param target_lang: Target language.
-        :param fee_limit: Fee limit (USD) for OpenAI API.
-        :param intercept_line: Intercepted lyrics line number.
-        :param force_translate: Force translation even if the source language is the same as the target language.
-        :return: The translated lrc file path.
-        """
-        if not force_translate and \
-                Language.get(self.lang if not src_lang else src_lang).language_name() \
-                == Language.get(target_lang).language_name():
-            raise SameLanguageException()
+    def get_texts(self):
+        return [e.text for e in self.elements]
 
-        # Resulted json content
-        json_content = {'total_number': 0, 'list': []}
+    def set_texts(self, texts):
+        # Check length
+        assert len(texts) == len(self.elements)
 
-        system_prompt = self.get_system_prompt(src_lang, target_lang, prompter)
-        translate_bot = GPTBot(system_prompt=system_prompt, fee_limit=fee_limit)
-
-        lyrics = [element.text for element in self.elements[:intercept_line]]
-        # Split lyrics into different chunks
-        chunks = [lyrics[i:i + chunk_size] for i in range(0, len(lyrics), chunk_size)]
-        user_prompts = [format_texts(chunk) for chunk in chunks]  # Format the chunks into a single string
-
-        logger.info(f'Translating {len(user_prompts)} user_prompts of lyrics with async call.')
-
-        # Start translate
-        responses = translate_bot.message(user_prompts)
-        for i, response in enumerate(responses):
-            content = response.choices[0].message.content
-            logger.debug(f'Target content - chunk{i}: {content}')
-
-            chunk_json_content = json2dict(content)
-            logger.debug(f'Length of the translated chunk: {len(chunk_json_content["list"])}')
-
-            chunk_size = len(chunks[i])
-            # Helping OpenAI clean up their mess.
-            if len(chunk_json_content['list']) < chunk_size:
-                logger.warning('The number of translated sentences is less than that of the original list. '
-                               'Add <MANUALLY-ADDED> label')
-                chunk_json_content['list'] += ['<MANUALLY-ADDED>'] * (chunk_size - len(chunk_json_content['list']))
-            elif len(chunk_json_content['list']) > chunk_size:
-                logger.warning('The number of translated sentences is more than that of the original list. Truncated')
-                chunk_json_content['list'] = chunk_json_content['list'][:chunk_size]
-
-            json_content['total_number'] += chunk_json_content['total_number']
-            json_content['list'] += chunk_json_content['list']
-
-        # Remove the order number at the front of each sentence
-        for i, text in enumerate(json_content['list']):
-            json_content['list'][i] = text[text.find('-') + 1:]
-
-        # Replace the original lyrics with the translated lyrics
-        for i in range(len(self.elements)):
-            self.elements[i].text = json_content['list'][i]
-        self.lang = target_lang
-
-        return self.save_lrc(extend_filename(self.lrc_name, '_translated'))
+        for i, text in enumerate(texts):
+            self.elements[i].text = text
 
     @staticmethod
-    def get_lang(lrc_name):
+    def get_lrc_lang(lrc_name):
         with open(lrc_name, 'r', encoding='utf-8') as f:
             first_line = f.readline()
 

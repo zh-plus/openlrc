@@ -2,21 +2,25 @@ import os
 
 from openlrc.logger import logger
 from openlrc.lrc import LRC, LRCOptimizer
-from openlrc.prompter import prompter_map
 from openlrc.transcribe import Transcriber
+from openlrc.translate import Translator
 from openlrc.utils import Timer, change_ext, extend_filename, get_audio_duration, format_timestamp
 
 
 class LRCer:
+    """
+    :ivar model_name: Name of whisper model (tiny, tiny.en, base, base.en, small, small.en, medium,
+                    medium.en, large-v1, or large-v2) When a size is configured, the converted model is downloaded
+                    from the Hugging Face Hub.
+                    Default: ``large-v2``
+    :ivar fee_limit: The maximum fee you are willing to pay for translation. Default: ``0.1``
+    """
+
     def __init__(self, model_name='large-v2', fee_limit=0.1):
         self.transcriber = Transcriber(model_name=model_name)
         self.fee_limit = fee_limit
 
     def __call__(self, audio_path, target_lang='zh-cn', prompter='base_trans'):
-        if prompter not in prompter_map:
-            raise ValueError(f'Prompter {prompter} not found.')
-        prompter = prompter_map[prompter]()  # Initialize appropriate prompter
-
         transcribed_lrc_path = change_ext(extend_filename(audio_path, '_transcribed'), 'lrc')
         if not os.path.exists(transcribed_lrc_path):
             logger.info(f'Not found transcribed lrc file: {transcribed_lrc_path}')
@@ -34,20 +38,24 @@ class LRCer:
         else:
             logger.info(f'Found transcribed lrc file: {transcribed_lrc_path}')
 
-        transcribed_optimized_path = self.post_process(transcribed_lrc_path)  # xxx_transcribed_optimized.lrc
+        transcribed_opt_path = self.post_process(transcribed_lrc_path)  # xxx_transcribed_optimized.lrc
 
         # Translate the transcribed lrc
-        transcribed_optimized_lrc = LRC(transcribed_optimized_path)
+        transcribed_opt_lrc = LRC(transcribed_opt_path)
+
+        translator = Translator(prompter=prompter, fee_limit=self.fee_limit)
 
         with Timer('Translating...'):
-            lrc_name = transcribed_optimized_lrc.translate(
-                prompter=prompter, target_lang=target_lang, fee_limit=self.fee_limit
-            )  # xxx_transcribed_optimized_translated.lrc
+            target_texts = translator.translate(transcribed_opt_lrc.get_texts(),
+                                                src_lang=transcribed_opt_lrc.lang, target_lang=target_lang)
+        transcribed_opt_lrc.set_texts(target_texts)
+        translated_path = extend_filename(transcribed_opt_path, '_translated')
+        transcribed_opt_lrc.save_lrc(translated_path)
 
-        self.post_process(lrc_name, output_lrc_name=change_ext(audio_path, 'lrc'), t2m=target_lang == 'zh-cn',
+        self.post_process(translated_path, output_lrc_name=change_ext(audio_path, 'lrc'), t2m=target_lang == 'zh-cn',
                           remove_files=[
-                              transcribed_optimized_path,  # xxx_transcribed_optimized.lrc
-                              lrc_name  # xxx_transcribed_optimized_translated.lrc
+                              transcribed_opt_path,  # xxx_transcribed_optimized.lrc
+                              translated_path  # xxx_transcribed_optimized_translated.lrc
                           ])  # xxx.lrc
 
     @staticmethod

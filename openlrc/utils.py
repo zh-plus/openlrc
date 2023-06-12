@@ -87,7 +87,7 @@ def json2dict(json_str):
 
 
 def get_audio_duration(path):
-    format_timestamp(audioread.audio_open(path).duration)
+    return format_timestamp(audioread.audio_open(path).duration)
 
 
 def release_memory(model):

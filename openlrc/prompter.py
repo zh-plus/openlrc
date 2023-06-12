@@ -16,6 +16,29 @@ class BaseTranslatePrompter:
 'Even if only one sentence is translated, please maintain the output format. Dont add any other words.
 'Use '<' and '>' to replace the double quote in the translated sentences.'''
 
+    @classmethod
+    def format_texts(cls, texts):
+        return f'{{"total_number": {len(texts)}, "list": {cls.list2str(texts)}}}'
+
+    @staticmethod
+    def list2str(texts):
+        """
+        To fit the prompter format, add order number to each sentence and use double quota to wrap each element in the list.
+        """
+
+        text = [f'"{i}-{str(text)}"' for i, text in enumerate(texts, start=1)]
+        return f"[{', '.join(text)}]"
+
+    @staticmethod
+    def post_process(texts):
+        """
+        Remove the order number at the front of each sentence
+        """
+        for i, text in enumerate(texts):
+            texts[i] = text[text.find('-') + 1:]
+
+        return texts
+
 
 class LovelyPrompter(BaseTranslatePrompter):
     def __str__(self):
@@ -26,16 +49,3 @@ prompter_map = {
     'base_trans': BaseTranslatePrompter,
     'lovely_trans': LovelyPrompter
 }
-
-
-def format_texts(texts):
-    return f'{{"total_number": {len(texts)}, "list": {list2str(texts)}}}'
-
-
-def list2str(texts):
-    """
-    To fit the prompter format, add order number to each sentence and use double quota to wrap each element in the list.
-    """
-
-    text = [f'"{i}-{str(text)}"' for i, text in enumerate(texts, start=1)]
-    return f"[{', '.join(text)}]"
