@@ -52,7 +52,12 @@ class LRCer:
         translated_path = extend_filename(transcribed_opt_path, '_translated')
         transcribed_opt_lrc.save_lrc(translated_path)
 
-        self.post_process(translated_path, output_lrc_name=change_ext(audio_path, 'lrc'), t2m=target_lang == 'zh-cn',
+        if prompter.endswith('v2'):
+            output_lrc_name = change_ext(extend_filename(audio_path, '_v2'), 'lrc')
+        else:
+            output_lrc_name = change_ext(audio_path, 'lrc')
+
+        self.post_process(translated_path, output_lrc_name=output_lrc_name, t2m=target_lang == 'zh-cn',
                           remove_files=[
                               transcribed_opt_path,  # xxx_transcribed_optimized.lrc
                               translated_path  # xxx_transcribed_optimized_translated.lrc
