@@ -94,7 +94,7 @@ class LRC:
         return system_prompt
 
     def translate(self, prompter=BaseTranslatePrompter(), chunk_size=30, src_lang=None, target_lang='zh-cn',
-                  intercept_line=None, force_translate=False):
+                  fee_limit=0.1, intercept_line=None, force_translate=False):
         """
         Use GPT-3.5 to translate lyrics.
         TODO: dynamically adjust the chunk size.
@@ -102,6 +102,7 @@ class LRC:
         :param chunk_size: Use smaller chunk size to avoid exceeding the token limit & output complete message.
         :param src_lang: Source language.
         :param target_lang: Target language.
+        :param fee_limit: Fee limit (USD) for OpenAI API.
         :param intercept_line: Intercepted lyrics line number.
         :param force_translate: Force translation even if the source language is the same as the target language.
         :return: The translated lrc file path.
@@ -115,7 +116,7 @@ class LRC:
         json_content = {'total_number': 0, 'list': []}
 
         system_prompt = self.get_system_prompt(src_lang, target_lang, prompter)
-        translate_bot = GPTBot(system_prompt=system_prompt)
+        translate_bot = GPTBot(system_prompt=system_prompt, fee_limit=fee_limit)
 
         lyrics = [element.text for element in self.elements[:intercept_line]]
         # Split lyrics into different chunks

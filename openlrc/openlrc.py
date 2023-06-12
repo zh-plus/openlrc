@@ -8,8 +8,9 @@ from openlrc.utils import Timer, change_ext, extend_filename, get_audio_duration
 
 
 class LRCer:
-    def __init__(self, model_name='large-v2'):
+    def __init__(self, model_name='large-v2', fee_limit=0.1):
         self.transcriber = Transcriber(model_name=model_name)
+        self.fee_limit = fee_limit
 
     def __call__(self, audio_path, target_lang='zh-cn', prompter='base_trans'):
         if prompter not in prompter_map:
@@ -40,7 +41,7 @@ class LRCer:
 
         with Timer('Translating...'):
             lrc_name = transcribed_optimized_lrc.translate(
-                prompter=prompter, target_lang=target_lang
+                prompter=prompter, target_lang=target_lang, fee_limit=self.fee_limit
             )  # xxx_transcribed_optimized_translated.lrc
 
         self.post_process(lrc_name, output_lrc_name=change_ext(audio_path, 'lrc'), t2m=target_lang == 'zh-cn',
