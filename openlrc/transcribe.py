@@ -60,7 +60,7 @@ class Transcriber:
 
         pcs_result = {'sentences': []}
         for segment, sentences in zip(transcribe_result['segments'], sentences_list):
-
+            last_end_idx = 0
             for sentence in sentences:
                 sentence = sentence.lower()
                 stc_split = re.split(f'[{punctuations}]|<unk>', sentence)
@@ -76,11 +76,14 @@ class Transcriber:
                 assert stc_split[0] in segment['text'], f'First split: {stc_split[0]} not in {segment["text"]}'
                 assert stc_split[-1] in segment['text'], f'Last split: {stc_split[-1]} not in {segment["text"]}'
 
-                start_idx = segment['text'].find(stc_split[0])
-                end_idx = segment['text'].rfind(stc_split[-1]) + len(stc_split[-1]) - 1
+                start_idx = segment['text'].find(stc_split[0], last_end_idx)
+                start_find = last_end_idx + len(''.join(stc_split[:-1]))
+                end_idx = segment['text'].rfind(stc_split[-1], start_find) + len(stc_split[-1]) - 1
 
                 start_idx = max(start_idx, 0)  # ensure start_idx is not out of range
                 end_idx = min(end_idx, len(segment['words']) - 1)  # ensure end_idx is not out of range
+
+                last_end_idx = end_idx
 
                 if not segment['words']:
                     start_word = {
