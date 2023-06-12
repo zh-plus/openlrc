@@ -214,6 +214,11 @@ class LRCOptimizer:
 
         self.lrc.elements = new_elements
 
+    def remove_empty(self):
+        self.lrc.elements = [element for element in self.lrc.elements if element.text]
+
+        logger.debug('Remove empty done.')
+
     def perform_all(self, t2m=False):
         for _ in range(2):
             self.merge_same_lyrics()
@@ -221,6 +226,7 @@ class LRCOptimizer:
             # self.merge_same_words()
             self.cut_long_lyrics()
             self.remove_unk()
+            self.remove_empty()
 
             if t2m or self.lrc.lang.lower() == 'zh-cn':
                 self.traditional2mandarin()

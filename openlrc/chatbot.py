@@ -101,7 +101,7 @@ class GPTBot:
         logger.info(f'Max token num: {max(token_numbers):.0f}, '
                     f'Avg token num: {sum(token_numbers) / len(token_numbers):.0f}')
         # if any of token number exceeds the limit, raise an exception.
-        if any(token_number > 2048 for token_number in token_numbers):
+        if any(token_number > 3072 for token_number in token_numbers):
             raise ChatBotException(f'Token number {max(token_numbers)} exceeds the limit.')
 
         # if the approximated billing fee exceeds the limit, raise an exception.

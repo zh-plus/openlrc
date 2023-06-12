@@ -73,7 +73,7 @@ def json2dict(json_str):
             start = fixed_json_str3.find(f'{i}-')
             content = fixed_json_str3[start + len(f'{i}-'): fixed_json_str3.find(split_pattern, start)]
             new_list.append(f'{i}-{content}')
-        return {"total_number": total_number, "sentences": new_list}
+        return {"total_number": total_number, "list": new_list}
     except ValueError:
         logger.warning(f'Failed to convert number: {total_number_str}')
     except Exception as e:

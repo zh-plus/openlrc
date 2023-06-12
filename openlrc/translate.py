@@ -10,7 +10,7 @@ from openlrc.utils import json2dict
 
 
 class Translator:
-    def __init__(self, prompter: Union[str, Type[BaseTranslatePrompter]] = BaseTranslatePrompter(), chunk_size=30,
+    def __init__(self, prompter: Union[str, Type[BaseTranslatePrompter]] = BaseTranslatePrompter(), chunk_size=40,
                  fee_limit=0.1, intercept_line=None, force_translate=False):
         """
         :param prompter: Translate prompter.
@@ -42,6 +42,19 @@ class Translator:
 
         return system_prompt
 
+    def _make_chunks(self, texts):
+        chunks = [texts[i:i + self.chunk_size] for i in range(0, len(texts), self.chunk_size)]
+
+        if len(chunks) > 1 and len(chunks[-1]) <= self.chunk_size / 2:
+            # Merge the last two chunks if the last chunk is too small
+            last_two = chunks[-2] + chunks[-1]
+
+            # Split the merged into 2 equally sized chunks
+            chunks[-2] = last_two[:len(last_two) // 2]
+            chunks[-1] = last_two[len(last_two) // 2:]
+
+        return chunks
+
     def translate(self, texts, src_lang, target_lang):
         """
         Use GPT-3.5 to translate texts.
@@ -59,7 +72,8 @@ class Translator:
         translate_bot = GPTBot(system_prompt=system_prompt, fee_limit=self.fee_limit)
 
         # Split texts into different chunks
-        chunks = [texts[i:i + self.chunk_size] for i in range(0, len(texts), self.chunk_size)]
+        chunks = self._make_chunks(texts)
+
         user_prompts = [self.prompter.format_texts(chunk) for chunk in chunks]  # Format the chunks into a single string
 
         logger.info(f'Translating {len(user_prompts)} user_prompts of source texts with async call.')
@@ -76,9 +90,9 @@ class Translator:
             chunk_size = len(chunks[i])
             # Helping OpenAI clean up their mess.
             if len(chunk_json_content['list']) < chunk_size:
-                logger.warning('The number of translated sentences is less than that of the original list. '
-                               'Add <MANUALLY-ADDED> label')
-                chunk_json_content['list'] += ['<MANUALLY-ADDED>'] * (chunk_size - len(chunk_json_content['list']))
+                logger.warning(f'The number of translated sentences is less than that of the original list. '
+                               f'Add {chunk_size - len(chunk_json_content["list"])} <MANUALLY-ADDED> label')
+                chunk_json_content['list'] += [' '] * (chunk_size - len(chunk_json_content['list']))
             elif len(chunk_json_content['list']) > chunk_size:
                 logger.warning('The number of translated sentences is more than that of the original list. Truncated')
                 chunk_json_content['list'] = chunk_json_content['list'][:chunk_size]
