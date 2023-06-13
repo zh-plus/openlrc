@@ -69,7 +69,7 @@ class Translator:
             raise SameLanguageException()
 
         system_prompt = self._get_system_prompt(src_lang, target_lang)
-        translate_bot = GPTBot(system_prompt=system_prompt, fee_limit=self.fee_limit)
+        translate_bot = GPTBot(fee_limit=self.fee_limit)
 
         # Split texts into different chunks
         chunks = self._make_chunks(texts)
@@ -78,7 +78,12 @@ class Translator:
 
         logger.info(f'Translating {len(user_prompts)} user_prompts of source texts with async call.')
 
-        responses = translate_bot.message(user_prompts)
+        messages = [
+            [{'role': 'system', 'content': system_prompt},
+             {'role': 'user', 'content': user_prompt}] for user_prompt in user_prompts
+        ]
+
+        responses = translate_bot.message(messages)
         results = []
         for i, response in enumerate(responses):
             content = response.choices[0].message.content

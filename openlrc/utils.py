@@ -96,10 +96,16 @@ def release_memory(model):
     del model
 
 
-def get_token_number(text, model="gpt-3.5-turbo"):
+def get_text_token_number(text, model="gpt-3.5-turbo"):
     encoder = tiktoken.encoding_for_model(model)
 
     return len(encoder.encode(text))
+
+
+def get_messages_token_number(messages, model="gpt-3.5-turbo"):
+    total = sum([get_text_token_number(element['content'], model=model) for element in messages])
+
+    return total
 
 
 def change_ext(filename, ext):
