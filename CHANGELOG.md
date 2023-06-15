@@ -4,12 +4,12 @@ This update significantly improves translation quality, but at the cost of slowe
 
 #### New Features:
 
+- Use multi-step prompt for translation.
 - Update the default model to `gpt-3.5-turbo-16k`.
 - Automatically fix json encoder error using GPT.
 
 #### Other Changes:
 
-- Use multi-step prompt to translate.
 - Calculate the accurate price for OpenAI API requests.
 
 ## 0.0.6
