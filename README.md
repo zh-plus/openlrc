@@ -42,15 +42,16 @@ lrcer('./data/test.mp3', target_lang='zh-cn')  # Generate translated ./data/test
 
 ## Todo
 
-- [x] Batched translate/polish for GPT request (enable contextual ability).
-- [x] Concurrent support for GPT request.
-- [x] Use [whisperx](https://github.com/m-bain/whisperX) for transcription.
-- [x] Make translate prompt more robust according to https://github.com/openai/openai-cookbook.
-- [x] Automatically fix json encoder error using GPT.
-- [ ] Multiple output format support.
-- [ ] Add Azure OpenAI Service support.
-- [ ] Add local LLM support.
-- [ ] Add transcribed examples.
+- [x] [Efficiency] Batched translate/polish for GPT request (enable contextual ability).
+- [x] [Efficiency] Concurrent support for GPT request.
+- [x] [Efficiency & Transcription Quality] Use [whisperx](https://github.com/m-bain/whisperX) for transcription.
+- [x] [Translation Quality] Make translate prompt more robust according to https://github.com/openai/openai-cookbook.
+- [x] [Usability] Automatically fix json encoder error using GPT.
+- [ ] [Efficiency] Asynchronously perform transcription and translation for multiple audio inputs.
+- [ ] [Usability] Multiple output format support.
+- [ ] [Efficiency] Add Azure OpenAI Service support.
+- [ ] [Usability] Add local LLM support.
+- [ ] [Others] Add transcribed examples.
     - [ ] Song
     - [ ] Podcast
     - [ ] Audiobook
