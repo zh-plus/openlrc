@@ -1,10 +1,12 @@
+import json
 import os
 
 from openlrc.logger import logger
-from openlrc.lrc import LRC, LRCOptimizer
+from openlrc.opt import SubtitleOptimizer
+from openlrc.subtitle import Subtitle
 from openlrc.transcribe import Transcriber
 from openlrc.translate import Translator
-from openlrc.utils import Timer, change_ext, extend_filename, get_audio_duration, format_timestamp
+from openlrc.utils import Timer, change_ext, extend_filename, get_audio_duration
 
 
 class LRCer:
@@ -20,10 +22,9 @@ class LRCer:
         self.transcriber = Transcriber(model_name=model_name)
         self.fee_limit = fee_limit
 
-    def __call__(self, audio_path, target_lang='zh-cn', prompter='base_trans'):
-        transcribed_lrc_path = change_ext(extend_filename(audio_path, '_transcribed'), 'lrc')
-        if not os.path.exists(transcribed_lrc_path):
-            logger.info(f'Not found transcribed lrc file: {transcribed_lrc_path}')
+    def __call__(self, audio_path, target_lang='zh-cn', prompter='base_trans', audio_type='Anime'):
+        transcribed_path = change_ext(extend_filename(audio_path, '_transcribed'), 'json')
+        if not os.path.exists(transcribed_path):
             with Timer('Transcription process'):
                 logger.info(f'Audio length: {audio_path}: {get_audio_duration(audio_path)}')
                 segments, info = self.transcriber.transcribe(audio_path, batch_size=4)
@@ -33,63 +34,81 @@ class LRCer:
                 seg_list = segments['sentences']  # [{'text': ..., 'start_word': ..., 'end_word':...}, ...]
                 logger.debug(f'Transcribed fast-whisper Segments: {seg_list}')
 
-            # Save the transcribed lrc
-            self.to_lrc(seg_list, name=transcribed_lrc_path, lang=info.language)  # xxx_transcribed.lrc
+            # Save the transcribed json
+            self.to_json(seg_list, name=transcribed_path, lang=info.language)  # xxx_transcribed.json
         else:
-            logger.info(f'Found transcribed lrc file: {transcribed_lrc_path}')
+            logger.info(f'Found transcribed json file: {transcribed_path}')
 
-        transcribed_opt_path = self.post_process(transcribed_lrc_path)  # xxx_transcribed_optimized.lrc
+        transcribed_sub = Subtitle(transcribed_path)
+        transcribed_opt_sub = self.post_process(transcribed_sub, update_name=True)  # xxx_transcribed_optimized.json
 
-        # Translate the transcribed lrc
-        transcribed_opt_lrc = LRC(transcribed_opt_path)
+        # xxx_transcribed_optimized_translated.json
+        translated_path = extend_filename(transcribed_opt_sub.filename, '_translated')
+        if not os.path.exists(translated_path):
+            # Translate the transcribed json
+            translator = Translator(prompter=prompter, fee_limit=self.fee_limit)
 
-        translator = Translator(prompter=prompter, fee_limit=self.fee_limit)
+            with Timer('Translating...'):
+                try:
+                    target_texts = translator.translate(transcribed_opt_sub.get_texts(),
+                                                        src_lang=transcribed_opt_sub.lang,
+                                                        target_lang=target_lang,
+                                                        audio_type=audio_type)
+                except Exception as e:
+                    logger.error(f'Failed to translate: {transcribed_opt_sub}')
+                    raise e
 
-        with Timer('Translating...'):
-            target_texts = translator.translate(transcribed_opt_lrc.get_texts(),
-                                                src_lang=transcribed_opt_lrc.lang, target_lang=target_lang)
-        transcribed_opt_lrc.set_texts(target_texts)
-        translated_path = extend_filename(transcribed_opt_path, '_translated')
-        transcribed_opt_lrc.save_lrc(translated_path)
+                transcribed_opt_sub.set_texts(target_texts)
+
+                # xxx_transcribed_optimized_translated.json
+                transcribed_opt_sub.save(translated_path, update_name=True)
+        else:
+            logger.info(f'Found transcribed json file: {translated_path}')
+
+        translated_sub = Subtitle(translated_path)
 
         if prompter.endswith('v2'):
-            output_lrc_name = change_ext(extend_filename(audio_path, '_v2'), 'lrc')
+            output_filename = change_ext(extend_filename(audio_path, '_v2'), 'json')
         else:
-            output_lrc_name = change_ext(audio_path, 'lrc')
+            output_filename = change_ext(audio_path, 'json')
 
-        self.post_process(translated_path, output_lrc_name=output_lrc_name, t2m=target_lang == 'zh-cn',
-                          remove_files=[
-                              transcribed_opt_path,  # xxx_transcribed_optimized.lrc
-                              translated_path  # xxx_transcribed_optimized_translated.lrc
-                          ])  # xxx.lrc
+        final_subtitle = self.post_process(translated_sub, output_name=output_filename, t2m=target_lang == 'zh-cn',
+                                           remove_files=[
+                                               transcribed_opt_sub.filename,  # xxx_transcribed_optimized.json
+                                           ], update_name=True)  # xxx.json
+        final_subtitle.to_lrc()  # xxx.lrc
 
     @staticmethod
-    def to_lrc(segments, name, lang):
-        """
-        Convert the segments into lrc format.
-        """
-        with open(name, 'w', encoding='utf-8') as f:
-            print(f'LRC generated by https://github.com/zh-plus/Open-Lyrics, lang={lang}', file=f, flush=True)
-            for i, segment in enumerate(segments):
-                print(
-                    f'[{format_timestamp(segment["start_word"]["start"])}] {segment["text"]}',
-                    file=f,
-                    flush=True,
-                )
+    def to_json(segments, name, lang):
+        result = {
+            'generator': 'LRC generated by https://github.com/zh-plus/Open-Lyrics',
+            'language': lang,
+            'segments': []
+        }
 
-                print(f'[{format_timestamp(segment["end_word"]["end"])}]', file=f, flush=True)
+        for segment in segments:
+            result['segments'].append({
+                'start': segment["start_word"]["start"],
+                'end': segment["end_word"]["end"],
+                'text': segment["text"]
+            })
+
+        with open(name, 'w', encoding='utf-8') as f:
+            json.dump(result, f, ensure_ascii=False, indent=4)
 
         logger.info(f'File saved to {name}')
 
+        return result
+
     @staticmethod
-    def post_process(lrc_name, output_lrc_name=None, remove_files=None, t2m=False):
-        lrc_optimizer = LRCOptimizer(lrc_name)
-        lrc_optimizer.perform_all(t2m=t2m)
-        optimized_name = lrc_optimizer.save(output_lrc_name=output_lrc_name)
+    def post_process(transcribed_sub, output_name=None, remove_files=None, t2m=False, update_name=False):
+        optimizer = SubtitleOptimizer(transcribed_sub)
+        optimizer.perform_all(t2m=t2m)
+        optimizer.save(output_name, update_name=update_name)
 
         # Remove intermediate files
         if remove_files:
             for file in remove_files:
                 os.remove(file)
 
-        return optimized_name
+        return optimizer.subtitle

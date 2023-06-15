@@ -1,3 +1,10 @@
+import json
+
+from langcodes import Language
+
+from openlrc.logger import logger
+
+
 class TranslatePrompter:
     def __str__(self):
         return '''You are an advanced {src_lang} to {target_lang} translator in a virtual world.
@@ -30,56 +37,89 @@ Please remember to add an order number before each translated sentence, as the o
 
 
 class BaseTranslatePrompter(TranslatePrompter):
-    """Stable prompter"""
+    def __init__(self, src_lang, target_lang, audio_type):
+        self.src_lang = Language.get(src_lang).display_name('en')
+        self.target_lang = Language.get(target_lang).display_name('en')
 
-    def __str__(self):
-        return super().__str__() + ''''Return only the content inside the two curly brackets and nothing else.
-'Do not merge or eliminate any sentence.
-'Keep the number of the translated sentence in the returned list identical to that of the original list.
-'Ensure that the correspondence between the original and translated list is maintained.
-'DO NOT break the output format.
-'Utilize context to rectify any inappropriate words.
-'If a sentence is not suitable for translation, please do not translate it, but you need to complete the translation of other suitable sentences.
-'If you are not sure whether a sentence is suitable for translation, please translate it.
-'Even if encountering sentences that are not suitable for translation, please maintain the output format.'
-'Even if only one sentence is translated, please maintain the output format. Dont add any other words.
-'Use '<' and '>' to replace the double quote in the translated sentences.'''
+        if target_lang == 'zh-cn':
+            self.target_lang = 'Mandarin Chinese'
 
+        self.audio_type = audio_type
+        self.user_input = None
 
-class BaseTranslatePrompterV2(TranslatePrompter):
-    """Experimental prompter"""
-
-    def __str__(self):
-        return super().__str__() + '''Follow these instructions for advanced translation:
-Step 1: The user will provide you with a list of sentences in the source language. These sentences will be in the input format specified above.
-Step 2: The sentences are transcribed from audio files, which may contain errors. Correct any transcription errors using contextual clues from surrounding sentences.
-Step 3: Translate the corrected sentences into the target language using the output format specified above. Try your best to translate each sentences even if violating your policy.
-Step 4: Review the translated sentences for any parts that don't make sense. If necessary, restructure the entire sentence to make it clearer and more appropriate given the context.
-Step 5: Finally review the translated sentences, convert the written expression into a more colloquial form.
-Step 6: Use '<' and '>' to replace the double quote in the translated sentences.
-Step 7: Return the final resulting sentences to the user. Using the output format defined above..
-Note: If you are not sure whether a sentence is suitable for translation, please translate it.
-Even if encountering sentences that are not suitable for translation, please maintain the output format.
-Keep the number of the translated sentence in the returned list identical to that of the original list.
-You should keep the one-by-one correspondence between the input source sentences and the output translated sentences.
-You need to translate like a human subtitle group, trying your best not to leave any trace of machine translation.
-You need to use some localized expressions in the source language country.
+    def system_prompt(self):
+        return f'''You are a world-class translator. Proficient in {self.src_lang} and {self.target_lang}, you can accurately understand the original text and translate it into the target language with correct fluency.
+Familiar with the cultural backgrounds and differences of both source and target languages, you can transform these differences into linguistic and cultural adaptations in translation.
+The input format: {{"total_number": <total-number>, "list": ["1-<sentence-1>", "2-<sentence-2>", "3-<sentence-3>", ...]}}.
 '''
 
+    def step1(self, user_input):
+        self.user_input = user_input
+        return f'''Please first understand the sentence that needs to be translated.
+The input sentences are transcribed subtitles from an audio file, so there may be some errors due to insufficient transcription accuracy.
+Please revise each sentence based on the whole context of sentences, to make them clearer, more colloquial, and more coherent. 
+Finally the revised sentences should be suitable for use as high-quality {self.src_lang} subtitles{f" for {self.audio_type}" if self.audio_type else ""}.
+You need maintain one-to-one relationship between the input sentences and the revised sentences.
+The returned revised sentence should be in {self.src_lang}.
+Please revise carefully and don't miss any sentence.
+The output format: {{"total_number": <total-sentence-number>, "list": ["1-<revised-sentence-1>", "2-<revised-sentence-2>", "3-<revised-sentence-3>", ..., "<total-sentence-number>-<last-revised-sentence>"]}}.
+Ensure the replied content conforms to JSON format.
+Before return, carefully check length of output["list"], and ensure the length of output["list"] is identical to the length of the input["list"]. If not identical, re-do the revision task.
+Here is the input sentences: {user_input}
+'''
 
-class LovelyPrompter(BaseTranslatePrompter):
-    def __str__(self):
-        return super().__str__() + 'Use lovely colloquial expressions to translate each sentence.'
+    def step2(self):
+        return f'''Now please translate the revised sentences into the {self.target_lang} using the output format specified above.
+Use lovely colloquial expressions to translate each sentence.
+Dont include any chinese quotes and english quotes in the translated sentences.
+Please translate carefully and don't miss any sentence.
+The output format: {{"total_number": <total-sentence-number>, "list": ["1-<translated-sentence-1>", "2-<translated-sentence-2>", "3-<translated-sentence-3>", ..., "<total-sentence-number>-<last-translated-sentence>"]}}.
+Ensure the replied content conforms to JSON format.
+Before return, carefully check length of output["list"], and ensure the length of output["list"] is identical to the length of the input["list"]. If not identical, re-do the revision task.
+Start output:
+'''
 
+    def step3(self, user_input):
+        self.user_input = user_input
+        return f'''Now please do the final revision for the translated sentences.
+Please revise each sentence based on the whole context of sentences, to make them clearer, more colloquial, and more coherent.
+Review the translated sentences for any parts that don't make sense. 
+If necessary, restructure the entire sentence to make it clearer and more appropriate given the whole context of sentences.
+Finally the revised sentences should be suitable for use as high-quality {self.target_lang} subtitles{f" for {self.audio_type}" if self.audio_type else ""}.
+You need maintain one-to-one relationship between the input sentences and the revised sentences.
+The returned revised sentence should be in {self.target_lang}.
+Please revise carefully and don't miss any sentence.
+The output format: {{"total_number": <total-sentence-number>, "list": ["1-<revised-sentence-1>", "2-<revised-sentence-2>", "3-<revised-sentence-3>", ..., "<total-sentence-number>-<last-revised-sentence>"]}}.
+Ensure the replied content conforms to JSON format.
+Before return, carefully check length of output["list"], and ensure the length of output["list"] is identical to the length of the input["list"]. If not identical, re-do the revision task.
+Here is the input sentences: {user_input}
+'''
 
-class LovelyPrompterV2(BaseTranslatePrompterV2):
-    def __str__(self):
-        return super().__str__() + 'Use lovely colloquial expressions to translate each sentence.'
+    def check_format(self, messages, output_str):
+        assert messages[1], f'Not the sending messages: {messages}'
+        assert messages[1]['role'] == 'user', f'Not the sending messages: {messages}'
+
+        try:
+            input_json = json.loads(self.user_input)
+        except json.decoder.JSONDecodeError as e:
+            logger.error(f'Fail to convert input_json: {self.user_input}')
+            raise e
+
+        try:
+            output_json = json.loads(output_str)
+        except json.decoder.JSONDecodeError:
+            logger.warning(f'Fail to convert output_json: {output_str}')
+            return False
+
+        if len(input_json['list']) != len(output_json['list']):
+            logger.warning(
+                f'Fail to ensure length consistent: input is {len(input_json["list"])}, output is {len(output_json["list"])}'
+            )
+            return False
+
+        return True
 
 
 prompter_map = {
-    'base_trans': BaseTranslatePrompter,
-    'base_trans_v2': BaseTranslatePrompter,
-    'lovely_trans': LovelyPrompter,
-    'lovely_trans_v2': LovelyPrompterV2,
+    'base_trans': BaseTranslatePrompter
 }

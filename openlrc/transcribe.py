@@ -6,6 +6,7 @@ import librosa
 import whisperx
 from punctuators.models import PunctCapSegModelONNX
 
+from openlrc.logger import logger
 from openlrc.utils import Timer, release_memory
 
 
@@ -37,7 +38,7 @@ class Transcriber:
         release_memory(align_model)
 
         with open('test_aligned_result.json', 'w', encoding='utf-8') as f:
-            json.dump(aligned_result, f, ensure_ascii=False)
+            json.dump(aligned_result, f, ensure_ascii=False, indent=4)
 
         with Timer('Sentence Alignment'):
             pcs_result = self.sentence_align(aligned_result)
@@ -76,13 +77,16 @@ class Transcriber:
                 assert stc_split[0] in segment['text'], f'First split: {stc_split[0]} not in {segment["text"]}'
                 assert stc_split[-1] in segment['text'], f'Last split: {stc_split[-1]} not in {segment["text"]}'
 
+                # Locate the start and end split in transcribed sentences
                 start_idx = segment['text'].find(stc_split[0], last_end_idx)
-                start_find = last_end_idx + len(''.join(stc_split[:-1]))
-                end_idx = segment['text'].rfind(stc_split[-1], start_find) + len(stc_split[-1]) - 1
+                if len(stc_split) == 1:
+                    end_idx = start_idx + len(stc_split[0]) - 1
+                else:
+                    start_find = last_end_idx + len(''.join(stc_split[:-1]))
+                    end_idx = segment['text'].rfind(stc_split[-1], start_find) + len(stc_split[-1]) - 1
 
                 start_idx = max(start_idx, 0)  # ensure start_idx is not out of range
                 end_idx = min(end_idx, len(segment['words']) - 1)  # ensure end_idx is not out of range
-
                 last_end_idx = end_idx
 
                 if not segment['words']:
@@ -96,20 +100,35 @@ class Transcriber:
                         'end': segment['end'],
                         'word': segment['text'][-1]
                     }
-
                     pcs_result['sentences'].append({'text': sentence, 'start_word': start_word, 'end_word': end_word})
                     continue
 
                 # start word and end word should not be punctuation
-                while 'start' not in segment['words'][start_idx]:
+                while start_idx < len(segment['words']) and 'start' not in segment['words'][start_idx]:
                     start_idx += 1
-                start = segment['words'][start_idx]
 
-                while 'start' not in segment['words'][end_idx]:
+                if start_idx == len(segment['words']):
+                    # Cant find valid start word
+                    continue
+                else:
+                    start = segment['words'][start_idx]
+
+                while end_idx >= last_end_idx and 'start' not in segment['words'][end_idx]:
                     end_idx -= 1
-                end = segment['words'][end_idx]
+
+                if end_idx < last_end_idx:
+                    # Cant find valid end word
+                    end = start
+                else:
+                    end = segment['words'][end_idx]
 
                 sentence = sentence.lstrip(punctuations)
+
+                # TODO: Should remove this case in next release.
+                if start['word'] not in sentence and end['word'] not in sentence:
+                    logger.warning(
+                        f'Cannot find start word {start["word"]} or end word {end["word"]} in sentence {sentence}'
+                    )
 
                 pcs_result['sentences'].append({'text': sentence, 'start_word': start, 'end_word': end})
 
