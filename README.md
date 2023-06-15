@@ -38,7 +38,6 @@ from openlrc import LRCer
 
 lrcer = LRCer()
 lrcer('./data/test.mp3', target_lang='zh-cn')  # Generate translated ./data/test.lrc with default translate prompt.
-# lrcer('./data/test.mp3', prompter='lovely_trans')  # Generate ./data/test.lrc with lovely colloquial expressions.
 ```
 
 ## Todo
