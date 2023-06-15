@@ -10,80 +10,14 @@ import torch
 from openlrc.logger import logger
 
 
-def json2dict(json_str):
-    """ Convert json string to python dict. """
+def check_json(json_str):
+    """ Check if the json string is valid. """
 
     try:
-        result = json.loads(json_str)
-        return result
-    except json.decoder.JSONDecodeError as e:
-        logger.warning(f'Fail to convert into json: \n {json_str}\n Trying to fix...')
-
-    # Try to fix the json string, only keep the content from first '{' to last '}'
-    fixed_json_str1 = json_str[json_str.find('{'):json_str.rfind('}') + 1]
-    logger.warning(
-        f'Trying to fix the json string by keep only "{{content}}": \n {json_str}\n Into: \n {fixed_json_str1}\n')
-    try:
-        result = json.loads(fixed_json_str1)
-        return result
+        json.loads(json_str)
+        return True
     except json.decoder.JSONDecodeError:
-        logger.warning(f'Failed to convert into json: \n {fixed_json_str1}\n Trying to fix...')
-
-    # Try to replace chinese "，" with english ","
-    fixed_json_str2 = fixed_json_str1.replace('，', ',')
-    logger.warning(
-        f'Trying to fix the json string by replace chinese quote with eng quote: \n {fixed_json_str1}\n Into: \n {fixed_json_str2}\n'
-    )
-    try:
-        result = json.loads(fixed_json_str2)
-        return result
-    except json.decoder.JSONDecodeError:
-        logger.warning(f'Failed to convert into json: \n {fixed_json_str2}\n Trying to fix...')
-
-    # The content after last found " should be "]}"
-    fixed_json_str3 = fixed_json_str2[:fixed_json_str2.rfind('"') + 1] + ']}'
-    try:
-        result = json.loads(fixed_json_str3)
-        return result
-    except json.decoder.JSONDecodeError:
-        logger.warning(f'Failed to convert into json: \n {fixed_json_str3}\n Trying to fix...')
-
-    # Try to ensure the sentence lists between "[]" do not contain extra "
-    start_idx = fixed_json_str3.find('[')
-    sentences = fixed_json_str3[start_idx + 2:-3]  # also remove the first and last "
-    sentences = sentences.split('","')
-    sentences = [sentence.replace('"', '\\"') for sentence in sentences]
-    sentences = '","'.join(sentences)
-    fixed_json_str4 = fixed_json_str3[:start_idx + 2] + sentences + fixed_json_str3[-3:]
-    try:
-        result = json.loads(fixed_json_str4)
-        return result
-    except json.decoder.JSONDecodeError:
-        logger.warning(f'Failed to convert returned content into json: \n {fixed_json_str4}\n\n Fix failed!')
-
-    # Use order-label to reconstruct json-string
-    left_str = '"total_number":'
-    right_str = ','
-    total_number_str = fixed_json_str3[fixed_json_str3.find(left_str) + len(left_str): fixed_json_str3.find(right_str)]
-    try:
-        total_number = int(total_number_str)
-        new_list = []
-        for i in range(1, total_number + 1):
-            split_pattern = '", "' if i != total_number else '"]}'
-            start = fixed_json_str3.find(f'{i}-')
-            content = fixed_json_str3[start + len(f'{i}-'): fixed_json_str3.find(split_pattern, start)]
-            new_list.append(f'{i}-{content}')
-        return {"total_number": total_number, "list": new_list}
-    except ValueError:
-        logger.warning(f'Failed to convert number: {total_number_str}')
-    except Exception as e:
-        # Save the json string to file
-        with open('test_return.json', 'w', encoding='utf-8') as f:
-            f.write(fixed_json_str4)
-
-        logger.info(f'The json file is saved to test_return.json')
-
-        raise e
+        return False
 
 
 def get_audio_duration(path):
@@ -150,18 +84,19 @@ class Timer:
 
 def parse_timestamp(time_stamp):
     minutes, seconds = time_stamp.split(':')
-    seconds, milliseconds = seconds.split('.')
-    return int(minutes) * 60 + int(seconds) + int(milliseconds) / 1000.0
+    seconds, hundredths_of_sec = seconds.split('.')
+    return int(minutes) * 60 + int(seconds) + int(hundredths_of_sec) / 100.0
 
 
 def format_timestamp(seconds: float):
     assert seconds >= 0, "non-negative timestamp expected"
     milliseconds = round(seconds * 1000.0)
 
-    minutes = milliseconds // 60_000
-    milliseconds -= minutes * 60_000
+    minutes = milliseconds // 60000
+    milliseconds %= 60000
 
-    seconds = milliseconds // 1_000
-    milliseconds -= seconds * 1_000
+    seconds = milliseconds // 1000
+    milliseconds %= 1000
 
-    return f"{minutes:02d}:{seconds:02d}.{milliseconds:02d}"
+    # [<minutes>:<seconds>.<hundredths of a second>]
+    return f"{minutes:02d}:{seconds:02d}.{milliseconds // 10:02d}"
