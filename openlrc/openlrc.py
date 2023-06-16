@@ -1,5 +1,9 @@
 import json
 import os
+from multiprocessing.pool import ThreadPool
+from pprint import pformat
+from queue import Queue
+from threading import Thread
 
 from openlrc.logger import logger
 from openlrc.opt import SubtitleOptimizer
@@ -11,72 +15,126 @@ from openlrc.utils import Timer, change_ext, extend_filename, get_audio_duration
 
 class LRCer:
     """
-    :ivar model_name: Name of whisper model (tiny, tiny.en, base, base.en, small, small.en, medium,
+    :param model_name: Name of whisper model (tiny, tiny.en, base, base.en, small, small.en, medium,
                     medium.en, large-v1, or large-v2) When a size is configured, the converted model is downloaded
                     from the Hugging Face Hub.
                     Default: ``large-v2``
-    :ivar fee_limit: The maximum fee you are willing to pay for translation. Default: ``0.1``
+    :param fee_limit: The maximum fee you are willing to pay for translation. Default: ``0.1``
     """
 
     def __init__(self, model_name='large-v2', fee_limit=0.1):
         self.transcriber = Transcriber(model_name=model_name)
         self.fee_limit = fee_limit
 
-    def __call__(self, audio_path, target_lang='zh-cn', prompter='base_trans', audio_type='Anime'):
-        transcribed_path = change_ext(extend_filename(audio_path, '_transcribed'), 'json')
-        if not os.path.exists(transcribed_path):
-            with Timer('Transcription process'):
-                logger.info(f'Audio length: {audio_path}: {get_audio_duration(audio_path)}')
-                segments, info = self.transcriber.transcribe(audio_path, batch_size=4)
-                logger.info(f'Detected language: {info.language}')
+    def transcription_producer(self, transcription_queue, audio_paths):
+        """
+        Sequential Producer.
+        """
+        for audio_path in audio_paths:
+            transcribed_path = change_ext(extend_filename(audio_path, '_transcribed'), 'json')
+            if not os.path.exists(transcribed_path):
+                with Timer('Transcription process'):
+                    logger.info(f'Audio length: {audio_path}: {get_audio_duration(audio_path)}')
+                    segments, info = self.transcriber.transcribe(audio_path, batch_size=4)
+                    logger.info(f'Detected language: {info.language}')
 
-                # From generator to list with progress bar shown
-                seg_list = segments['sentences']  # [{'text': ..., 'start_word': ..., 'end_word':...}, ...]
-                logger.debug(f'Transcribed fast-whisper Segments: {seg_list}')
+                    # From generator to list with progress bar shown
+                    seg_list = segments['sentences']  # [{'text': ..., 'start_word': ..., 'end_word':...}, ...]
+                    logger.debug(f'Transcribed fast-whisper Segments: {seg_list}')
 
-            # Save the transcribed json
-            self.to_json(seg_list, name=transcribed_path, lang=info.language)  # xxx_transcribed.json
-        else:
-            logger.info(f'Found transcribed json file: {transcribed_path}')
+                # Save the transcribed json
+                self.to_json(seg_list, name=transcribed_path, lang=info.language)  # xxx_transcribed.json
+            else:
+                logger.info(f'Found transcribed json file: {transcribed_path}')
+            transcription_queue.put(transcribed_path)
+            logger.info(f'Put transcription: {transcribed_path}')
 
-        transcribed_sub = Subtitle(transcribed_path)
-        transcribed_opt_sub = self.post_process(transcribed_sub, update_name=True)  # xxx_transcribed_optimized.json
+        transcription_queue.put(None)
+        logger.info('Transcription producer finished.')
 
-        # xxx_transcribed_optimized_translated.json
-        translated_path = extend_filename(transcribed_opt_sub.filename, '_translated')
-        if not os.path.exists(translated_path):
-            # Translate the transcribed json
-            translator = Translator(prompter=prompter, fee_limit=self.fee_limit)
+    def transcription_consumer(self, transcription_queue, target_lang, prompter, audio_type):
+        """
+        Parallel Consumer.
+        """
+        with ThreadPool() as pool:
+            _ = [pool.apply_async(self.translation_worker,
+                                  args=(transcription_queue, target_lang, prompter, audio_type))
+                 for _ in range(os.cpu_count())]
+            pool.close()
+            pool.join()
+        logger.info('Transcription consumer finished.')
 
-            with Timer('Translating...'):
-                try:
+    def translation_worker(self, transcription_queue, target_lang, prompter, audio_type):
+        """
+        Parallel translation.
+        """
+        while True:
+            logger.info(f'Translation worker waiting transcription...')
+            transcribed_path = transcription_queue.get()
+
+            if transcribed_path is None:
+                transcription_queue.put(None)
+                logger.info('Translation worker finished.')
+                return
+
+            logger.info(f'Got transcription: {transcribed_path}')
+            transcribed_sub = Subtitle(transcribed_path)
+            transcribed_opt_sub = self.post_process(transcribed_sub, update_name=True)
+
+            # xxx_transcribed_optimized_translated.json
+            translated_path = extend_filename(transcribed_opt_sub.filename, '_translated')
+            if not os.path.exists(translated_path):
+                # Translate the transcribed json
+                translator = Translator(prompter=prompter, fee_limit=self.fee_limit)
+
+                with Timer('Translation process'):
                     target_texts = translator.translate(transcribed_opt_sub.get_texts(),
                                                         src_lang=transcribed_opt_sub.lang,
                                                         target_lang=target_lang,
                                                         audio_type=audio_type)
-                except Exception as e:
-                    logger.error(f'Failed to translate: {transcribed_opt_sub}')
-                    raise e
 
                 transcribed_opt_sub.set_texts(target_texts)
 
                 # xxx_transcribed_optimized_translated.json
                 transcribed_opt_sub.save(translated_path, update_name=True)
-        else:
-            logger.info(f'Found transcribed json file: {translated_path}')
+            else:
+                logger.info(f'Found transcribed json file: {translated_path}')
 
-        translated_sub = Subtitle(translated_path)
+            translated_sub = Subtitle(translated_path)
+            output_filename = transcribed_path.replace('_transcribed.json', '.json')
 
-        if prompter.endswith('v2'):
-            output_filename = change_ext(extend_filename(audio_path, '_v2'), 'json')
-        else:
-            output_filename = change_ext(audio_path, 'json')
+            final_subtitle = self.post_process(translated_sub, output_name=output_filename, t2m=target_lang == 'zh-cn',
+                                               remove_files=[
+                                                   transcribed_opt_sub.filename,  # xxx_transcribed_optimized.json
+                                               ], update_name=True)  # xxx.json
 
-        final_subtitle = self.post_process(translated_sub, output_name=output_filename, t2m=target_lang == 'zh-cn',
-                                           remove_files=[
-                                               transcribed_opt_sub.filename,  # xxx_transcribed_optimized.json
-                                           ], update_name=True)  # xxx.json
-        final_subtitle.to_lrc()  # xxx.lrc
+            final_subtitle.to_lrc()
+
+    def run(self, audio_paths, target_lang='zh-cn', prompter='base_trans', audio_type='Anime'):
+        """
+        Split the translation into 2 phases: transcription and translation. They're running in parallel.
+        Firstly, transcribe the audios one-by-one. At the same time, translation threads are created and waiting for
+        the transcription results. After all the transcriptions are done, the translation threads will start to
+        translate the transcribed texts.
+        """
+        if isinstance(audio_paths, str):
+            audio_paths = [audio_paths]
+
+        logger.info(f'Working on {len(audio_paths)} audio files: {pformat(audio_paths)}')
+
+        transcription_queue = Queue()
+
+        with Timer('Transcription (Producer) and Translation (Consumer) process'):
+            consumer = Thread(target=self.transcription_consumer,
+                              args=(transcription_queue, target_lang, prompter, audio_type))
+            producer = Thread(target=self.transcription_producer,
+                              args=(transcription_queue, audio_paths))
+
+            consumer.start()
+            producer.start()
+
+            producer.join()
+            consumer.join()
 
     @staticmethod
     def to_json(segments, name, lang):

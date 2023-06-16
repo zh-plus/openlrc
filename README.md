@@ -37,7 +37,7 @@ into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/
 from openlrc import LRCer
 
 lrcer = LRCer()
-lrcer('./data/test.mp3', target_lang='zh-cn')  # Generate translated ./data/test.lrc with default translate prompt.
+lrcer.run('./data/test.mp3', target_lang='zh-cn')  # Generate translated ./data/test.lrc with default translate prompt.
 ```
 
 ## Todo
@@ -47,7 +47,7 @@ lrcer('./data/test.mp3', target_lang='zh-cn')  # Generate translated ./data/test
 - [x] [Efficiency & Transcription Quality] Use [whisperx](https://github.com/m-bain/whisperX) for transcription.
 - [x] [Translation Quality] Make translate prompt more robust according to https://github.com/openai/openai-cookbook.
 - [x] [Usability] Automatically fix json encoder error using GPT.
-- [ ] [Efficiency] Asynchronously perform transcription and translation for multiple audio inputs.
+- [x] [Efficiency] Asynchronously perform transcription and translation for multiple audio inputs.
 - [ ] [Usability] Multiple output format support.
 - [ ] [Efficiency] Add Azure OpenAI Service support.
 - [ ] [Usability] Add local LLM support.
