@@ -3,7 +3,7 @@ import os
 from multiprocessing.pool import ThreadPool
 from pprint import pformat
 from queue import Queue
-from threading import Thread
+from threading import Thread, Lock
 
 from openlrc.logger import logger
 from openlrc.opt import SubtitleOptimizer
@@ -14,17 +14,22 @@ from openlrc.utils import Timer, change_ext, extend_filename, get_audio_duration
 
 
 class LRCer:
-    """
-    :param model_name: Name of whisper model (tiny, tiny.en, base, base.en, small, small.en, medium,
-                    medium.en, large-v1, or large-v2) When a size is configured, the converted model is downloaded
-                    from the Hugging Face Hub.
-                    Default: ``large-v2``
-    :param fee_limit: The maximum fee you are willing to pay for translation. Default: ``0.1``
-    """
+    def __init__(self, model_name='large-v2', fee_limit=0.1, consumer_thread=11):
+        """
+        :param model_name: Name of whisper model (tiny, tiny.en, base, base.en, small, small.en, medium,
+                        medium.en, large-v1, or large-v2) When a size is configured, the converted model is downloaded
+                        from the Hugging Face Hub.
+                        Default: ``large-v2``
+        :param fee_limit: The maximum fee you are willing to pay for one translation call. Default: ``0.1``
+        :param consumer_thread: To prevent exceeding the RPM and TPM limits set by OpenAI, the default is TPM/MAX_TOKEN.
+        """
 
-    def __init__(self, model_name='large-v2', fee_limit=0.1):
         self.transcriber = Transcriber(model_name=model_name)
         self.fee_limit = fee_limit
+        self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
+
+        self._lock = Lock()
+        self.consumer_thread = consumer_thread
 
     def transcription_producer(self, transcription_queue, audio_paths):
         """
@@ -59,7 +64,7 @@ class LRCer:
         with ThreadPool() as pool:
             _ = [pool.apply_async(self.translation_worker,
                                   args=(transcription_queue, target_lang, prompter, audio_type))
-                 for _ in range(os.cpu_count())]
+                 for _ in range(self.consumer_thread)]
             pool.close()
             pool.join()
         logger.info('Transcription consumer finished.')
@@ -69,12 +74,12 @@ class LRCer:
         Parallel translation.
         """
         while True:
-            logger.info(f'Translation worker waiting transcription...')
+            logger.debug(f'Translation worker waiting transcription...')
             transcribed_path = transcription_queue.get()
 
             if transcribed_path is None:
                 transcription_queue.put(None)
-                logger.info('Translation worker finished.')
+                logger.debug('Translation worker finished.')
                 return
 
             logger.info(f'Got transcription: {transcribed_path}')
@@ -93,22 +98,24 @@ class LRCer:
                                                         target_lang=target_lang,
                                                         audio_type=audio_type)
 
+                with self._lock:
+                    self.api_fee += translator.api_fee  # Ensure thread-safe
+
                 transcribed_opt_sub.set_texts(target_texts)
 
                 # xxx_transcribed_optimized_translated.json
                 transcribed_opt_sub.save(translated_path, update_name=True)
             else:
-                logger.info(f'Found transcribed json file: {translated_path}')
+                logger.info(f'Found translated json file: {translated_path}')
 
             translated_sub = Subtitle(translated_path)
             output_filename = transcribed_path.replace('_transcribed.json', '.json')
 
             final_subtitle = self.post_process(translated_sub, output_name=output_filename, t2m=target_lang == 'zh-cn',
-                                               remove_files=[
-                                                   transcribed_opt_sub.filename,  # xxx_transcribed_optimized.json
-                                               ], update_name=True)  # xxx.json
+                                               update_name=True)  # xxx.json
 
             final_subtitle.to_lrc()
+            logger.info(f'Translation fee til now: {self.api_fee:.4f} USD')
 
     def run(self, audio_paths, target_lang='zh-cn', prompter='base_trans', audio_type='Anime'):
         """
@@ -135,6 +142,8 @@ class LRCer:
 
             producer.join()
             consumer.join()
+
+        logger.info(f'Totally used API fee: {self.api_fee:.4f} USD')
 
     @staticmethod
     def to_json(segments, name, lang):

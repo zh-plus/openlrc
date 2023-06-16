@@ -1,12 +1,20 @@
+## 0.1.2
+
+#### New features:
+
+#### Other Changes:
+
+- Report total OpenAI translation fee for multiple audios.
+
 ## 0.1.1
 
 This update enhances the efficiency of processing multiple audio files.
 
-### New features:
+#### New features:
 
 - Implementation of a producer-consumer model to process multiple audio files.
 
-### Other Changes:
+#### Other Changes:
 
 - Update logger with colored format.
 - Minor parameter modification that makes the timeline of translation more intuitive.

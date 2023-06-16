@@ -27,7 +27,7 @@ class GPTBot:
             'gpt-4': (0.03, 0.06),
             'gpt-4-32k': (0.06, 0.12)
         }
-        self.fee = []
+        self.api_fees = []  # OpenAI API fee for each call
 
     def estimate_fee(self, messages: List[Dict]):
         """
@@ -49,7 +49,7 @@ class GPTBot:
         prompt_tokens = response.usage['prompt_tokens']
         completion_tokens = response.usage['completion_tokens']
 
-        self.fee[-1] += (prompt_tokens * prompt_price + completion_tokens * completion_price) / 1000
+        self.api_fees[-1] += (prompt_tokens * prompt_price + completion_tokens * completion_price) / 1000
 
     async def _create_achat(self, messages: List[Dict], output_checker: Callable = lambda x: True):
         # TODO: accumulate the actual fee for each thread.
@@ -126,7 +126,7 @@ class GPTBot:
         # if the approximated billing fee exceeds the limit, raise an exception.
         approximated_fee = sum([self.estimate_fee(messages) for messages in messages_list])
         logger.info(f'Approximated billing fee: {approximated_fee:.4f} USD')
-        self.fee += [0]  # Actual fee for this translation call.
+        self.api_fees += [0]  # Actual fee for this translation call.
         if approximated_fee > self.fee_limit:
             raise ChatBotException(f'Approximated billing fee {approximated_fee} '
                                    f'exceeds the limit: {self.fee_limit}$.')
@@ -136,7 +136,7 @@ class GPTBot:
         except ChatBotException as e:
             raise e
         finally:
-            logger.info(f'Translation fee for this call: {self.fee[-1]:.4f} USD')
-            logger.info(f'Total bot translation fee: {sum(self.fee):.4f} USD')
+            logger.info(f'Translation fee for this call: {self.api_fees[-1]:.4f} USD')
+            logger.info(f'Total bot translation fee: {sum(self.api_fees):.4f} USD')
 
         return results

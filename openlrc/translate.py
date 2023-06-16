@@ -24,6 +24,7 @@ class Translator:
         self.prompter = prompter
         self.chunk_size = chunk_size
         self.fee_limit = fee_limit
+        self.api_fee = 0
         self.intercept_line = intercept_line
         self.force_translate = force_translate
 
@@ -110,6 +111,8 @@ class Translator:
         ]
         responses = translate_bot.message(step3_messages_list, output_checker=prompter.check_format)
         step3_results = self.parse_responses(chunks, responses, post_process_fn=prompter.post_process)
+
+        self.api_fee += sum(translate_bot.api_fees)
 
         logger.debug(f'After {target_lang} revision: {step3_results}')
 
