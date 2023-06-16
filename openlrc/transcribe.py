@@ -83,7 +83,7 @@ class Transcriber:
                     end_idx = start_idx + len(stc_split[0]) - 1
                 else:
                     start_find = last_end_idx + len(''.join(stc_split[:-1]))
-                    end_idx = segment['text'].rfind(stc_split[-1], start_find) + len(stc_split[-1]) - 1
+                    end_idx = segment['text'].find(stc_split[-1], start_find) + len(stc_split[-1]) - 1
 
                 start_idx = max(start_idx, 0)  # ensure start_idx is not out of range
                 end_idx = min(end_idx, len(segment['words']) - 1)  # ensure end_idx is not out of range
