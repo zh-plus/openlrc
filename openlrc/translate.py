@@ -12,6 +12,8 @@ class Translator:
         """
         :param prompter: Translate prompter, choices can be found in `prompter_map` from prompter.py.
         :param chunk_size: Use smaller chunk size to avoid exceeding the token limit & output complete message.
+                Larger chunk size may improve the translation result. However, large chunk size make the response
+                of OpenAI API slower and more unstable.
         :param fee_limit: Fee limit (USD) for OpenAI API.
         :param intercept_line: Intercepted text line number.
         :param force_translate: Force translation even if the source language is the same as the target language.
@@ -77,7 +79,7 @@ class Translator:
 
         # Chunked messages
         step1_messages_list = [
-            [{'role': 'system', 'content': prompter.system_prompt()},
+            [{'role': 'system', 'content': prompter.system()},
              {'role': 'user', 'content': prompter.step1(user_input)}]
             for user_input in step1_user_inputs
         ]
@@ -102,7 +104,7 @@ class Translator:
         chunks = self._make_chunks(step2_results)
         step3_user_inputs = [prompter.format_texts(chunk) for chunk in chunks]
         step3_messages_list = [
-            [{'role': 'system', 'content': prompter.system_prompt()},
+            [{'role': 'system', 'content': prompter.system()},
              {'role': 'user', 'content': prompter.step3(user_input)}]
             for user_input in step3_user_inputs
         ]

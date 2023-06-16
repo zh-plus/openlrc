@@ -45,64 +45,70 @@ class BaseTranslatePrompter(TranslatePrompter):
             self.target_lang = 'Mandarin Chinese'
 
         self.audio_type = audio_type
-        self.user_input = None
 
-    def system_prompt(self):
-        return f'''You are a world-class translator. Proficient in {self.src_lang} and {self.target_lang}, you can accurately understand the original text and translate it into the target language with correct fluency.
+        self.system_prompt = f'''You are a world-class translator. Proficient in {self.src_lang} and {self.target_lang}, you can accurately understand the original text and translate it into the target language with correct fluency.
 Familiar with the cultural backgrounds and differences of both source and target languages, you can transform these differences into linguistic and cultural adaptations in translation.
 The input format: {{"total_number": <total-number>, "list": ["1-<sentence-1>", "2-<sentence-2>", "3-<sentence-3>", ...]}}.
 '''
-
-    def step1(self, user_input):
-        self.user_input = user_input
-        return f'''Please first understand the sentence that needs to be translated.
+        self.step1_prompt = f'''Please first understand the sentence that needs to be translated.
 The input sentences are transcribed subtitles from an audio file, so there may be some errors due to insufficient transcription accuracy.
 Please revise each sentence based on the whole context of sentences, to make them clearer, more colloquial, and more coherent. 
 Finally the revised sentences should be suitable for use as high-quality {self.src_lang} subtitles{f" for {self.audio_type}" if self.audio_type else ""}.
 You need maintain one-to-one relationship between the input sentences and the revised sentences.
 The returned revised sentence should be in {self.src_lang}.
-Please revise carefully and don't miss any sentence.
 The output format: {{"total_number": <total-sentence-number>, "list": ["1-<revised-sentence-1>", "2-<revised-sentence-2>", "3-<revised-sentence-3>", ..., "<total-sentence-number>-<last-revised-sentence>"]}}.
 Ensure the replied content conforms to JSON format.
-Before return, carefully check length of output["list"], and ensure the length of output["list"] is identical to the length of the input["list"]. If not identical, re-do the revision task.
-Here is the input sentences: {user_input}
+Please ensure that the length of the output list is carefully checked to avoid missing any sentences. Consistency in length is crucial.
+Here is the input sentences:
 '''
-
-    def step2(self):
-        return f'''Now please translate the revised sentences into the {self.target_lang} using the output format specified above.
+        self.step2_prompt = f'''Now please translate the revised sentences into the {self.target_lang} using the output format specified above.
 Use lovely colloquial expressions to translate each sentence.
 Dont include any chinese quotes and english quotes in the translated sentences.
-Please translate carefully and don't miss any sentence.
 The output format: {{"total_number": <total-sentence-number>, "list": ["1-<translated-sentence-1>", "2-<translated-sentence-2>", "3-<translated-sentence-3>", ..., "<total-sentence-number>-<last-translated-sentence>"]}}.
 Ensure the replied content conforms to JSON format.
-Before return, carefully check length of output["list"], and ensure the length of output["list"] is identical to the length of the input["list"]. If not identical, re-do the revision task.
+Please ensure that the length of the output list is carefully checked to avoid missing any sentences. Consistency in length is crucial.
 Start output:
 '''
-
-    def step3(self, user_input):
-        self.user_input = user_input
-        return f'''Now please do the final revision for the translated sentences.
+        self.step3_prompt = f'''Now please do the final revision for the translated sentences.
 Please revise each sentence based on the whole context of sentences, to make them clearer, more colloquial, and more coherent.
 Review the translated sentences for any parts that don't make sense. 
 If necessary, restructure the entire sentence to make it clearer and more appropriate given the whole context of sentences.
 Finally the revised sentences should be suitable for use as high-quality {self.target_lang} subtitles{f" for {self.audio_type}" if self.audio_type else ""}.
 You need maintain one-to-one relationship between the input sentences and the revised sentences.
 The returned revised sentence should be in {self.target_lang}.
-Please revise carefully and don't miss any sentence.
 The output format: {{"total_number": <total-sentence-number>, "list": ["1-<revised-sentence-1>", "2-<revised-sentence-2>", "3-<revised-sentence-3>", ..., "<total-sentence-number>-<last-revised-sentence>"]}}.
 Ensure the replied content conforms to JSON format.
-Before return, carefully check length of output["list"], and ensure the length of output["list"] is identical to the length of the input["list"]. If not identical, re-do the revision task.
-Here is the input sentences: {user_input}
+Please ensure that the length of the output list is carefully checked to avoid missing any sentences. Consistency in length is crucial.
+Here is the input sentences:
 '''
+
+    def system(self):
+        return self.system_prompt
+
+    def step1(self, user_input):
+        return self.step1_prompt + user_input
+
+    def step2(self):
+        return self.step2_prompt
+
+    def step3(self, user_input):
+        return self.step3_prompt + user_input
 
     def check_format(self, messages, output_str):
         assert messages[1], f'Not the sending messages: {messages}'
         assert messages[1]['role'] == 'user', f'Not the sending messages: {messages}'
 
+        # Get user input from messages[1]
+        user_input = ''
+        for step_prompt in (self.step1_prompt, self.step3_prompt):
+            if step_prompt in messages[1]['content']:
+                user_input = messages[1]['content'].replace(step_prompt, '')
+                break
+
         try:
-            input_json = json.loads(self.user_input)
+            input_json = json.loads(user_input)
         except json.decoder.JSONDecodeError as e:
-            logger.error(f'Fail to convert input_json: {self.user_input}')
+            logger.error(f'Fail to convert input_json: {user_input}')
             raise e
 
         try:
