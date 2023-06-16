@@ -22,7 +22,7 @@ class GPTBot:
 
         # Pricing for 1k tokens, info from https://openai.com/pricing
         self.pricing = {
-            'gpt-3.5-turbo': (0.002, 0.002),
+            'gpt-3.5-turbo': (0.0015, 0.002),
             'gpt-3.5-turbo-16k': (0.003, 0.004),
             'gpt-4': (0.03, 0.06),
             'gpt-4-32k': (0.06, 0.12)
@@ -80,6 +80,9 @@ class GPTBot:
             except openai.error.RateLimitError:
                 logger.warning(f'Rate limit exceeded. Wait 10s before retry. Retry num: {i + 1}.')
                 time.sleep(10)
+            except openai.error.Timeout:
+                logger.warning(f'Timeout. Wait 3 before retry. Retry num: {i + 1}.')
+                time.sleep(3)
             except openai.error.APIConnectionError:
                 logger.warning(f'API connection error. Wait 30s before retry. Retry num: {i + 1}.')
                 time.sleep(30)
@@ -122,7 +125,7 @@ class GPTBot:
 
         # if the approximated billing fee exceeds the limit, raise an exception.
         approximated_fee = sum([self.estimate_fee(messages) for messages in messages_list])
-        logger.info(f'Approximated billing fee: {approximated_fee:.4f} US$')
+        logger.info(f'Approximated billing fee: {approximated_fee:.4f} USD')
         self.fee += [0]  # Actual fee for this translation call.
         if approximated_fee > self.fee_limit:
             raise ChatBotException(f'Approximated billing fee {approximated_fee} '

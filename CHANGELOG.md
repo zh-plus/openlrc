@@ -1,3 +1,11 @@
+## 0.1.1
+
+This update improves the efficiency for multiple audio files.
+
+### New Features:
+
+- Use producer-consumer model to process multiple audio files.
+
 ## 0.1.0
 
 This update significantly improves translation quality, but at the cost of slower translation speed.
