@@ -4,8 +4,6 @@ Open-Lyrics is a Python library that transcribes voice files using
 [faster-whisper](https://github.com/guillaumekln/faster-whisper), and translates/polishes the resulting text
 into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/openai/openai-python).
 
-**This new project is rapidly underway, and we welcome any issues or pull requests.**
-
 ## Installation
 
 1. Please install CUDA and cuDNN first according to https://opennmt.net/CTranslate2/installation.html to
@@ -48,6 +46,8 @@ lrcer.run('./data/test.mp3', target_lang='zh-cn')  # Generate translated ./data/
 - [x] [Translation Quality] Make translate prompt more robust according to https://github.com/openai/openai-cookbook.
 - [x] [Usability] Automatically fix json encoder error using GPT.
 - [x] [Efficiency] Asynchronously perform transcription and translation for multiple audio inputs.
+- [ ] [Quality] Improve batched translation/polish prompt according
+  to [gpt-subtrans](https://github.com/machinewrapped/gpt-subtrans).
 - [ ] [Usability] Multiple output format support.
 - [ ] [Efficiency] Add Azure OpenAI Service support.
 - [ ] [Usability] Add local LLM support.
