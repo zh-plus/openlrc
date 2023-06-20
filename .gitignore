@@ -4,3 +4,4 @@ test.py
 /data/
 /dist/
 /openfaker.egg-info/
+__pycache__/
