@@ -82,15 +82,25 @@ class Timer:
         self.stop()
 
 
-def parse_timestamp(time_stamp):
-    minutes, seconds = time_stamp.split(':')
-    seconds, hundredths_of_sec = seconds.split('.')
-    return int(minutes) * 60 + int(seconds) + int(hundredths_of_sec) / 100.0
+def parse_timestamp(time_stamp, fmt='lrc'):
+    if fmt == 'lrc':
+        minutes, seconds = time_stamp.split(':')
+        seconds, hundredths_of_sec = seconds.split('.')
+        return int(minutes) * 60 + int(seconds) + int(hundredths_of_sec) / 100.0
+    elif fmt == 'srt':
+        hours, minutes, seconds = time_stamp.split(':')
+        seconds, milliseconds = seconds.split(',')
+        return int(hours) * 3600 + int(minutes) * 60 + int(seconds) + int(milliseconds) / 1000.0
+    else:
+        raise ValueError(f"Unsupported timestamp format: {fmt}")
 
 
-def format_timestamp(seconds: float):
+def format_timestamp(seconds: float, fmt='lrc'):
     assert seconds >= 0, "non-negative timestamp expected"
     milliseconds = round(seconds * 1000.0)
+
+    hours = milliseconds // 3600000
+    milliseconds %= 3600000
 
     minutes = milliseconds // 60000
     milliseconds %= 60000
@@ -98,5 +108,11 @@ def format_timestamp(seconds: float):
     seconds = milliseconds // 1000
     milliseconds %= 1000
 
-    # [<minutes>:<seconds>.<hundredths of a second>]
-    return f"{minutes:02d}:{seconds:02d}.{milliseconds // 10:02d}"
+    if fmt == 'lrc':
+        # [<minutes>:<seconds>.<hundredths of a second>] for lrc
+        return f"{minutes:02d}:{seconds:02d}.{milliseconds // 10:02d}"
+    elif fmt == 'srt':
+        # [<hours>:<minutes>:<seconds>,<milliseconds>] for srt
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+    else:
+        raise ValueError(f"Unsupported timestamp format: {fmt}")
