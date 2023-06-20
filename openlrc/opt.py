@@ -1,4 +1,4 @@
-import math
+import re
 from typing import Union
 
 import opencc
@@ -79,21 +79,11 @@ class SubtitleOptimizer:
         """
         new_elements = self.subtitle.segments
 
-        def get_repeat(text):
-            """
-            Check if the text is repeated for [1-4] words.
-            """
-            for j in range(1, 5):
-                repeating_num = math.floor(len(text) / float(j))
-                if text[:j] * repeating_num == text[:j * repeating_num]:
-                    return text[:j]
-            return None
-
-        for i in range(len(new_elements)):
-            repeat_text = get_repeat(new_elements[i].text)
-            if repeat_text:
-                new_elements[i].text = repeat_text + '...(Repeat)'
-                logger.debug(f'Merge same words: {repeat_text}')
+        for i, element in enumerate(new_elements):
+            text = element.text
+            text = re.sub(r'(.)\1{4,}', r'\1\1...', text)
+            text = re.sub(r'(.+)\1{4,}', r'\1\1...', text)
+            new_elements[i].text = text
 
         logger.debug('Merge same words done.')
 
@@ -141,7 +131,7 @@ class SubtitleOptimizer:
         for _ in range(2):
             self.merge_same()
             self.merge_short()
-            # self.merge_same_words()
+            self.merge_repeat()
             self.cut_long()
             self.remove_unk()
             self.remove_empty()
