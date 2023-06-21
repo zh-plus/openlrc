@@ -22,7 +22,7 @@ class Transcriber:
         self.device = device
 
     def transcribe(self, audio_path, batch_size=8):
-        whisper_model = whisperx.load_model('large-v2', compute_type='float16', device=self.device)
+        whisper_model = whisperx.load_model(self.model_name, compute_type=self.compute_type, device=self.device)
         audio = whisperx.load_audio(audio_path)
 
         with Timer('Base Whisper Transcription'):
