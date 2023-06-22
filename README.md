@@ -35,12 +35,14 @@ into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/
 from openlrc import LRCer
 
 lrcer = LRCer()
+
+# Single file
 lrcer.run('./data/test.mp3', target_lang='zh-cn')  # Generate translated ./data/test.lrc with default translate prompt.
+
+# Multiple files
+lrcer.run(['./data/test1.mp3', './data/test2.mp3'], target_lang='zh-cn')
+# Note we run the transcription sequentially, but run the translation concurrently for each file.
 ```
-
-## Known issue
-
-- Sometimes there may be misaligned timeline, trying to fix it.
 
 ## Todo
 
