@@ -55,8 +55,10 @@ lrcer.run(['./data/test1.mp3', './data/test2.mp3'], target_lang='zh-cn')
 - [x] [Quality] Improve batched translation/polish prompt according
   to [gpt-subtrans](https://github.com/machinewrapped/gpt-subtrans).
 - [ ] [Usability] Multiple output format support.
+- [ ] [Usability] Input video support.
 - [ ] [Efficiency] Add Azure OpenAI Service support.
 - [ ] [Usability] Add local LLM support.
+- [ ] [Usability] Multiple translate engine (Microsoft, DeepL, Google, etc.) support.
 - [ ] [Others] Add transcribed examples.
     - [ ] Song
     - [ ] Podcast
