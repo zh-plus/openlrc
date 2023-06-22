@@ -38,6 +38,10 @@ lrcer = LRCer()
 lrcer.run('./data/test.mp3', target_lang='zh-cn')  # Generate translated ./data/test.lrc with default translate prompt.
 ```
 
+## Known issue
+
+- Sometimes there may be misaligned timeline, trying to fix it.
+
 ## Todo
 
 - [x] [Efficiency] Batched translate/polish for GPT request (enable contextual ability).
