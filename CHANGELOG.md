@@ -1,10 +1,18 @@
 ## 0.1.2
 
+This update improve the timeline consistency of translated subtitles.
+Thanks [gpt-subtrans](https://github.com/machinewrapped/gpt-subtrans)!
+
 #### New features:
+
+- Add output srt format support.
+- Fix misaligned timeline issue by improving translation prompt.
+- Add changeable temperature and top_p parameter for GPTBot.
 
 #### Other Changes:
 
 - Report total OpenAI translation fee for multiple audios.
+- Improve repeat-checking algorithm.
 
 ## 0.1.1
 
