@@ -67,3 +67,4 @@ lrcer.run(['./data/test1.mp3', './data/test2.mp3'], target_lang='zh-cn')
 - https://github.com/guillaumekln/faster-whisper
 - https://github.com/openai/openai-python
 - https://github.com/openai/whisper
+- https://github.com/machinewrapped/gpt-subtrans

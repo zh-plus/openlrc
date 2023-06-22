@@ -1,12 +1,12 @@
 ## 0.1.2
 
-This update improve the timeline consistency of translated subtitles.
+This update improves the timeline consistency of translated subtitles.
 Thanks [gpt-subtrans](https://github.com/machinewrapped/gpt-subtrans)!
 
 #### New features:
 
-- Add output srt format support.
 - Fix misaligned timeline issue by improving translation prompt.
+- Add output srt format support.
 - Add changeable temperature and top_p parameter for GPTBot.
 
 #### Other Changes:
