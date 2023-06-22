@@ -12,10 +12,12 @@ from openlrc.utils import get_messages_token_number, get_text_token_number
 
 
 class GPTBot:
-    def __init__(self, model='gpt-3.5-turbo-16k', retry=8, max_async=16, fee_limit=0.05):
+    def __init__(self, model='gpt-3.5-turbo-16k', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.05):
         openai.api_key = os.getenv("OPENAI_API_KEY")
 
         self.model = model
+        self.temperature = temperature
+        self.top_p = top_p
         self.retry = retry
         self.max_async = max_async
         self.fee_limit = fee_limit
@@ -29,6 +31,13 @@ class GPTBot:
         }
         self.api_fees = []  # OpenAI API fee for each call
 
+    def update(self, temperature=None, top_p=None):
+        if temperature:
+            self.temperature = temperature
+
+        if top_p:
+            self.top_p = top_p
+
     def estimate_fee(self, messages: List[Dict]):
         """
         Estimate the total fee for the given messages.
@@ -39,7 +48,7 @@ class GPTBot:
 
         prompt_price, completion_price = self.pricing[self.model]
 
-        total_price = (sum(token_map.values()) * prompt_price + token_map['user'] * completion_price) / 1000
+        total_price = (sum(token_map.values()) * prompt_price + token_map['user'] * completion_price * 2) / 1000
 
         return total_price
 
@@ -52,8 +61,6 @@ class GPTBot:
         self.api_fees[-1] += (prompt_tokens * prompt_price + completion_tokens * completion_price) / 1000
 
     async def _create_achat(self, messages: List[Dict], output_checker: Callable = lambda x: True):
-        # TODO: accumulate the actual fee for each thread.
-
         logger.debug(f'Raw content: {messages}')
 
         response = None
@@ -61,15 +68,17 @@ class GPTBot:
             try:
                 response = openai.ChatCompletion.create(
                     model=self.model,
-                    messages=messages
+                    messages=messages,
+                    temperature=self.temperature,
+                    top_p=self.top_p
                 )
                 self.update_fee(response)
                 if response.choices[0].finish_reason == 'length':
                     raise ChatBotException(
-                        f'Failed to get completion. Exceed max token length.'
-                        f'prompt tokens: {response.usage["prompt_tokens"]}, '
-                        f'completion tokens: {response.usage["completion_tokens"]}, '
-                        f'total tokens: {response.usage["total_tokens"]}'
+                        f'Failed to get completion. Exceed max token length. '
+                        f'Prompt tokens: {response.usage["prompt_tokens"]}, '
+                        f'Completion tokens: {response.usage["completion_tokens"]}, '
+                        f'Total tokens: {response.usage["total_tokens"]}'
                         f'Reduce chunk_size may help.'
                     )
                 if not output_checker(messages, response.choices[0].message.content):
@@ -83,7 +92,7 @@ class GPTBot:
             except openai.error.Timeout:
                 logger.warning(f'Timeout. Wait 3 before retry. Retry num: {i + 1}.')
                 time.sleep(3)
-            except openai.error.APIConnectionError:
+            except (openai.error.APIConnectionError, openai.error.ServiceUnavailableError):
                 logger.warning(f'API connection error. Wait 30s before retry. Retry num: {i + 1}.')
                 time.sleep(30)
             except openai.error.APIError:
@@ -134,6 +143,7 @@ class GPTBot:
         try:
             results = asyncio.run(self._amessage(messages_list, output_checker=output_checker))
         except ChatBotException as e:
+            logger.error(f'Failed to message with GPT. Error: {e}')
             raise e
         finally:
             logger.info(f'Translation fee for this call: {self.api_fees[-1]:.4f} USD')
