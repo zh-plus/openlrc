@@ -1,131 +1,175 @@
-import json
+import re
 
 from langcodes import Language
 
 from openlrc.logger import logger
 
+base_instruction = f'''You are a translator, your task is to accurately revise and translate subtitles into a target language.
+The input are transcribed from audio, so there may be errors in the transcription. Please correct any errors you find in the sentences first, based on their context. Then translate them to target language according to the revised sentences.
+The user will provide a chunk of lines, you should respond with an accurate, concise, and natural-sounding translation for the dialogue. 
+The user may provide additional context, such as a synopsis or title of the film, a summary of the current scene, or a list of character names. Use this information to improve the quality of your translation.
+Your response will be processed by an automated system, so it is imperative that you adhere to the required output format.
+
+Example input (Japanese to Chinese):
+
+#200
+Original>
+変わりゆく時代において、
+Translation>
+
+#501
+Original>
+生き残る秘訣は、進化し続けることです。
+Translation>
+
+You should respond with:
+
+#200
+Original>
+変わく時代いて、
+Translation>
+在变化的时代中，
+
+#501
+Original>
+生き残る秘訣は、進化し続けることです。
+Translation>
+生存的秘诀是不断进化。
+
+Example input (English to German):
+
+#700
+Original>
+those who resist change may find themselves left behind.
+Translation>
+
+#701
+Original>
+those resist change find themselves left.
+Translation>
+
+You should respond with:
+
+#700
+Original>
+In the age of digital transformation,
+Translation>
+Im Zeitalter der digitalen Transformation,
+
+#701
+Original>
+those who resist change may find themselves left behind.
+Translation>
+diejenigen, die sich dem Wandel widersetzen, könnten sich zurückgelassen finden.
+
+Please ensure that each line of dialogue remains distinct in the  translation. Merging lines together can lead to timing problems during playback.
+
+At the end of each set of translations, include a one or two line synopsis of the input text in a <summary/> tag, for example:
+<summary>John and Sarah discuss their plan to locate a suspect, deducing that he is likely in the uptown area.</summary>
+Remember to end this tag with ``</summary>``.
+
+Use the available information to add a short synopsis of the current scene in a <scene/> tag, for example:
+<scene>John and Sarah are in their office analyzing data and planning their next steps. They deduce that the suspect is probably in the uptown area and decide to start their search there.</scene>
+Remember to end this tag with ``</scene>``.
+
+Use the target language when writing content for the ``summary/`` and ``scene/`` tags. 
+Ensure that the summary and scene are concise, containing less than 100 words.
+You need to update your summary and scene with the new information you have.
+Do not guess or improvise if the context is unclear, just summarise the dialogue.
+
+The translation should be in a lovely colloquial style and suitable for high-quality subtitles.
+
+#######################
+There was an issue with the previous translation. 
+
+Remember to include ``<summary>`` and ``<scene>`` tags in your response.
+Do not translate ``Original>`` and ``Translation>``.
+Please translate the subtitles again, paying careful attention to ensure that each line is translated separately, and that every line has a matching translation.
+Do not merge lines together in the translation, it leads to incorrect timings and confusion for the reader.'''
+
 
 class TranslatePrompter:
-    def __str__(self):
-        return '''You are an advanced {src_lang} to {target_lang} translator in a virtual world.
-The input format: {{"total_number": <total-number>, "list": ["1-<sentence-1>", "2-<sentence-2>", "3-<sentence-3>", ...]}}.
-The output format: {{"total_number": <total-translated-number>, "list": ["1-<translated-sentence-1>", "2-<translated-sentence-2>", "3-<translated-sentence-3>", ..., "<total-translated-number>-<last-translated-sentence>"]}}. 
-Please remember to add an order number before each translated sentence, as the output format.'''
-
     @classmethod
     def format_texts(cls, texts):
-        return f'{{"total_number": {len(texts)}, "list": {cls.list2str(texts)}}}'
-
-    @staticmethod
-    def list2str(texts):
-        """
-        To fit the prompter format, add order number to each sentence and use double quota to wrap each element in the list.
-        """
-
-        text = [f'"{i}-{str(text)}"' for i, text in enumerate(texts, start=1)]
-        return f"[{', '.join(text)}]"
+        raise NotImplementedError()
 
     @staticmethod
     def post_process(texts):
-        """
-        Remove the order number at the front of each sentence
-        """
-        for i, text in enumerate(texts):
-            texts[i] = text[text.find('-') + 1:]
+        raise NotImplementedError()
 
-        return texts
+    def check_format(self, messages, output_str):
+        raise NotImplementedError()
 
 
 class BaseTranslatePrompter(TranslatePrompter):
-    def __init__(self, src_lang, target_lang, audio_type):
+    def __init__(self, src_lang, target_lang, audio_type=None, title='', synopsis=''):
         self.src_lang = Language.get(src_lang).display_name('en')
         self.target_lang = Language.get(target_lang).display_name('en')
-
         if target_lang == 'zh-cn':
             self.target_lang = 'Mandarin Chinese'
 
         self.audio_type = audio_type
+        self.title = title
+        self.synopsis = synopsis
+        self.user_prompt = f'''
+{f"<title>{self.title}</title>" if self.title else ""}
+{f"<synopsis>{self.synopsis}</synopsis>" if self.synopsis else ""}
+<context>
+<scene>{{scene}}</scene>
+<chunk> {{summaries_str}} </chunk>
+</context>
+<chunk_id> Scene 1 Chunk {{chunk_num}} <chunk_id>
 
-        self.system_prompt = f'''You are a world-class translator. Proficient in {self.src_lang} and {self.target_lang}, you can accurately understand the original text and translate it into the target language with correct fluency.
-Familiar with the cultural backgrounds and differences of both source and target languages, you can transform these differences into linguistic and cultural adaptations in translation.
-The input format: {{"total_number": <total-number>, "list": ["1-<sentence-1>", "2-<sentence-2>", "3-<sentence-3>", ...]}}.
-'''
-        self.step1_prompt = f'''Please first understand the sentence that needs to be translated.
-The input sentences are transcribed subtitles from an audio file, so there may be some errors due to insufficient transcription accuracy.
-Please revise each sentence based on the whole context of sentences, to make them clearer, more colloquial, and more coherent. 
-Finally the revised sentences should be suitable for use as high-quality {self.src_lang} subtitles{f" for {self.audio_type}" if self.audio_type else ""}.
-You need maintain one-to-one relationship between the input sentences and the revised sentences.
-The returned revised sentence should be in {self.src_lang}.
-The output format: {{"total_number": <total-sentence-number>, "list": ["1-<revised-sentence-1>", "2-<revised-sentence-2>", "3-<revised-sentence-3>", ..., "<total-sentence-number>-<last-revised-sentence>"]}}.
-Ensure the replied content conforms to JSON format.
-Please ensure that the length of the output list is carefully checked to avoid missing any sentences. Consistency in length is crucial.
-Here is the input sentences:
-'''
-        self.step2_prompt = f'''Now please translate the revised sentences into the {self.target_lang} using the output format specified above.
-Use lovely colloquial expressions to translate each sentence.
-Dont include any chinese quotes and english quotes in the translated sentences.
-The output format: {{"total_number": <total-sentence-number>, "list": ["1-<translated-sentence-1>", "2-<translated-sentence-2>", "3-<translated-sentence-3>", ..., "<total-sentence-number>-<last-translated-sentence>"]}}.
-Ensure the replied content conforms to JSON format.
-Please ensure that the length of the output list is carefully checked to avoid missing any sentences. Consistency in length is crucial.
-Start output:
-'''
-        self.step3_prompt = f'''Now please do the final revision for the translated sentences.
-Please revise each sentence based on the whole context of sentences, to make them clearer, more colloquial, and more coherent.
-Review the translated sentences for any parts that don't make sense. 
-If necessary, restructure the entire sentence to make it clearer and more appropriate given the whole context of sentences.
-Finally the revised sentences should be suitable for use as high-quality {self.target_lang} subtitles{f" for {self.audio_type}" if self.audio_type else ""}.
-You need maintain one-to-one relationship between the input sentences and the revised sentences.
-The returned revised sentence should be in {self.target_lang}.
-The output format: {{"total_number": <total-sentence-number>, "list": ["1-<revised-sentence-1>", "2-<revised-sentence-2>", "3-<revised-sentence-3>", ..., "<total-sentence-number>-<last-revised-sentence>"]}}.
-Ensure the replied content conforms to JSON format.
-Please ensure that the length of the output list is carefully checked to avoid missing any sentences. Consistency in length is crucial.
-Here is the input sentences:
+Please translate these subtitles for {self.audio_type}{f" named {self.title}" if self.title else ""} from {self.src_lang} to {self.target_lang}.\n
+{{user_input}}
+
+<summary/>
+<scene/>
 '''
 
-    def system(self):
-        return self.system_prompt
+    @staticmethod
+    def system():
+        return base_instruction
 
-    def step1(self, user_input):
-        return self.step1_prompt + user_input
+    def user(self, chunk_num, user_input, summaries='', scene=''):
+        summaries_str = '\n'.join(f'Chunk {i}: {summary}' for i, summary in enumerate(summaries, 1))
+        return self.user_prompt.format(summaries_str=summaries_str, scene=scene,
+                                       chunk_num=chunk_num, user_input=user_input).strip()
 
-    def step2(self):
-        return self.step2_prompt
+    @classmethod
+    def format_texts(cls, texts):
+        return '\n'.join([f'#{i}\nOriginal>\n{text}\nTranslation>\n' for i, text in texts])
 
-    def step3(self, user_input):
-        return self.step3_prompt + user_input
+    def check_format(self, messages, content):
+        summary = re.search(r'<summary>(.*)</summary>', content)
+        scene = re.search(r'<scene>(.*)</scene>', content)
+        original = re.findall(r'Original>\n(.*?)\nTranslation>', content, re.DOTALL)
+        translation = re.findall(r'Translation>\n*(.*?)(?:#\d+|<summary>|\n*$)', content, re.DOTALL)
 
-    def check_format(self, messages, output_str):
-        assert messages[1], f'Not the sending messages: {messages}'
-        assert messages[1]['role'] == 'user', f'Not the sending messages: {messages}'
-
-        # Get user input from messages[1]
-        user_input = ''
-        for step_prompt in (self.step1_prompt, self.step3_prompt):
-            if step_prompt in messages[1]['content']:
-                user_input = messages[1]['content'].replace(step_prompt, '')
-                break
-
-        try:
-            input_json = json.loads(user_input)
-        except json.decoder.JSONDecodeError as e:
-            logger.error(f'Fail to convert input_json: {user_input}')
-            raise e
-
-        try:
-            output_json = json.loads(output_str)
-        except json.decoder.JSONDecodeError:
-            logger.warning(f'Fail to convert output_json: {output_str}')
+        if not original or not translation:
+            logger.warning(f'Fail to extract original or translation.')
+            logger.debug(f'Content: {content}')
             return False
 
-        if len(input_json['list']) != len(output_json['list']):
+        if len(original) != len(translation):
             logger.warning(
-                f'Fail to ensure length consistent: input is {len(input_json["list"])}, output is {len(output_json["list"])}'
-            )
+                f'Fail to ensure length consistent: original is {len(original)}, translation is {len(translation)}')
+            logger.debug(f'original: {original}')
+            logger.debug(f'translation: {original}')
             return False
+
+        # It's ok to keep going without summary and scene
+        if not summary or not summary.group(1):
+            logger.warning(f'Fail to extract summary.')
+            logger.debug(f'output_str: {content}')
+
+        if not scene or not scene.group(1):
+            logger.warning(f'Fail to extract scene.')
+            logger.debug(f'output_str: {content}')
 
         return True
 
 
 prompter_map = {
-    'base_trans': BaseTranslatePrompter
+    'base_trans': BaseTranslatePrompter,
 }

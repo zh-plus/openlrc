@@ -34,6 +34,10 @@ class Subtitle:
     """
 
     def __init__(self, filename):
+        """
+        :param filename: json file.
+        """
+
         self.filename = filename
         with open(filename, encoding='utf-8') as f:
             content = json.loads(f.read())

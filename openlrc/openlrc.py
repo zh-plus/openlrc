@@ -1,5 +1,6 @@
 import json
 import os
+import traceback
 from multiprocessing.pool import ThreadPool
 from pprint import pformat
 from queue import Queue
@@ -9,26 +10,30 @@ from openlrc.logger import logger
 from openlrc.opt import SubtitleOptimizer
 from openlrc.subtitle import Subtitle
 from openlrc.transcribe import Transcriber
-from openlrc.translate import Translator
+from openlrc.translate import GPTTranslator
 from openlrc.utils import Timer, change_ext, extend_filename, get_audio_duration
 
 
 class LRCer:
-    def __init__(self, model_name='large-v2', fee_limit=0.1, consumer_thread=11):
+    def __init__(self, model_name='large-v2', compute_type='float16', fee_limit=0.1, consumer_thread=11):
         """
         :param model_name: Name of whisper model (tiny, tiny.en, base, base.en, small, small.en, medium,
                         medium.en, large-v1, or large-v2) When a size is configured, the converted model is downloaded
                         from the Hugging Face Hub.
                         Default: ``large-v2``
+        :param compute_type: The type of computation to use. Can be ``int8``, ``int8_float16``, ``int16``,
+                        ``float16`` or ``float32``.
+                        Default: ``float16``
         :param fee_limit: The maximum fee you are willing to pay for one translation call. Default: ``0.1``
         :param consumer_thread: To prevent exceeding the RPM and TPM limits set by OpenAI, the default is TPM/MAX_TOKEN.
         """
 
-        self.transcriber = Transcriber(model_name=model_name)
+        self.transcriber = Transcriber(model_name=model_name, compute_type=compute_type)
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
 
         self._lock = Lock()
+        self.exception = None
         self.consumer_thread = consumer_thread
 
     def transcription_producer(self, transcription_queue, audio_paths):
@@ -90,13 +95,20 @@ class LRCer:
             translated_path = extend_filename(transcribed_opt_sub.filename, '_translated')
             if not os.path.exists(translated_path):
                 # Translate the transcribed json
-                translator = Translator(prompter=prompter, fee_limit=self.fee_limit)
+                translator = GPTTranslator(prompter=prompter, fee_limit=self.fee_limit)
 
                 with Timer('Translation process'):
-                    target_texts = translator.translate(transcribed_opt_sub.get_texts(),
-                                                        src_lang=transcribed_opt_sub.lang,
-                                                        target_lang=target_lang,
-                                                        audio_type=audio_type)
+                    try:
+                        target_texts = translator.translate(
+                            transcribed_opt_sub.get_texts(),
+                            src_lang=transcribed_opt_sub.lang,
+                            target_lang=target_lang,
+                            title=transcribed_path.replace('_transcribed.json', ''),
+                            audio_type=audio_type,
+                            compare_path=transcribed_path.replace('_transcribed.json', '_compare.json')
+                        )
+                    except Exception as e:
+                        self.exception = e
 
                 with self._lock:
                     self.api_fee += translator.api_fee  # Ensure thread-safe
@@ -142,6 +154,9 @@ class LRCer:
 
             producer.join()
             consumer.join()
+
+            if self.exception:
+                traceback.print_exception(type(self.exception), self.exception, self.exception.__traceback__)
 
         logger.info(f'Totally used API fee: {self.api_fee:.4f} USD')
 

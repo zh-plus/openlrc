@@ -46,7 +46,7 @@ lrcer.run('./data/test.mp3', target_lang='zh-cn')  # Generate translated ./data/
 - [x] [Translation Quality] Make translate prompt more robust according to https://github.com/openai/openai-cookbook.
 - [x] [Usability] Automatically fix json encoder error using GPT.
 - [x] [Efficiency] Asynchronously perform transcription and translation for multiple audio inputs.
-- [ ] [Quality] Improve batched translation/polish prompt according
+- [x] [Quality] Improve batched translation/polish prompt according
   to [gpt-subtrans](https://github.com/machinewrapped/gpt-subtrans).
 - [ ] [Usability] Multiple output format support.
 - [ ] [Efficiency] Add Azure OpenAI Service support.
