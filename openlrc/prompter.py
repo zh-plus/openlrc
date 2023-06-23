@@ -1,4 +1,4 @@
-#  Copyright (C)  2023. Hao Zheng
+#  Copyright (C) 2023. Hao Zheng
 #  All rights reserved.
 
 import re
@@ -7,6 +7,7 @@ from langcodes import Language
 
 from openlrc.logger import logger
 
+# instruction prompt modified from https://github.com/machinewrapped/gpt-subtrans
 base_instruction = f'''You are a translator, your task is to accurately revise and translate subtitles into a target language.
 The input are transcribed from audio, so there may be errors in the transcription. Please correct any errors you find in the sentences first, based on their context. Then translate them to target language according to the revised sentences.
 The user will provide a chunk of lines, you should respond with an accurate, concise, and natural-sounding translation for the dialogue. 
