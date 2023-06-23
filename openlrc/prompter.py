@@ -1,3 +1,6 @@
+#  Copyright (C)  2023. Hao Zheng
+#  All rights reserved.
+
 import re
 
 from langcodes import Language
@@ -138,6 +141,10 @@ Please translate these subtitles for {self.audio_type}{f" named {self.title}" if
 
     @classmethod
     def format_texts(cls, texts):
+        """
+        Reconstruct list of text into desired format.
+        :param texts: List of (id, text).
+        """
         return '\n'.join([f'#{i}\nOriginal>\n{text}\nTranslation>\n' for i, text in texts])
 
     def check_format(self, messages, content):
