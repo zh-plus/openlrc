@@ -43,9 +43,10 @@ language-data = "^1.1"
 rich = "^12.6.0"
 tqdm = "^4.65.0"
 audioread = "^3.0.0"
-OpenCC = "^1.1.1"
+OpenCC = "1.1.1"
 punctuators = "^0.0.5"
 colorlog = "^6.7.0"
+pytest = "^7.4.0"
 
 
 [[tool.poetry.source]]
