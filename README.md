@@ -11,13 +11,18 @@ into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/
 
 2. Add your [OpenAI API key](https://platform.openai.com/account/api-keys) to environment variable `OPENAI_API_KEY`.
 
-3. Install [whisperx](https://github.com/m-bain/whisperX)
+3. Install [PyTorch](https://pytorch.org/get-started/locally/):
+    ```shell
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+   ```
+
+4. Install [whisperx](https://github.com/m-bain/whisperX)
 
     ```shell
     pip install git+https://github.com/m-bain/whisperx.git
     ```
 
-4. This project can be installed from PyPI:
+5. This project can be installed from PyPI:
 
     ```shell
     pip install openlrc
