@@ -1,3 +1,6 @@
+#  Copyright (C) 2023. Hao Zheng
+#  All rights reserved.
+
 import json
 import os
 import traceback
@@ -11,7 +14,7 @@ from openlrc.opt import SubtitleOptimizer
 from openlrc.subtitle import Subtitle
 from openlrc.transcribe import Transcriber
 from openlrc.translate import GPTTranslator
-from openlrc.utils import Timer, change_ext, extend_filename, get_audio_duration
+from openlrc.utils import Timer, change_ext, extend_filename, get_audio_duration, format_timestamp
 
 
 class LRCer:
@@ -44,7 +47,7 @@ class LRCer:
             transcribed_path = change_ext(extend_filename(audio_path, '_transcribed'), 'json')
             if not os.path.exists(transcribed_path):
                 with Timer('Transcription process'):
-                    logger.info(f'Audio length: {audio_path}: {get_audio_duration(audio_path)}')
+                    logger.info(f'Audio length: {audio_path}: {format_timestamp(get_audio_duration(audio_path))}')
                     segments, info = self.transcriber.transcribe(audio_path, batch_size=4)
                     logger.info(f'Detected language: {info.language}')
 

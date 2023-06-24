@@ -1,4 +1,4 @@
-#  Copyright (C)  2023. Hao Zheng
+#  Copyright (C) 2023. Hao Zheng
 #  All rights reserved.
 
 import gc
@@ -14,8 +14,8 @@ import torch
 from openlrc.logger import logger
 
 
-def get_audio_duration(path: str) -> str:
-    return format_timestamp(audioread.audio_open(path).duration)
+def get_audio_duration(path: str) -> float:
+    return audioread.audio_open(path).duration
 
 
 def release_memory(model: torch.nn.Module) -> None:

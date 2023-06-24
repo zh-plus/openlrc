@@ -1,13 +1,15 @@
+#  Copyright (C) 2023. Hao Zheng
+#  All rights reserved.
+
 import json
 import re
 from typing import NamedTuple
 
-import librosa
 import whisperx
 from punctuators.models import PunctCapSegModelONNX
 
 from openlrc.logger import logger
-from openlrc.utils import Timer, release_memory
+from openlrc.utils import Timer, release_memory, get_audio_duration
 
 
 class TranscriptionInfo(NamedTuple):
@@ -43,7 +45,7 @@ class Transcriber:
         with Timer('Sentence Alignment'):
             pcs_result = self.sentence_align(aligned_result)
 
-        info = TranscriptionInfo(language=result['language'], duration=librosa.get_duration(filename=audio_path))
+        info = TranscriptionInfo(language=result['language'], duration=get_audio_duration(audio_path))
 
         return pcs_result, info
 
@@ -55,7 +57,7 @@ class Transcriber:
         :return A dict with key 'sentences' and value a list of dict with key 'text', 'start_word', 'end_word'.
         """
         pcs_model = PunctCapSegModelONNX.from_pretrained('pcs_47lang')
-        punctuations = '.,?？，。、・।؟;።፣፧'
+        punctuations = '.,?？，。、・।؟;።፣፧،'
 
         sentences_list = pcs_model.infer([segment['text'] for segment in transcribe_result['segments']])
 
