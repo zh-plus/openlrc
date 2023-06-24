@@ -1,3 +1,6 @@
+#  Copyright (C) 2023. Hao Zheng
+#  All rights reserved.
+
 import asyncio
 import os
 import time
@@ -60,7 +63,7 @@ class GPTBot:
 
         self.api_fees[-1] += (prompt_tokens * prompt_price + completion_tokens * completion_price) / 1000
 
-    async def _create_achat(self, messages: List[Dict], output_checker: Callable = lambda x: True):
+    async def _create_achat(self, messages: List[Dict], output_checker: Callable = lambda *args, **kw: True):
         logger.debug(f'Raw content: {messages}')
 
         response = None
@@ -107,7 +110,7 @@ class GPTBot:
 
         return response
 
-    async def _amessage(self, messages_list: List[List[Dict]], output_checker: Callable = lambda x: True):
+    async def _amessage(self, messages_list: List[List[Dict]], output_checker: Callable = lambda *args, **kw: True):
         """
         Async send messages to the GPT chatbot.
         """
@@ -118,7 +121,8 @@ class GPTBot:
 
             return results
 
-    def message(self, messages_list: Union[List[Dict], List[List[Dict]]], output_checker: Callable = lambda x: True):
+    def message(self, messages_list: Union[List[Dict], List[List[Dict]]],
+                output_checker: Callable = lambda *args, **kw: True):
         """
         Send chunked messages to the GPT chatbot.
         """
