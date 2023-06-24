@@ -1,7 +1,10 @@
+#  Copyright (C) 2023. Hao Zheng
+#  All rights reserved.
+
 import re
 from typing import Union
 
-import opencc
+import zhconv
 
 from openlrc.logger import logger
 from openlrc.subtitle import Subtitle
@@ -104,9 +107,8 @@ class SubtitleOptimizer:
     def traditional2mandarin(self):
         new_elements = self.subtitle.segments
 
-        converter = opencc.OpenCC('t2s.json')
         for i, element in enumerate(new_elements):
-            new_elements[i].text = converter.convert(element.text)
+            new_elements[i].text = zhconv.convert(element.text, locale='zh-cn')
 
         logger.debug('Traditional Chinese to Mandarin done.')
 
