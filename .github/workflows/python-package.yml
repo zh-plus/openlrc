@@ -10,35 +10,28 @@ on:
     branches: [ "master" ]
 
 jobs:
-  build:
-
-    runs-on: ubuntu-latest
+  ci:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.8", "3.9", "3.10"]
+        python-version: [ "3.8", "3.9", "3.10", "3.11" ]
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
 
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Setup poetry
-        uses: abatilo/actions-poetry@v2
-      - name: Configure poetry
-        run: |
-          python -m poetry config virtualenvs.in-project true
-      - name: Cache the virtualenv
-        uses: actions/cache@v3
+      - uses: Gr1N/setup-poetry@v8
+      - uses: actions/cache@v3
         with:
-          path: ./.venv
-          key: ${{ runner.os }}-venv-${{ hashFiles('**/poetry.lock') }}
+          path: ~/.cache/pypoetry/virtualenvs
+          key: ${{ runner.os }}-poetry-${{ hashFiles('poetry.lock') }}
       - name: Install dependencies
         run: |
-          python -m poetry install
-      - name: Flake8 Lint
-        uses: py-actions/flake8@v2
+          poetry install
       - name: Test with pytest
         run: |
-          python -m poetry run python -m pytest tests
+          poetry run pytest tests
