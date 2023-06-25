@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ "3.8", "3.9", "3.10", "3.11" ]
+        python-version: [ "3.9", "3.10", ]
         os: [ ubuntu-latest, macos-latest, windows-latest ]
 
     defaults:
@@ -36,6 +36,8 @@ jobs:
       - name: Install ffmpeg
         uses: FedericoCarboni/setup-ffmpeg@v2
         id: setup-ffmpeg
+      - name: Add OpenAI key to environment variables
+        run: echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> $GITHUB_ENV
       - name: Test with pytest
         working-directory: ./tests
         run: |
