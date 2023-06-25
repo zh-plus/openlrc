@@ -1,3 +1,6 @@
+#  Copyright (C) 2023. Hao Zheng
+#  All rights reserved.
+
 import json
 import os
 import re
@@ -71,10 +74,10 @@ class GPTTranslator:
             logger.error(f'Failed to extract contents from response: {content}')
             raise e
 
-    def translate(self, texts, src_lang, target_lang, audio_type='Anime', title='', synopsis='',
+    def translate(self, texts, src_lang, target_lang, audio_type='Anime', title='', background='', synopsis='',
                   compare_path='test_intermediate.json'):
         prompter: BaseTranslatePrompter = prompter_map[self.prompter](
-            src_lang, target_lang, audio_type, title=title, synopsis=synopsis)
+            src_lang, target_lang, audio_type, title=title, background=background, synopsis=synopsis)
         translate_bot = GPTBot(fee_limit=self.fee_limit)
         translate_bot.update(temperature=0.7)
 

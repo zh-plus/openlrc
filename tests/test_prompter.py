@@ -8,7 +8,7 @@ from openlrc.prompter import BaseTranslatePrompter
 
 @pytest.fixture
 def prompter():
-    return BaseTranslatePrompter('ja', 'zh-cn', 'movie', 'Title', 'Synopsis')
+    return BaseTranslatePrompter('ja', 'zh-cn', 'movie', 'Title', 'Background', 'Synopsis')
 
 
 def test_user_prompt(prompter):
@@ -17,6 +17,7 @@ Original>
 変わりゆく時代において、
 Translation>'''
     expected_output = '''<title>Title</title>
+<background>Background</background>
 <synopsis>Synopsis</synopsis>
 <context>
 <scene>test scene content</scene>
@@ -48,6 +49,7 @@ def test_check_format():
     prompter = BaseTranslatePrompter('ja', 'zh-cn', 'movie', 'Title', 'Synopsis')
     messages = []
     content = '''<title>Title</title>
+<background>Background</background>
 <synopsis>Synopsis</synopsis>
 <context>
 <scene>Scene</scene>

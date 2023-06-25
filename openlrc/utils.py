@@ -2,6 +2,7 @@
 #  All rights reserved.
 
 import gc
+import os
 import re
 import time
 from os.path import splitext
@@ -77,7 +78,11 @@ def get_messages_token_number(messages: List[Dict[str, Any]], model: str = "gpt-
     return total
 
 
-def get_filename(path: str) -> str:
+def get_filename(path: str, without_dir=False) -> str:
+    """Get the filename from a path."""
+    if without_dir:
+        path = os.path.basename(path)
+
     return splitext(path)[0]
 
 

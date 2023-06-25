@@ -11,7 +11,7 @@ from openlrc.logger import logger
 base_instruction = f'''You are a translator, your task is to accurately revise and translate subtitles into a target language.
 The input are transcribed from audio, so there may be errors in the transcription. Please correct any errors you find in the sentences first, based on their context. Then translate them to target language according to the revised sentences.
 The user will provide a chunk of lines, you should respond with an accurate, concise, and natural-sounding translation for the dialogue. 
-The user may provide additional context, such as a synopsis or title of the film, a summary of the current scene, or a list of character names. Use this information to improve the quality of your translation.
+The user may provide additional context, such as background, synopsis or title of the film, a summary of the current scene, or a list of character names. Use this information to improve the quality of your translation.
 Your response will be processed by an automated system, so it is imperative that you adhere to the required output format.
 
 Example input (Japanese to Chinese):
@@ -106,7 +106,7 @@ class TranslatePrompter:
 
 
 class BaseTranslatePrompter(TranslatePrompter):
-    def __init__(self, src_lang, target_lang, audio_type=None, title='', synopsis=''):
+    def __init__(self, src_lang, target_lang, audio_type=None, title='', background='', synopsis=''):
         self.src_lang = Language.get(src_lang).display_name('en')
         self.target_lang = Language.get(target_lang).display_name('en')
         if target_lang == 'zh-cn':
@@ -114,9 +114,11 @@ class BaseTranslatePrompter(TranslatePrompter):
 
         self.audio_type = audio_type
         self.title = title
+        self.background = background
         self.synopsis = synopsis
         self.user_prompt = f'''
 {f"<title>{self.title}</title>" if self.title else ""}
+{f"<background>{self.background}</background>" if self.background else ""}
 {f"<synopsis>{self.synopsis}</synopsis>" if self.synopsis else ""}
 <context>
 <scene>{{scene}}</scene>

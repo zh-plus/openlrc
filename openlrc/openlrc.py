@@ -36,6 +36,8 @@ class LRCer:
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
         self.from_video = set()
+        self.background = ''
+        self.synopsis_map = None
 
         self._lock = Lock()
         self.exception = None
@@ -95,12 +97,22 @@ class LRCer:
             logger.info(f'Got transcription: {transcribed_path}')
             transcribed_sub = Subtitle(transcribed_path)
             transcribed_opt_sub = self.post_process(transcribed_sub, update_name=True)
+            audio_name = get_filename(transcribed_path.replace('_transcribed', ''), without_dir=True)
 
             # xxx_transcribed_optimized_translated.json
             translated_path = extend_filename(transcribed_opt_sub.filename, '_translated')
             if not os.path.exists(translated_path):
                 # Translate the transcribed json
                 translator = GPTTranslator(prompter=prompter, fee_limit=self.fee_limit)
+
+                # Get synopsis if found in synopsis_map
+                synopsis = ''
+                if self.synopsis_map and any(k in audio_name for k in self.synopsis_map.keys()):
+                    for k, v in self.synopsis_map.items():
+                        if k in transcribed_path:
+                            logger.info(f'Found synopsis map: {k} -> {v}')
+                            synopsis = v
+                            break
 
                 with Timer('Translation process'):
                     try:
@@ -110,6 +122,8 @@ class LRCer:
                             target_lang=target_lang,
                             title=transcribed_path.replace('_transcribed.json', ''),
                             audio_type=audio_type,
+                            background=self.background,
+                            synopsis=synopsis,
                             compare_path=transcribed_path.replace('_transcribed.json', '_compare.json')
                         )
                     except Exception as e:
@@ -136,12 +150,19 @@ class LRCer:
                 final_subtitle.to_srt()
             logger.info(f'Translation fee til now: {self.api_fee:.4f} USD')
 
-    def run(self, paths, target_lang='zh-cn', prompter='base_trans', audio_type='Anime'):
+    def run(self, paths, target_lang='zh-cn', prompter='base_trans', audio_type='Anime', synopsis_path=None,
+            background=''):
         """
         Split the translation into 2 phases: transcription and translation. They're running in parallel.
         Firstly, transcribe the audios one-by-one. At the same time, translation threads are created and waiting for
         the transcription results. After all the transcriptions are done, the translation threads will start to
         translate the transcribed texts.
+        :param paths: Audio/Video paths, can be a list or a single path.
+        :param target_lang: Target language, default to Mandarin Chinese.
+        :param prompter: Currently, only `base_trans` is supported.
+        :param audio_type: Audio type, default to Anime.
+        :param synopsis_path: Path to the synopsis map json file. {"name(without extention)": "synopsis", ...}
+        :param background: Providing background information for establishing context for the translation.
         """
         if isinstance(paths, str):
             paths = [paths]
@@ -149,6 +170,12 @@ class LRCer:
         audio_paths = self.pre_process(paths)
 
         logger.info(f'Working on {len(audio_paths)} audio files: {pformat(audio_paths)}')
+
+        self.background = background
+        if synopsis_path:
+            self.synopsis_map = json.load(open(synopsis_path, 'r', encoding='utf-8'))
+
+        logger.info(f'Found synopsis map: {synopsis_path}')
 
         transcription_queue = Queue()
 
@@ -168,6 +195,10 @@ class LRCer:
                 traceback.print_exception(type(self.exception), self.exception, self.exception.__traceback__)
 
         logger.info(f'Totally used API fee: {self.api_fee:.4f} USD')
+
+        # Clear background and synopsis
+        self.background = ''
+        self.synopsis_map = None
 
     @staticmethod
     def to_json(segments, name, lang):
