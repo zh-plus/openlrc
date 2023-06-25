@@ -47,6 +47,7 @@ zhconv = "^1.4.3"
 punctuators = "^0.0.5"
 colorlog = "^6.7.0"
 pytest = "^7.4.0"
+ffmpeg-python = "^0.2.0"
 
 
 [[tool.poetry.source]]

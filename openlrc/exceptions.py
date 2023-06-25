@@ -1,3 +1,6 @@
+#  Copyright (C) 2023. Hao Zheng
+#  All rights reserved.
+
 class SameLanguageException(Exception):
     """
     Raised when the source language and target language are the same.
@@ -15,5 +18,10 @@ class ChatBotException(Exception):
     Raised when chatbot fails to generate response.
     """
 
+    def __init__(self, message):
+        super().__init__(message)
+
+
+class FfmpegException(Exception):
     def __init__(self, message):
         super().__init__(message)

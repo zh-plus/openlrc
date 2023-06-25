@@ -47,6 +47,9 @@ lrcer.run('./data/test.mp3', target_lang='zh-cn')  # Generate translated ./data/
 # Multiple files
 lrcer.run(['./data/test1.mp3', './data/test2.mp3'], target_lang='zh-cn')
 # Note we run the transcription sequentially, but run the translation concurrently for each file.
+
+# Path can contain video
+lrcer.run(['./data/test_audio.mp3', './data/test_video.mp4'], target_lang='zh-cn')
 ```
 
 ## Todo

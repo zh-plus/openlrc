@@ -14,7 +14,8 @@ from openlrc.opt import SubtitleOptimizer
 from openlrc.subtitle import Subtitle
 from openlrc.transcribe import Transcriber
 from openlrc.translate import GPTTranslator
-from openlrc.utils import Timer, change_ext, extend_filename, get_audio_duration, format_timestamp
+from openlrc.utils import Timer, change_ext, extend_filename, get_audio_duration, format_timestamp, extract_audio, \
+    get_file_type, get_filename
 
 
 class LRCer:
@@ -34,6 +35,7 @@ class LRCer:
         self.transcriber = Transcriber(model_name=model_name, compute_type=compute_type)
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
+        self.from_video = set()
 
         self._lock = Lock()
         self.exception = None
@@ -130,17 +132,21 @@ class LRCer:
                                                update_name=True)  # xxx.json
 
             final_subtitle.to_lrc()
+            if get_filename(output_filename) in self.from_video:
+                final_subtitle.to_srt()
             logger.info(f'Translation fee til now: {self.api_fee:.4f} USD')
 
-    def run(self, audio_paths, target_lang='zh-cn', prompter='base_trans', audio_type='Anime'):
+    def run(self, paths, target_lang='zh-cn', prompter='base_trans', audio_type='Anime'):
         """
         Split the translation into 2 phases: transcription and translation. They're running in parallel.
         Firstly, transcribe the audios one-by-one. At the same time, translation threads are created and waiting for
         the transcription results. After all the transcriptions are done, the translation threads will start to
         translate the transcribed texts.
         """
-        if isinstance(audio_paths, str):
-            audio_paths = [audio_paths]
+        if isinstance(paths, str):
+            paths = [paths]
+
+        audio_paths = self.pre_process(paths)
 
         logger.info(f'Working on {len(audio_paths)} audio files: {pformat(audio_paths)}')
 
@@ -184,6 +190,19 @@ class LRCer:
         logger.info(f'File saved to {name}')
 
         return result
+
+    def pre_process(self, paths):
+        # Check if path is audio or video
+        for i, path in enumerate(paths):
+            if not os.path.exists(path) or not os.path.isfile(path):
+                raise FileNotFoundError(f'File not found: {path}')
+
+            paths[i] = extract_audio(path)
+
+            if get_file_type(path) == 'video':
+                self.from_video.add(get_filename(path))
+
+        return paths
 
     @staticmethod
     def post_process(transcribed_sub, output_name=None, remove_files=None, t2m=False, update_name=False):

@@ -8,10 +8,51 @@ from os.path import splitext
 from typing import List, Dict, Any
 
 import audioread
+import ffmpeg
 import tiktoken
 import torch
 
+from openlrc.exceptions import FfmpegException
 from openlrc.logger import logger
+
+
+def extract_audio(path: str) -> str:
+    """
+    Extract audio from video.
+    :return: Audio path
+    """
+    file_type = get_file_type(path)
+    if file_type == 'audio':
+        return path
+
+    probe = ffmpeg.probe(path)
+    audio_streams = next((stream for stream in probe['streams'] if stream['codec_type'] == 'audio'), None)
+    sample_rate = audio_streams['sample_rate']
+    logger.info(f'File {path}: Audio sample rate: {sample_rate}')
+
+    audio, err = (
+        ffmpeg.input(path).
+        output("pipe:", format='wav', acodec='pcm_s16le', ar=sample_rate, loglevel='quiet').
+        run(capture_stdout=True)
+    )
+
+    if err:
+        raise RuntimeError(f'ffmpeg error: {err}')
+
+    audio_path = change_ext(path, 'wav')
+    with open(audio_path, 'wb') as f:
+        f.write(audio)
+
+    return audio_path
+
+
+def get_file_type(path: str) -> str:
+    try:
+        video_stream = ffmpeg.probe(path, select_streams='v')['streams']
+    except Exception as e:
+        raise FfmpegException(f'ffmpeg error: {e}')
+
+    return ['audio', 'video'][len(video_stream) > 0]
 
 
 def get_audio_duration(path: str) -> float:
@@ -34,6 +75,10 @@ def get_messages_token_number(messages: List[Dict[str, Any]], model: str = "gpt-
     total = sum([get_text_token_number(element['content'], model=model) for element in messages])
 
     return total
+
+
+def get_filename(path: str) -> str:
+    return splitext(path)[0]
 
 
 def change_ext(filename: str, ext: str) -> str:

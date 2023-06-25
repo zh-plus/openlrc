@@ -35,4 +35,4 @@ jobs:
           poetry run pip install git+https://github.com/m-bain/whisperx.git
       - name: Test with pytest
         run: |
-          poetry run pytest tests --disable-warnings
+          poetry run pytest tests --disable-warnings --rootdir=tests

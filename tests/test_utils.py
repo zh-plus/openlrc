@@ -4,8 +4,47 @@
 import pytest
 import torch
 
+from openlrc.exceptions import FfmpegException
 from openlrc.utils import format_timestamp, parse_timestamp, get_text_token_number, get_messages_token_number, \
-    change_ext, extend_filename, release_memory
+    change_ext, extend_filename, release_memory, extract_audio, get_file_type
+
+
+@pytest.fixture
+def video_file():
+    return 'data/test_video.mp4'
+
+
+@pytest.fixture
+def audio_file():
+    return 'data/test_video.wav'
+
+
+def test_extract_audio(video_file, audio_file):
+    # Test extracting audio from a video file
+    extracted_audio_file = extract_audio(video_file)
+    assert extracted_audio_file == audio_file
+
+    # Test extracting audio from an audio file
+    extracted_audio_file = extract_audio(audio_file)
+    assert extracted_audio_file == audio_file
+
+    # Test extracting audio from an unsupported file type
+    with pytest.raises(FfmpegException):
+        extract_audio('unsupported_file.xyz')
+
+
+def test_get_file_type(video_file, audio_file):
+    # Test getting the file type of video file
+    file_type = get_file_type(video_file)
+    assert file_type == 'video'
+
+    # Test getting the file type of audio file
+    file_type = get_file_type(audio_file)
+    assert file_type == 'audio'
+
+    # Test getting the file type of unsupported file type
+    with pytest.raises(FfmpegException):
+        get_file_type('unsupported_file.xyz')
 
 
 def test_lrc_format():
