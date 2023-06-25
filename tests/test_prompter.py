@@ -32,8 +32,8 @@ Original>
 変わりゆく時代において、
 Translation>
 
-<summary/>
-<scene/>'''
+<summary></summary>
+<scene></scene>'''
     assert prompter.user(1, user_input, ['test chunk1 summary', 'test chunk2 summary'],
                          'test scene content') == expected_output
 

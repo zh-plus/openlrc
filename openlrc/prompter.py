@@ -76,7 +76,7 @@ Use the available information to add a short synopsis of the current scene in a 
 <scene>John and Sarah are in their office analyzing data and planning their next steps. They deduce that the suspect is probably in the uptown area and decide to start their search there.</scene>
 Remember to end this tag with ``</scene>``.
 
-Use the target language when writing content for the ``summary/`` and ``scene/`` tags. 
+Use the target language when writing content for the <summary/> and <scene/> tags. 
 Ensure that the summary and scene are concise, containing less than 100 words.
 You need to update your summary and scene with the new information you have.
 Do not guess or improvise if the context is unclear, just summarise the dialogue.
@@ -127,9 +127,8 @@ class BaseTranslatePrompter(TranslatePrompter):
 Please translate these subtitles for {self.audio_type}{f" named {self.title}" if self.title else ""} from {self.src_lang} to {self.target_lang}.\n
 {{user_input}}
 
-<summary/>
-<scene/>
-'''
+<summary></summary>
+<scene></scene>'''
 
     @staticmethod
     def system():
