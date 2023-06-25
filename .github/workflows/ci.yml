@@ -30,9 +30,13 @@ jobs:
           poetry-version: 1.5.1
       - name: Install dependencies
         run: |
+          poetry lock --no-update
           poetry install
-          poetry run pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
           poetry run pip install git+https://github.com/m-bain/whisperx.git
+      - name: Install ffmpeg
+        uses: FedericoCarboni/setup-ffmpeg@v2
+        id: setup-ffmpeg
       - name: Test with pytest
+        working-directory: ./tests
         run: |
-          poetry run pytest tests --disable-warnings --rootdir=tests
+          poetry run pytest . --disable-warnings
