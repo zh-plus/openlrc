@@ -157,6 +157,7 @@ class LRCer:
         Firstly, transcribe the audios one-by-one. At the same time, translation threads are created and waiting for
         the transcription results. After all the transcriptions are done, the translation threads will start to
         translate the transcribed texts.
+        TODO: Abstract audio_type, synopsis_path, background to Context class.
         :param paths: Audio/Video paths, can be a list or a single path.
         :param target_lang: Target language, default to Mandarin Chinese.
         :param prompter: Currently, only `base_trans` is supported.

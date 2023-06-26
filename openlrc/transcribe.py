@@ -56,18 +56,19 @@ class Transcriber:
 
         :return A dict with key 'sentences' and value a list of dict with key 'text', 'start_word', 'end_word'.
         """
-        pcs_model = PunctCapSegModelONNX.from_pretrained('pcs_47lang')
+        pcs_model: PunctCapSegModelONNX = PunctCapSegModelONNX.from_pretrained(
+            "1-800-BAD-CODE/xlm-roberta_punctuation_fullstop_truecase"
+        )
         punctuations = '.,?？，。、・।؟;።፣፧،'
 
-        sentences_list = pcs_model.infer([segment['text'] for segment in transcribe_result['segments']])
+        sentences_list = pcs_model.infer([segment['text'] for segment in transcribe_result['segments']], apply_sbd=True)
 
         pcs_result = {'sentences': []}
         for segment, sentences in zip(transcribe_result['segments'], sentences_list):
             last_end_idx = 0
             for sentence in sentences:
                 sentence = sentence.lower()
-                stc_split = re.split(f'[{punctuations}]|<unk>', sentence)
-                # TODO: Recover <unk> from segment['text']
+                stc_split = re.split(f'[{punctuations}]', sentence)
 
                 # Remove empty string
                 stc_split = [split for split in stc_split if split]
