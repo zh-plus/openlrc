@@ -132,7 +132,7 @@ class LRCer:
                     if len(target_texts) != len(transcribed_opt_sub):
                         logger.error(f'Compare json file {compare_path} is not valid.')
                         raise ValueError(f'Compare json file {compare_path} is not valid.')
-                transcribed_opt_sub.set_texts(target_texts)
+                transcribed_opt_sub.set_texts(target_texts, lang=target_lang)
 
                 # xxx_transcribed_optimized_translated.json
                 transcribed_opt_sub.save(translated_path, update_name=True)
