@@ -4,6 +4,7 @@
 import re
 
 from langcodes import Language
+from lingua import LanguageDetectorBuilder
 
 from openlrc.logger import logger
 
@@ -107,10 +108,11 @@ class TranslatePrompter:
 
 class BaseTranslatePrompter(TranslatePrompter):
     def __init__(self, src_lang, target_lang, audio_type=None, title='', background='', synopsis=''):
-        self.src_lang = Language.get(src_lang).display_name('en')
-        self.target_lang = Language.get(target_lang).display_name('en')
-        if target_lang == 'zh-cn':
-            self.target_lang = 'Mandarin Chinese'
+        self.src_lang = src_lang
+        self.target_lang = target_lang
+        self.src_lang_display = Language.get(src_lang).display_name('en')
+        self.target_lang_display = Language.get(target_lang).display_name('en')
+        self.lan_detector = LanguageDetectorBuilder.from_all_languages().build()
 
         self.audio_type = audio_type
         self.title = title
@@ -126,7 +128,7 @@ class BaseTranslatePrompter(TranslatePrompter):
 </context>
 <chunk_id> Scene 1 Chunk {{chunk_num}} <chunk_id>
 
-Please translate these subtitles for {self.audio_type}{f" named {self.title}" if self.title else ""} from {self.src_lang} to {self.target_lang}.\n
+Please translate these subtitles for {self.audio_type}{f" named {self.title}" if self.title else ""} from {self.src_lang_display} to {self.target_lang_display}.\n
 {{user_input}}
 
 <summary></summary>
@@ -152,7 +154,7 @@ Please translate these subtitles for {self.audio_type}{f" named {self.title}" if
     def check_format(self, messages, content):
         summary = re.search(r'<summary>(.*)</summary>', content)
         scene = re.search(r'<scene>(.*)</scene>', content)
-        original = re.findall(r'Original>\n(.*?)\nTranslation>', content, re.DOTALL)
+        original = re.findall(r'Original>\n(.*?)\nTranslation>', messages[1]['content'], re.DOTALL)
         translation = re.findall(r'Translation>\n*(.*?)(?:#\d+|<summary>|\n*$)', content, re.DOTALL)
 
         if not original or not translation:
@@ -167,11 +169,17 @@ Please translate these subtitles for {self.audio_type}{f" named {self.title}" if
             logger.debug(f'translation: {original}')
             return False
 
+        # Ensure the translated langauge is in the target language
+        translated_lang = self.lan_detector.detect_language_of(' '.join(translation)).name.lower()
+        target_lang = Language.get(self.target_lang).language_name().lower()
+        if translated_lang != target_lang:
+            logger.warning(f'Translated language is {translated_lang}, not {target_lang}.')
+            return False
+
         # It's ok to keep going without summary and scene
         if not summary or not summary.group(1):
             logger.warning(f'Fail to extract summary.')
             logger.debug(f'output_str: {content}')
-
         if not scene or not scene.group(1):
             logger.warning(f'Fail to extract scene.')
             logger.debug(f'output_str: {content}')
