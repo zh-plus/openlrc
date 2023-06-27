@@ -1,3 +1,20 @@
+## 0.1.3
+
+This update add input video support and introduce context configuration.
+
+#### New features:
+
+- Add input video support.
+- Add context configuration for inputs.
+
+#### Other Changes:
+
+- Add test suites to CI.
+- Add language detection for translated content.
+- Improve prompt by adding background info.
+- Update punctuator model.
+- Replace `opencc` with more light-weight `zhconv`.
+
 ## 0.1.2
 
 This update improves the timeline consistency of translated subtitles.
