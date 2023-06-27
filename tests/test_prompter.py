@@ -11,12 +11,9 @@ def prompter():
     return BaseTranslatePrompter('ja', 'zh-cn', 'movie', 'Title', 'Background', 'Synopsis')
 
 
-def test_user_prompt(prompter):
-    user_input = '''#1
-Original>
-変わりゆく時代において、
-Translation>'''
-    expected_output = '''<title>Title</title>
+@pytest.fixture()
+def formatted_user_input():
+    return '''<title>Title</title>
 <background>Background</background>
 <synopsis>Synopsis</synopsis>
 <context>
@@ -26,17 +23,34 @@ Chunk 2: test chunk2 summary </chunk>
 </context>
 <chunk_id> Scene 1 Chunk 1 <chunk_id>
 
-Please translate these subtitles for movie named Title from Japanese to Mandarin Chinese.
+Please translate these subtitles for movie named Title from Japanese to Chinese (China).
 
 #1
 Original>
 変わりゆく時代において、
 Translation>
 
+#2
+Original>
+生き残る秘訣は、進化し続けることです。
+Translation>
+
 <summary></summary>
 <scene></scene>'''
+
+
+def test_user_prompt(prompter, formatted_user_input):
+    user_input = '''#1
+Original>
+変わりゆく時代において、
+Translation>
+
+#2
+Original>
+生き残る秘訣は、進化し続けることです。
+Translation>'''
     assert prompter.user(1, user_input, ['test chunk1 summary', 'test chunk2 summary'],
-                         'test scene content') == expected_output
+                         'test scene content') == formatted_user_input
 
 
 def test_format_texts():
@@ -45,9 +59,10 @@ def test_format_texts():
     assert BaseTranslatePrompter.format_texts(texts) == expected_output
 
 
-def test_check_format():
+def test_check_format(formatted_user_input):
     prompter = BaseTranslatePrompter('ja', 'zh-cn', 'movie', 'Title', 'Synopsis')
-    messages = []
+    messages = [{'role': 'system', 'content': 'system content'},
+                {'role': 'user', 'content': formatted_user_input}]
     content = '''<title>Title</title>
 <background>Background</background>
 <synopsis>Synopsis</synopsis>
@@ -61,10 +76,13 @@ def test_check_format():
 Original>
 変わりゆく時代において、
 Translation>
+在不断变化的时代里，
+
 #2
 Original>
 生き残る秘訣は、進化し続けることです。
 Translation>
+生存的秘诀是不断进化。
 
 <summary>Summary</summary>
 <scene>Scene</scene>

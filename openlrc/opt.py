@@ -40,7 +40,7 @@ class SubtitleOptimizer:
 
     def merge_short(self, threshold=1.5):
         """
-        Merge the short text.
+        Merge the short duration subtitle.
         """
         new_elements = []
 
@@ -71,7 +71,7 @@ class SubtitleOptimizer:
                     merged_element.text += ' ' + element.text
                     merged_element.end = element.end
 
-        logger.debug(f'Merge short text: {len(self.subtitle.segments)} -> {len(new_elements)}')
+        logger.debug(f'Merge the short duration subtitle: {len(self.subtitle.segments)} -> {len(new_elements)}')
 
         self.subtitle.segments = new_elements
 
@@ -118,7 +118,7 @@ class SubtitleOptimizer:
         new_elements = self.subtitle.segments
 
         for i, element in enumerate(new_elements):
-            new_elements[i].text = element.text.replace('<unk>', ' ')
+            new_elements[i].text = element.text.replace('<unk>', '')
 
         logger.debug('Remove <unk> done.')
 
