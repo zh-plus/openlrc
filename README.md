@@ -22,7 +22,9 @@ into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/
     pip install git+https://github.com/m-bain/whisperx.git
     ```
 
-5. This project can be installed from PyPI:
+5. Install [ffmpeg](https://ffmpeg.org/download.html) and add `bin` directory to your `PATH`.
+
+6. This project can be installed from PyPI:
 
     ```shell
     pip install openlrc
