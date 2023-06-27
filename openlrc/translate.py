@@ -136,7 +136,7 @@ class MSTranslator:
         body = [{'text': text} for text in texts]
 
         try:
-            request = requests.post(self.constructed_url, params=params, headers=self.headers, json=body)
+            request = requests.post(self.constructed_url, params=params, headers=self.headers, json=body, timeout=20)
         except TimeoutError:
             raise RuntimeError('Failed to connect to Microsoft Translator API.')
         response = request.json()
