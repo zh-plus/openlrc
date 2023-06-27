@@ -2,6 +2,7 @@
 #  All rights reserved.
 
 import re
+from pathlib import Path
 from typing import Union
 
 import zhconv
@@ -12,9 +13,9 @@ from openlrc.utils import extend_filename
 
 
 class SubtitleOptimizer:
-    def __init__(self, subtitle: Union[str, Subtitle]):
-        if isinstance(subtitle, str):
-            subtitle = Subtitle(subtitle)
+    def __init__(self, subtitle: Union[Path, Subtitle]):
+        if isinstance(subtitle, Path):
+            subtitle = Subtitle.from_json(subtitle)
 
         self.subtitle = subtitle
 
@@ -33,8 +34,6 @@ class SubtitleOptimizer:
                 new_elements.append(element)
             else:
                 new_elements[-1].end = element.end
-
-        logger.debug(f'Merge same text: {len(self.subtitle.segments)} -> {len(new_elements)}')
 
         self.subtitle.segments = new_elements
 
@@ -71,8 +70,6 @@ class SubtitleOptimizer:
                     merged_element.text += ' ' + element.text
                     merged_element.end = element.end
 
-        logger.debug(f'Merge the short duration subtitle: {len(self.subtitle.segments)} -> {len(new_elements)}')
-
         self.subtitle.segments = new_elements
 
     def merge_repeat(self):
@@ -88,8 +85,6 @@ class SubtitleOptimizer:
             text = re.sub(r'(.+)\1{4,}', r'\1\1...', text)
             new_elements[i].text = text
 
-        logger.debug('Merge same words done.')
-
         self.subtitle.segments = new_elements
 
     def cut_long(self, threshold=125, keep=20):
@@ -100,8 +95,6 @@ class SubtitleOptimizer:
                 logger.warning(f'Cut long text: {element.text}\nInto: {element.text[:keep]}...')
                 new_elements[i].text = element.text[:keep] + f'(Cut to {keep})'
 
-        logger.debug('Cut long text done.')
-
         self.subtitle.segments = new_elements
 
     def traditional2mandarin(self):
@@ -109,8 +102,6 @@ class SubtitleOptimizer:
 
         for i, element in enumerate(new_elements):
             new_elements[i].text = zhconv.convert(element.text, locale='zh-cn')
-
-        logger.debug('Traditional Chinese to Mandarin done.')
 
         self.subtitle.segments = new_elements
 
@@ -120,14 +111,10 @@ class SubtitleOptimizer:
         for i, element in enumerate(new_elements):
             new_elements[i].text = element.text.replace('<unk>', '')
 
-        logger.debug('Remove <unk> done.')
-
         self.subtitle.segments = new_elements
 
     def remove_empty(self):
         self.subtitle.segments = [element for element in self.subtitle.segments if element.text]
-
-        logger.debug('Remove empty done.')
 
     def perform_all(self, t2m=False):
         for _ in range(2):

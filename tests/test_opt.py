@@ -12,7 +12,7 @@ from openlrc.subtitle import Subtitle
 
 @pytest.fixture
 def subtitle():
-    return Subtitle('data/test_subtitle.json')
+    return Subtitle.from_json('data/test_subtitle.json')
 
 
 def test_merge_same(subtitle):

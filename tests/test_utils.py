@@ -1,28 +1,35 @@
 #  Copyright (C) 2023. Hao Zheng
 #  All rights reserved.
 
+from pathlib import Path
+
 import pytest
 import torch
 
 from openlrc.exceptions import FfmpegException
 from openlrc.utils import format_timestamp, parse_timestamp, get_text_token_number, get_messages_token_number, \
-    change_ext, extend_filename, release_memory, extract_audio, get_file_type
+    extend_filename, release_memory, extract_audio, get_file_type
 
 
 @pytest.fixture
 def video_file():
-    return 'data/test_video.mp4'
+    return Path('data/test_video.mp4')
 
 
 @pytest.fixture
 def audio_file():
-    return 'data/test_video.wav'
+    return Path('data/test_video.wav')
+
+
+@pytest.fixture
+def unsupported():
+    return Path('unsupported_file.xyz')
 
 
 def test_extract_audio(video_file, audio_file):
     # Test extracting audio from a video file
     extracted_audio_file = extract_audio(video_file)
-    assert extracted_audio_file == audio_file
+    assert audio_file == Path(extracted_audio_file)
 
     # Test extracting audio from an audio file
     extracted_audio_file = extract_audio(audio_file)
@@ -30,7 +37,7 @@ def test_extract_audio(video_file, audio_file):
 
     # Test extracting audio from an unsupported file type
     with pytest.raises(FfmpegException):
-        extract_audio('unsupported_file.xyz')
+        extract_audio(unsupported)
 
 
 def test_get_file_type(video_file, audio_file):
@@ -44,7 +51,7 @@ def test_get_file_type(video_file, audio_file):
 
     # Test getting the file type of unsupported file type
     with pytest.raises(FfmpegException):
-        get_file_type('unsupported_file.xyz')
+        get_file_type(unsupported)
 
 
 def test_lrc_format():
@@ -112,16 +119,9 @@ def test_get_messages_token_number():
     assert get_messages_token_number(messages) == 13
 
 
-def test_change_ext():
-    assert change_ext('file.txt', 'csv') == 'file.csv'
-    assert change_ext('file.txt', '') == 'file.'
-    assert change_ext('file', 'csv') == 'file.csv'
-
-
 def test_extend_filename():
-    assert extend_filename('file.txt', '_new') == 'file_new.txt'
-    assert extend_filename('file', '_new') == 'file_new'
-    assert extend_filename('file.txt', '') == 'file.txt'
+    assert extend_filename(Path('file.txt'), '_new') == Path('file_new.txt')
+    assert extend_filename(Path('file.txt'), '') == Path('file.txt')
 
 
 def test_release_memory():

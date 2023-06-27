@@ -179,10 +179,8 @@ Please translate these subtitles for {self.audio_type}{f" named {self.title}" if
         # It's ok to keep going without summary and scene
         if not summary or not summary.group(1):
             logger.warning(f'Fail to extract summary.')
-            logger.debug(f'output_str: {content}')
         if not scene or not scene.group(1):
             logger.warning(f'Fail to extract scene.')
-            logger.debug(f'output_str: {content}')
 
         return True
 

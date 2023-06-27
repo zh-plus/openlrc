@@ -2,10 +2,9 @@
 #  All rights reserved.
 
 import gc
-import os
 import re
 import time
-from os.path import splitext
+from pathlib import Path
 from typing import List, Dict, Any
 
 import audioread
@@ -17,7 +16,7 @@ from openlrc.exceptions import FfmpegException
 from openlrc.logger import logger
 
 
-def extract_audio(path: str) -> str:
+def extract_audio(path: Path) -> Path:
     """
     Extract audio from video.
     :return: Audio path
@@ -40,14 +39,14 @@ def extract_audio(path: str) -> str:
     if err:
         raise RuntimeError(f'ffmpeg error: {err}')
 
-    audio_path = change_ext(path, 'wav')
+    audio_path = path.with_suffix('.wav')
     with open(audio_path, 'wb') as f:
         f.write(audio)
 
     return audio_path
 
 
-def get_file_type(path: str) -> str:
+def get_file_type(path: Path) -> str:
     try:
         video_stream = ffmpeg.probe(path, select_streams='v')['streams']
     except Exception as e:
@@ -78,23 +77,9 @@ def get_messages_token_number(messages: List[Dict[str, Any]], model: str = "gpt-
     return total
 
 
-def get_filename(path: str, without_dir=False) -> str:
-    """Get the filename from a path."""
-    if without_dir:
-        path = os.path.basename(path)
-
-    return splitext(path)[0]
-
-
-def change_ext(filename: str, ext: str) -> str:
-    """Change the extension of a filename."""
-    return f'{splitext(filename)[0]}.{ext}'
-
-
-def extend_filename(filename: str, extend: str) -> str:
+def extend_filename(filename: Path, extend: str) -> Path:
     """Extend a filename with some string."""
-    name, ext = splitext(filename)
-    return f'{name}{extend}{ext}'
+    return filename.with_stem(filename.stem + extend)
 
 
 class Timer:

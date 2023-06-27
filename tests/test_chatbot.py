@@ -1,5 +1,6 @@
 #  Copyright (C) 2023. Hao Zheng
 #  All rights reserved.
+
 from collections import namedtuple
 from math import isclose
 

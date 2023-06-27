@@ -14,15 +14,13 @@ from openlrc.prompter import prompter_map, BaseTranslatePrompter
 
 
 class GPTTranslator:
-    def __init__(self, prompter: str = 'base_trans', fee_limit=0.1, chunk_size=30, intercept_line=None,
-                 force_translate=False):
+    def __init__(self, prompter: str = 'base_trans', fee_limit=0.1, chunk_size=30, intercept_line=None):
         """
         :param prompter: Translate prompter, choices can be found in `prompter_map` from prompter.py.
         :param fee_limit: Fee limit (USD) for OpenAI API.
         :param chunk_size: Use small (<20) chunk size for speed (more async call), and enhance translation
                     stability (keep audio timeline consistency).
         :param intercept_line: Intercepted text line number.
-        :param force_translate: Force translation even if the source language is the same as the target language.
         """
         if prompter not in prompter_map:
             raise ValueError(f'Prompter {prompter} not found.')
@@ -32,7 +30,6 @@ class GPTTranslator:
         self.chunk_size = chunk_size
         self.api_fee = 0
         self.intercept_line = intercept_line
-        self.force_translate = force_translate
 
     @staticmethod
     def make_chunks(texts, chunk_size=30):
@@ -138,7 +135,10 @@ class MSTranslator:
 
         body = [{'text': text} for text in texts]
 
-        request = requests.post(self.constructed_url, params=params, headers=self.headers, json=body)
+        try:
+            request = requests.post(self.constructed_url, params=params, headers=self.headers, json=body)
+        except TimeoutError:
+            raise RuntimeError('Failed to connect to Microsoft Translator API.')
         response = request.json()
 
         return json.dumps(response, sort_keys=True, ensure_ascii=False, indent=4, separators=(',', ': '))

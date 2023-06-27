@@ -1,7 +1,8 @@
 #  Copyright (C) 2023. Hao Zheng
 #  All rights reserved.
-
-import os
+from difflib import get_close_matches
+from pathlib import Path
+from typing import Union
 
 import yaml
 
@@ -18,32 +19,34 @@ class Context:
         :param audio_type: Audio type, default to Anime.
         :param config_path: Path to config file.
         """
-        self.config_path = config_path
+        self.config_path = None
         self.background = background
         self.audio_type = audio_type
         self.synopsis_map = synopsis_map if synopsis_map else dict()
 
         # if config_path exist, load yaml file
         if config_path:
-            if os.path.exists(config_path):
-                self.load_config(self.config_path)
+            config_path = Path(config_path)
+            if config_path.exists():
+                self.load_config(config_path)
             else:
                 raise FileNotFoundError(f'Config file {config_path} not found.')
 
-    def load_config(self, config_path):
-        if not os.path.exists(config_path):
+    def load_config(self, config_path: Union[str, Path]):
+        config_path = Path(config_path)
+        if not config_path.exists():
             raise FileNotFoundError(f'Config file {config_path} not found.')
 
         with open(config_path, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
+            config: dict = yaml.safe_load(f)
 
-        if config['background']:
+        if config.get('background'):
             self.background = config['background']
 
-        if config['audio_type']:
+        if config.get('audio_type'):
             self.audio_type = config['audio_type']
 
-        if config['synopsis_map']:
+        if config.get('synopsis_map'):
             self.synopsis_map = config['synopsis_map']
 
         self.config_path = config_path
@@ -57,13 +60,17 @@ class Context:
             }, f)
 
     def get_synopsis(self, audio_name):
-        if self.synopsis_map and any(k in audio_name for k in self.synopsis_map.keys()):
-            for k, v in self.synopsis_map.items():
-                if k in audio_name:
-                    logger.info(f'Found synopsis map: {k} -> {v}')
-                    return v
+        value = ''
+        if self.synopsis_map:
+            matches = get_close_matches(audio_name, self.synopsis_map.keys())
+            if matches:
+                key = matches[0]
+                value = self.synopsis_map.get(key)
+                logger.info(f'Found synopsis map: {key} -> {value}')
+            else:
+                logger.info(f'No synopsis map for {audio_name} found.')
 
-        return ''
+        return value
 
     def __str__(self):
         return f'Context(background={self.background}, audio_type={self.audio_type}, synopsis_map={self.synopsis_map})'
