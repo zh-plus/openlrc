@@ -68,6 +68,9 @@ class Transcriber:
             last_end_idx = 0
             for sentence in sentences:
                 sentence = sentence.lower()
+                if '<unk>' in sentence:
+                    logger.error(f'Unknown token in sentence: {sentence}')
+
                 stc_split = re.split(f'[{punctuations}]', sentence)
 
                 # Remove empty string

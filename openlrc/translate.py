@@ -82,6 +82,7 @@ class GPTTranslator:
         translate_bot.update(temperature=0.7)
 
         chunks = self.make_chunks(texts, chunk_size=self.chunk_size)
+        logger.info(f'Translating {title}: {len(chunks)} chunks, {len(texts)} lines in total.')
 
         # Start chunk-by-chunk translation
         translations = []

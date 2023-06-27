@@ -9,6 +9,7 @@ from pprint import pformat
 from queue import Queue
 from threading import Thread, Lock
 
+from openlrc.context import Context
 from openlrc.logger import logger
 from openlrc.opt import SubtitleOptimizer
 from openlrc.subtitle import Subtitle
@@ -36,8 +37,7 @@ class LRCer:
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
         self.from_video = set()
-        self.background = ''
-        self.synopsis_map = None
+        self.context: Context = Context()
 
         self._lock = Lock()
         self.exception = None
@@ -51,7 +51,8 @@ class LRCer:
             transcribed_path = change_ext(extend_filename(audio_path, '_transcribed'), 'json')
             if not os.path.exists(transcribed_path):
                 with Timer('Transcription process'):
-                    logger.info(f'Audio length: {audio_path}: {format_timestamp(get_audio_duration(audio_path))}')
+                    logger.info(
+                        f'Audio length: {audio_path}: {format_timestamp(get_audio_duration(audio_path), fmt="srt")}')
                     segments, info = self.transcriber.transcribe(audio_path, batch_size=4)
                     logger.info(f'Detected language: {info.language}')
 
@@ -69,19 +70,19 @@ class LRCer:
         transcription_queue.put(None)
         logger.info('Transcription producer finished.')
 
-    def transcription_consumer(self, transcription_queue, target_lang, prompter, audio_type):
+    def transcription_consumer(self, transcription_queue, target_lang, prompter):
         """
         Parallel Consumer.
         """
         with ThreadPool() as pool:
             _ = [pool.apply_async(self.translation_worker,
-                                  args=(transcription_queue, target_lang, prompter, audio_type))
+                                  args=(transcription_queue, target_lang, prompter))
                  for _ in range(self.consumer_thread)]
             pool.close()
             pool.join()
         logger.info('Transcription consumer finished.')
 
-    def translation_worker(self, transcription_queue, target_lang, prompter, audio_type):
+    def translation_worker(self, transcription_queue, target_lang, prompter):
         """
         Parallel translation.
         """
@@ -101,37 +102,36 @@ class LRCer:
 
             # xxx_transcribed_optimized_translated.json
             translated_path = extend_filename(transcribed_opt_sub.filename, '_translated')
+            compare_path = transcribed_path.replace('_transcribed.json', '_compare.json')
             if not os.path.exists(translated_path):
-                # Translate the transcribed json
-                translator = GPTTranslator(prompter=prompter, fee_limit=self.fee_limit)
+                if not os.path.exists(compare_path):
+                    # Translate the transcribed json
+                    translator = GPTTranslator(prompter=prompter, fee_limit=self.fee_limit)
+                    context = self.context
+                    with Timer('Translation process'):
+                        try:
+                            target_texts = translator.translate(
+                                transcribed_opt_sub.get_texts(),
+                                src_lang=transcribed_opt_sub.lang,
+                                target_lang=target_lang,
+                                title=audio_name,
+                                audio_type=context.audio_type,
+                                background=context.background,
+                                synopsis=context.get_synopsis(audio_name),
+                                compare_path=compare_path
+                            )
+                        except Exception as e:
+                            self.exception = e
 
-                # Get synopsis if found in synopsis_map
-                synopsis = ''
-                if self.synopsis_map and any(k in audio_name for k in self.synopsis_map.keys()):
-                    for k, v in self.synopsis_map.items():
-                        if k in transcribed_path:
-                            logger.info(f'Found synopsis map: {k} -> {v}')
-                            synopsis = v
-                            break
-
-                with Timer('Translation process'):
-                    try:
-                        target_texts = translator.translate(
-                            transcribed_opt_sub.get_texts(),
-                            src_lang=transcribed_opt_sub.lang,
-                            target_lang=target_lang,
-                            title=transcribed_path.replace('_transcribed.json', ''),
-                            audio_type=audio_type,
-                            background=self.background,
-                            synopsis=synopsis,
-                            compare_path=transcribed_path.replace('_transcribed.json', '_compare.json')
-                        )
-                    except Exception as e:
-                        self.exception = e
-
-                with self._lock:
-                    self.api_fee += translator.api_fee  # Ensure thread-safe
-
+                    with self._lock:
+                        self.api_fee += translator.api_fee  # Ensure thread-safe
+                else:
+                    logger.info(f'Found compare json file: {compare_path}')
+                    with open(compare_path, 'r', encoding='utf-8') as f:
+                        target_texts = [item['output'] for item in json.load(f)['compare']]
+                    if len(target_texts) != len(transcribed_opt_sub):
+                        logger.error(f'Compare json file {compare_path} is not valid.')
+                        raise ValueError(f'Compare json file {compare_path} is not valid.')
                 transcribed_opt_sub.set_texts(target_texts)
 
                 # xxx_transcribed_optimized_translated.json
@@ -150,20 +150,17 @@ class LRCer:
                 final_subtitle.to_srt()
             logger.info(f'Translation fee til now: {self.api_fee:.4f} USD')
 
-    def run(self, paths, target_lang='zh-cn', prompter='base_trans', audio_type='Anime', synopsis_path=None,
-            background=''):
+    def run(self, paths, target_lang='zh-cn', prompter='base_trans', context_path=None):
         """
         Split the translation into 2 phases: transcription and translation. They're running in parallel.
         Firstly, transcribe the audios one-by-one. At the same time, translation threads are created and waiting for
         the transcription results. After all the transcriptions are done, the translation threads will start to
         translate the transcribed texts.
-        TODO: Abstract audio_type, synopsis_path, background to Context class.
+
         :param paths: Audio/Video paths, can be a list or a single path.
         :param target_lang: Target language, default to Mandarin Chinese.
         :param prompter: Currently, only `base_trans` is supported.
-        :param audio_type: Audio type, default to Anime.
-        :param synopsis_path: Path to the synopsis map json file. {"name(without extention)": "synopsis", ...}
-        :param background: Providing background information for establishing context for the translation.
+        :param context_path: path to context config file. (Default to use `context.yaml` in the first audio's directory)
         """
         if isinstance(paths, str):
             paths = [paths]
@@ -172,17 +169,24 @@ class LRCer:
 
         logger.info(f'Working on {len(audio_paths)} audio files: {pformat(audio_paths)}')
 
-        self.background = background
-        if synopsis_path:
-            self.synopsis_map = json.load(open(synopsis_path, 'r', encoding='utf-8'))
-
-        logger.info(f'Found synopsis map: {synopsis_path}')
+        if context_path:
+            self.context.load_config(context_path)
+            logger.info(f'Found context config: {context_path}')
+            logger.debug(f'Context: {self.context}')
+        else:
+            # Try to find the default `context.yaml` in the first audio's directory
+            try:
+                context_path = os.path.join(os.path.dirname(paths[0]), 'context.yaml')
+                self.context.load_config(context_path)
+                logger.info(f'Found context config file: {context_path}')
+            except FileNotFoundError:
+                logger.info(f'Default context config not found: {self.context}, using default context.')
 
         transcription_queue = Queue()
 
         with Timer('Transcription (Producer) and Translation (Consumer) process'):
             consumer = Thread(target=self.transcription_consumer,
-                              args=(transcription_queue, target_lang, prompter, audio_type))
+                              args=(transcription_queue, target_lang, prompter))
             producer = Thread(target=self.transcription_producer,
                               args=(transcription_queue, audio_paths))
 
@@ -196,10 +200,6 @@ class LRCer:
                 traceback.print_exception(type(self.exception), self.exception, self.exception.__traceback__)
 
         logger.info(f'Totally used API fee: {self.api_fee:.4f} USD')
-
-        # Clear background and synopsis
-        self.background = ''
-        self.synopsis_map = None
 
     @staticmethod
     def to_json(segments, name, lang):

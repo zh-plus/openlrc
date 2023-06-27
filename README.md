@@ -50,6 +50,27 @@ lrcer.run(['./data/test1.mp3', './data/test2.mp3'], target_lang='zh-cn')
 
 # Path can contain video
 lrcer.run(['./data/test_audio.mp3', './data/test_video.mp4'], target_lang='zh-cn')
+
+# Use context.yaml to improve translation
+lrcer.run('./data/test.mp3', target_lang='zh-cn', context_path='./data/context.yaml')
+```
+
+### Context
+
+Utilize the available context to enhance the quality of your translation.
+Save them as `context.yaml` in the same directory as your audio file.
+
+```yaml
+background: "This is a multi-line background.
+This is a basic example."
+audio_type: Movie
+synopsis_map: {
+  movie_name1 (without extension): "This
+  is a multi-line synopsis for movie1.",
+  movie_name2 (without extension): "This
+  is a multi-line synopsis for movie2.",
+  movie_name3 (without extension): "This is a single-line synopsis for movie 3.",
+}
 ```
 
 ## Todo
@@ -62,8 +83,12 @@ lrcer.run(['./data/test_audio.mp3', './data/test_video.mp4'], target_lang='zh-cn
 - [x] [Efficiency] Asynchronously perform transcription and translation for multiple audio inputs.
 - [x] [Quality] Improve batched translation/polish prompt according
   to [gpt-subtrans](https://github.com/machinewrapped/gpt-subtrans).
+- [x] [Usability] Input video support.
 - [ ] [Usability] Multiple output format support.
-- [ ] [Usability] Input video support.
+- [ ] [Quality]
+  Use [multilingual language model](https://www.sbert.net/docs/pretrained_models.html#multi-lingual-models) to assess
+  translation quality.
+- [ ] [Quality] Speech enhancement for input audio.
 - [ ] [Efficiency] Add Azure OpenAI Service support.
 - [ ] [Usability] Add local LLM support.
 - [ ] [Usability] Multiple translate engine (Microsoft, DeepL, Google, etc.) support.
