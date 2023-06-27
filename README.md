@@ -1,5 +1,10 @@
 # Open-Lyrics
 
+[![PyPI](https://img.shields.io/pypi/v/openlrc)](https://pypi.org/project/openlrc/)
+[![PyPI - License](https://img.shields.io/pypi/l/openlrc)](https://pypi.org/project/openlrc/)
+[![Downloads](https://static.pepy.tech/badge/openlrc)](https://pepy.tech/project/openlrc)
+![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/zh-plus/Open-Lyrics/ci.yml)
+
 Open-Lyrics is a Python library that transcribes voice files using
 [faster-whisper](https://github.com/guillaumekln/faster-whisper), and translates/polishes the resulting text
 into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/openai/openai-python).
