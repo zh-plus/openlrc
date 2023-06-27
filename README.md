@@ -52,6 +52,7 @@ lrcer.run(['./data/test1.mp3', './data/test2.mp3'], target_lang='zh-cn')
 
 # Path can contain video
 lrcer.run(['./data/test_audio.mp3', './data/test_video.mp4'], target_lang='zh-cn')
+# Generate translated ./data/test_audio.lrc and ./data/test_video.srt
 
 # Use context.yaml to improve translation
 lrcer.run('./data/test.mp3', target_lang='zh-cn', context_path='./data/context.yaml')

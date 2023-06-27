@@ -23,16 +23,19 @@ class Context:
         self.audio_type = audio_type
         self.synopsis_map = synopsis_map if synopsis_map else dict()
 
-        # if config_path exist, load yaml file, else create a new one
-        if config_path and os.path.exists(config_path):
-            self.load_config(self.config_path)
+        # if config_path exist, load yaml file
+        if config_path:
+            if os.path.exists(config_path):
+                self.load_config(self.config_path)
+            else:
+                raise FileNotFoundError(f'Config file {config_path} not found.')
 
     def load_config(self, config_path):
         if not os.path.exists(config_path):
             raise FileNotFoundError(f'Config file {config_path} not found.')
 
         with open(config_path, 'r', encoding='utf-8') as f:
-            config = yaml.load(f, yaml.CLoader)
+            config = yaml.safe_load(f)
 
         if config['background']:
             self.background = config['background']
@@ -42,6 +45,8 @@ class Context:
 
         if config['synopsis_map']:
             self.synopsis_map = config['synopsis_map']
+
+        self.config_path = config_path
 
     def save_config(self):
         with open(self.config_path, 'w') as f:
