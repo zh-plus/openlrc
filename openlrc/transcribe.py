@@ -1,7 +1,6 @@
 #  Copyright (C) 2023. Hao Zheng
 #  All rights reserved.
 
-import json
 import re
 from typing import NamedTuple
 
@@ -23,8 +22,10 @@ class Transcriber:
         self.compute_type = compute_type
         self.device = device
 
-    def transcribe(self, audio_path, batch_size=8):
-        whisper_model = whisperx.load_model(self.model_name, compute_type=self.compute_type, device=self.device)
+    def transcribe(self, audio_path, batch_size=8, language=None, asr_options=None):
+        whisper_model = whisperx.load_model(self.model_name, language=language, compute_type=self.compute_type,
+                                            device=self.device,
+                                            asr_options=asr_options)
         audio = whisperx.load_audio(audio_path)
 
         with Timer('Base Whisper Transcription'):
@@ -39,10 +40,8 @@ class Transcriber:
 
         release_memory(align_model)
 
-        with open('test_aligned_result.json', 'w', encoding='utf-8') as f:
-            json.dump(aligned_result, f, ensure_ascii=False, indent=4)
-
         with Timer('Sentence Alignment'):
+            # TODO: Seems no need to use sentence alignment for Eng. Change pcs_result format to make them compatible.
             pcs_result = self.sentence_align(aligned_result)
 
         info = TranscriptionInfo(language=result['language'], duration=get_audio_duration(audio_path))
@@ -67,9 +66,13 @@ class Transcriber:
         for segment, sentences in zip(transcribe_result['segments'], sentences_list):
             last_end_idx = 0
             for sentence in sentences:
-                sentence = sentence.lower()
-                if '<unk>' in sentence:
+                if '<unk>' in sentence.lower():
                     logger.error(f'Unknown token in sentence: {sentence}')
+                    if len(sentence.lower().replace('<unk>', '').strip()) <= 3:
+                        logger.warning(f'Unknown token in sentence: {sentence} is too short, skip')
+                        continue
+                    else:
+                        logger.warning(f'Unknown token in sentence: {sentence} is still long, keep')
 
                 stc_split = re.split(f'[{punctuations}]', sentence)
 
@@ -80,8 +83,12 @@ class Transcriber:
                     continue
 
                 # check if first and last is substring of sentence
-                assert stc_split[0] in segment['text'], f'First split: {stc_split[0]} not in {segment["text"]}'
-                assert stc_split[-1] in segment['text'], f'Last split: {stc_split[-1]} not in {segment["text"]}'
+                if stc_split[0] not in segment['text']:
+                    logger.error(f'First split: {stc_split[0]} not in {segment["text"]}, skip')
+                    continue
+                if stc_split[-1] not in segment['text']:
+                    logger.error(f'Last split: {stc_split[-1]} not in {segment["text"]}, skip')
+                    continue
 
                 # Locate the start and end split in transcribed sentences
                 start_idx = segment['text'].find(stc_split[0], last_end_idx)
