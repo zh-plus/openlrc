@@ -11,6 +11,8 @@ import audioread
 import ffmpeg
 import tiktoken
 import torch
+from langcodes import Language
+from lingua import LanguageDetectorBuilder
 
 from openlrc.exceptions import FfmpegException
 from openlrc.logger import logger
@@ -172,3 +174,10 @@ def format_timestamp(seconds: float, fmt: str = 'lrc') -> str:
         return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
     else:
         raise ValueError(f"Unsupported timestamp format: {fmt}")
+
+
+def detect_lang(text):
+    detector = LanguageDetectorBuilder.from_all_languages().build()
+    name = detector.detect_language_of(' '.join(text)).name.lower()
+    lang_code = Language.find(name).language
+    return lang_code
