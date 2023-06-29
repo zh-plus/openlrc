@@ -252,6 +252,9 @@ class LRCer:
         return result
 
     def pre_process(self, paths):
+        if not paths:
+            raise ValueError('No path provided.')
+
         paths = [Path(path) for path in paths]
 
         # Check if path is audio or video
