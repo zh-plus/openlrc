@@ -2,7 +2,7 @@
 #  All rights reserved.
 
 import re
-from typing import NamedTuple
+from typing import NamedTuple, Dict
 
 import whisperx
 from punctuators.models import PunctCapSegModelONNX
@@ -21,6 +21,7 @@ class Transcriber:
         self.model_name = model_name
         self.compute_type = compute_type
         self.device = device
+        self.no_need_align = ['en']  # Languages that is accurate enough without sentence alignment
 
     def transcribe(self, audio_path, batch_size=8, language=None, asr_options=None):
         whisper_model = whisperx.load_model(self.model_name, language=language, compute_type=self.compute_type,
@@ -37,12 +38,18 @@ class Transcriber:
             align_model, metadata = whisperx.load_align_model(language_code=result["language"], device=self.device)
             aligned_result = whisperx.align(result["segments"], align_model, metadata, audio, self.device,
                                             return_char_alignments=False)
-
+            # {'segments': [{start: 0.0, end: 0.5, text: 'hello'}, ...], 'word_segments': [{start: , end: , word:}]}
         release_memory(align_model)
 
-        with Timer('Sentence Alignment'):
-            # TODO: Seems no need to use sentence alignment for Eng. Change pcs_result format to make them compatible.
-            pcs_result = self.sentence_align(aligned_result)
+        if self.need_sentence_align(aligned_result, result["language"]):
+            with Timer('Sentence Alignment'):
+                pcs_result = self.sentence_align(aligned_result)
+                # {'sentences': [{text: , start: , end:}, ...]}
+        else:
+            logger.warning(
+                'Skip sentence alignment. Warning: This module is still in beta. '
+                'The resulting sentence maybe too long for subtitle')
+            pcs_result = {'sentences': aligned_result['segments']}
 
         info = TranscriptionInfo(language=result['language'], duration=get_audio_duration(audio_path))
 
@@ -103,17 +110,9 @@ class Transcriber:
                 last_end_idx = end_idx
 
                 if not segment['words']:
-                    start_word = {
-                        'start': segment['start'],
-                        'end': segment['start'],
-                        'word': segment['text'][0]
-                    }
-                    end_word = {
-                        'start': segment['end'],
-                        'end': segment['end'],
-                        'word': segment['text'][-1]
-                    }
-                    pcs_result['sentences'].append({'text': sentence, 'start_word': start_word, 'end_word': end_word})
+                    start = segment['start']
+                    end = segment['end']
+                    pcs_result['sentences'].append({'text': sentence, 'start': start, 'end': end})
                     continue
 
                 # start word and end word should not be punctuation
@@ -124,7 +123,7 @@ class Transcriber:
                     # Cant find valid start word
                     continue
                 else:
-                    start = segment['words'][start_idx]
+                    start = segment['words'][start_idx]['start']
 
                 while end_idx >= last_end_idx and 'start' not in segment['words'][end_idx]:
                     end_idx -= 1
@@ -133,16 +132,21 @@ class Transcriber:
                     # Cant find valid end word
                     end = start
                 else:
-                    end = segment['words'][end_idx]
+                    end = segment['words'][end_idx]['end']
 
                 sentence = sentence.lstrip(punctuations)
 
-                # TODO: Should remove this case in next release.
-                if start['word'] not in sentence and end['word'] not in sentence:
-                    logger.warning(
-                        f'Cannot find start word {start["word"]} or end word {end["word"]} in sentence {sentence}'
-                    )
-
-                pcs_result['sentences'].append({'text': sentence, 'start_word': start, 'end_word': end})
+                pcs_result['sentences'].append({'text': sentence, 'start': start, 'end': end})
 
         return pcs_result
+
+    def need_sentence_align(self, aligned_result: Dict[str, list], language: str):
+        if language in self.no_need_align:
+            return False
+
+        word_segments = aligned_result['word_segments']
+        if len(word_segments) == 0:
+            return False
+
+        avg_word_len = sum([len(word) for word in word_segments]) / len(word_segments)
+        return avg_word_len >= 1.5

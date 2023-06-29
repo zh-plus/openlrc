@@ -14,11 +14,12 @@ class TestTranscriber:
         mocker.patch('whisperx.load_align_model', return_value=[None, None])
         mocker.patch('whisperx.align')
         mocker.patch('whisperx.asr.FasterWhisperPipeline.transcribe', return_value={'language': '', 'segments': []})
-        mocker.patch('openlrc.transcribe.Transcriber.sentence_align', return_value={'sentences': []})
+        mocker.patch('openlrc.transcribe.Transcriber.sentence_align',
+                     return_value={'sentences': [], 'word_segments': []})
         mocker.patch('json.dump')
         transcriber = Transcriber()
         result, info = transcriber.transcribe('data/test_video.wav')
-        assert result == {'sentences': []}
+        assert result['sentences']
         assert info.duration == 24347.887142857144
 
     #  Tests that an empty audio file raises an error

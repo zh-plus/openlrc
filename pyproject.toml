@@ -34,13 +34,11 @@ include = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.8"
 openai = "^0.27.6"
 faster-whisper = "^0.6.0"
 tiktoken = "^0.3.1"
 langcodes = "^3.3.0"
 language-data = "^1.1"
-rich = "^12.6.0"
 tqdm = "^4.65.0"
 audioread = "^3.0.0"
 zhconv = "^1.4.3"
@@ -48,9 +46,12 @@ punctuators = "^0.0.5"
 colorlog = "^6.7.0"
 ffmpeg-python = "^0.2.0"
 lingua-language-detector = "^1.3.2"
-torch = { version = "2.0.1", source = "torch" }
-torchaudio = { version = "2.0.2", source = "torch" }
-torchvision = { version = "0.15.2", source = "torch" }
+pandas = "^2.0.2"
+whisperx = { git = "https://github.com/m-bain/whisperx.git" }
+#torch = { version = "2.0.1", source = "torch" }
+#torchaudio = { version = "2.0.2", source = "torch" }
+#torchvision = { version = "0.15.2", source = "torch" }
+
 
 [tool.poetry.group.test.dependencies]
 pytest = "^7.4.0"
@@ -60,10 +61,10 @@ pytest-mock = "^3.11.1"
 name = "PyPI"
 priority = "primary"
 
-[[tool.poetry.source]]
-name = "torch"
-url = "https://download.pytorch.org/whl/cu118"
-priority = "supplemental"
+#[[tool.poetry.source]]
+#name = "torch"
+#url = "https://download.pytorch.org/whl/cu117"
+#priority = "supplemental"
 
 [tool.poetry.urls]
 "Bug Tracker" = "https://github.com/zh-plus/Open-Lyrics/issues"

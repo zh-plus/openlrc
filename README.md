@@ -87,19 +87,21 @@ synopsis_map: {
 - [x] [Efficiency] Concurrent support for GPT request.
 - [x] [Efficiency & Transcription Quality] Use [whisperx](https://github.com/m-bain/whisperX) for transcription.
 - [x] [Translation Quality] Make translate prompt more robust according to https://github.com/openai/openai-cookbook.
-- [x] [Usability] Automatically fix json encoder error using GPT.
+- [x] [Feature] Automatically fix json encoder error using GPT.
 - [x] [Efficiency] Asynchronously perform transcription and translation for multiple audio inputs.
 - [x] [Quality] Improve batched translation/polish prompt according
   to [gpt-subtrans](https://github.com/machinewrapped/gpt-subtrans).
-- [x] [Usability] Input video support.
-- [ ] [Usability] Multiple output format support.
+- [x] [Feature] Input video support.
+- [X] [Feature] Multiple output format support.
+- [ ] [Feature] Align ground-truth transcription with audio.
 - [ ] [Quality]
   Use [multilingual language model](https://www.sbert.net/docs/pretrained_models.html#multi-lingual-models) to assess
   translation quality.
 - [ ] [Quality] Speech enhancement for input audio.
 - [ ] [Efficiency] Add Azure OpenAI Service support.
-- [ ] [Usability] Add local LLM support.
-- [ ] [Usability] Multiple translate engine (Microsoft, DeepL, Google, etc.) support.
+- [ ] [Quality] Use [claude](https://www.anthropic.com/index/introducing-claude) for translation.
+- [ ] [Feature] Add local LLM support.
+- [ ] [Feature] Multiple translate engine (Microsoft, DeepL, Google, etc.) support.
 - [ ] [Others] Add transcribed examples.
     - [ ] Song
     - [ ] Podcast

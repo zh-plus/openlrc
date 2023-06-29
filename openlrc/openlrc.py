@@ -88,7 +88,7 @@ class LRCer:
                     logger.info(f'Detected language: {info.language}')
 
                     # From generator to list with progress bar shown
-                    seg_list = segments['sentences']  # [{'text': ..., 'start_word': ..., 'end_word':...}, ...]
+                    seg_list = segments['sentences']  # [{'text': ..., 'start': ..., 'end':...}, ...]
                     logger.debug(f'Transcribed fast-whisper Segments: {seg_list}')
 
                 # Save the transcribed json
@@ -239,8 +239,8 @@ class LRCer:
 
         for segment in segments:
             result['segments'].append({
-                'start': segment["start_word"]["start"],
-                'end': segment["end_word"]["end"],
+                'start': segment["start"],
+                'end': segment["end"],
                 'text': segment["text"]
             })
 
