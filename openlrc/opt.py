@@ -11,6 +11,12 @@ from openlrc.logger import logger
 from openlrc.subtitle import Subtitle
 from openlrc.utils import extend_filename
 
+# Different language may need different threshold
+cut_long_threshold = {
+    350: 'en',
+    125: 'cn, ja'
+}
+
 
 class SubtitleOptimizer:
     def __init__(self, subtitle: Union[Path, Subtitle]):
@@ -18,6 +24,7 @@ class SubtitleOptimizer:
             subtitle = Subtitle.from_json(subtitle)
 
         self.subtitle = subtitle
+        self.lang = self.subtitle.lang
 
     @property
     def filename(self):
@@ -87,7 +94,13 @@ class SubtitleOptimizer:
 
         self.subtitle.segments = new_elements
 
-    def cut_long(self, threshold=125, keep=20):
+    def cut_long(self, keep=20):
+        threshold = 150
+        for threshold, lang in cut_long_threshold.items():
+            if self.lang.lower() in lang:
+                threshold = threshold
+                break
+
         new_elements = self.subtitle.segments
 
         for i, element in enumerate(new_elements):

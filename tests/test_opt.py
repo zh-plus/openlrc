@@ -37,7 +37,7 @@ def test_merge_repeat(subtitle):
 
 def test_cut_long(subtitle):
     optimizer = SubtitleOptimizer(subtitle)
-    optimizer.cut_long(threshold=3, keep=2)
+    optimizer.cut_long(keep=2)
     assert optimizer.subtitle.segments[4].text == '这太(Cut to 2)'
 
 
@@ -68,7 +68,7 @@ def test_save(subtitle):
     with open('test_subtitle_optimized.json', 'r', encoding='utf-8') as f:
         optimized_subtitle = json.load(f)
 
-    assert optimized_subtitle['language'] == 'en'
+    assert optimized_subtitle['language'] == 'cn'
     assert optimized_subtitle['generator'] == 'test'
     assert len(optimized_subtitle['segments']) == 5
 
