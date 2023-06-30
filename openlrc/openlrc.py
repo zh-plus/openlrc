@@ -192,7 +192,7 @@ class LRCer:
         :param prompter: Currently, only `base_trans` is supported.
         :param context_path: path to context config file. (Default to use `context.yaml` in the first audio's directory)
         """
-        if isinstance(paths, str):
+        if isinstance(paths, str) or isinstance(paths, Path):
             paths = [paths]
 
         audio_paths = self.pre_process(paths)
@@ -226,6 +226,7 @@ class LRCer:
 
             if self.exception:
                 traceback.print_exception(type(self.exception), self.exception, self.exception.__traceback__)
+                raise self.exception
 
         logger.info(f'Totally used API fee: {self.api_fee:.4f} USD')
 

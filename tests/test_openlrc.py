@@ -1,63 +1,69 @@
 #  Copyright (C) 2023. Hao Zheng
 #  All rights reserved.
 
+import unittest
 from pathlib import Path
-
-import pytest
+from unittest.mock import patch, MagicMock
 
 from openlrc.openlrc import LRCer
+from openlrc.transcribe import TranscriptionInfo
+from openlrc.utils import extend_filename
 
 
-#  Tests that a single audio file can be transcribed and translated
-def test_single_audio_transcription_translation(mocker):
-    mocker.patch.object(LRCer, 'pre_process', return_value=[Path('tests/data/test.mp3')])
-    mocker.patch.object(LRCer, 'to_json', return_value=None)
-    mocker.patch.object(LRCer, 'post_process', return_value=None)
-    mocker.patch.object(LRCer, 'transcription_producer', return_value=None)
-    mocker.patch.object(LRCer, 'transcription_consumer', return_value=None)
-    mocker.patch.object(LRCer, 'translation_worker', return_value=None)
-    lrcer = LRCer()
-    lrcer.run('tests/data/test.mp3')
+@patch('openlrc.transcribe.Transcriber.transcribe',
+       MagicMock(return_value=[{'sentences': [
+           {'text': 'test sentence1', 'start': 0.0, 'end': 3.0},
+           {'text': 'test sentence2', 'start': 3.0, 'end': 6.0}
+       ]}, TranscriptionInfo('en', 6.0)]))
+class TestLRCer(unittest.TestCase):
+    def setUp(self) -> None:
+        self.audio_path = Path('data/test_audio.wav')
+        self.video_path = Path('data/test_video.mp4')
 
+    def tearDown(self) -> None:
+        def clear_paths(input_path):
+            transcribed = extend_filename(input_path, '_transcribed').with_suffix('.json')
+            optimized = extend_filename(transcribed, '_optimized')
+            translated = extend_filename(optimized, '_translated')
+            compare_path = extend_filename(input_path, '_compare').with_suffix('.json')
 
-#  Tests that multiple audio files can be transcribed and translated
-def test_multiple_audio_transcription_translation(mocker):
-    mocker.patch.object(LRCer, 'pre_process', return_value=[Path('tests/data/test.mp3'), Path('tests/data/test2.mp3')])
-    mocker.patch.object(LRCer, 'to_json', return_value=None)
-    mocker.patch.object(LRCer, 'post_process', return_value=None)
-    mocker.patch.object(LRCer, 'transcription_producer', return_value=None)
-    mocker.patch.object(LRCer, 'transcription_consumer', return_value=None)
-    mocker.patch.object(LRCer, 'translation_worker', return_value=None)
-    lrcer = LRCer()
-    lrcer.run(['tests/data/test.mp3', 'tests/data/test2.mp3'])
+            json_path = input_path.with_suffix('.json')
+            lrc_path = input_path.with_suffix('.lrc')
+            srt_path = input_path.with_suffix('.srt')
 
+            [p.unlink(missing_ok=True) for p in
+             [transcribed, optimized, translated, compare_path, json_path, lrc_path, srt_path]]
 
-#  Tests that an error is raised when an audio file is not found
-def test_audio_file_not_found(mocker):
-    lrcer = LRCer()
-    with pytest.raises(FileNotFoundError):
-        lrcer.run('tests/data/invalid.mp3')
+        clear_paths(self.audio_path)
+        clear_paths(self.video_path)
 
+        self.video_path.with_suffix('.wav').unlink(missing_ok=True)
 
-#  Tests that an error is raised when there is an error in the translation process
-# def test_translation_error(mocker):
-#     mocker.patch.object(LRCer, 'pre_process', return_value=['tests/data/test.mp3'])
-#     mocker.patch.object(LRCer, 'to_json', return_value=None)
-#     mocker.patch.object(LRCer, 'post_process', return_value=None)
-#     mocker.patch.object(LRCer, 'transcription_producer', return_value=None)
-#     # mocker.patch.object(LRCer, 'transcription_consumer', return_value=None)
-#     mocker.patch.object(LRCer, 'translation_worker', side_effect=Exception('Test error'))
-#     lrcer = LRCer()
-#     with pytest.raises(Exception):
-#         lrcer.run('tests/data/test.mp3')
+    @patch('openlrc.translate.GPTTranslator.translate',
+           MagicMock(return_value=['test translation1', 'test translation2']))
+    def test_single_audio_transcription_translation(self):
+        lrcer = LRCer()
+        lrcer.run(self.audio_path)
 
-#  Tests that a video file can be transcribed and translated
-def test_video_file_transcription_translation(mocker):
-    mocker.patch.object(LRCer, 'pre_process', return_value=[Path('tests/data/test.mp4')])
-    mocker.patch.object(LRCer, 'to_json', return_value=None)
-    mocker.patch.object(LRCer, 'post_process', return_value=None)
-    mocker.patch.object(LRCer, 'transcription_producer', return_value=None)
-    mocker.patch.object(LRCer, 'transcription_consumer', return_value=None)
-    mocker.patch.object(LRCer, 'translation_worker', return_value=None)
-    lrcer = LRCer()
-    lrcer.run('tests/data/test.mp4')
+    @patch('openlrc.translate.GPTTranslator.translate',
+           MagicMock(return_value=['test translation1', 'test translation2']))
+    def test_multiple_audio_transcription_translation(self):
+        lrcer = LRCer()
+        lrcer.run([self.audio_path, self.video_path])
+
+    #  Tests that an error is raised when an audio file is not found
+    def test_audio_file_not_found(self):
+        lrcer = LRCer()
+        with self.assertRaises(FileNotFoundError):
+            lrcer.run('data/invalid.mp3')
+
+    @patch('openlrc.translate.GPTTranslator.translate', MagicMock(side_effect=Exception('test exception')))
+    def test_translation_error(self):
+        lrcer = LRCer()
+        with self.assertRaises(Exception):
+            lrcer.run(self.audio_path)
+
+    #  Tests that a video file can be transcribed and translated
+    def test_video_file_transcription_translation(self):
+        lrcer = LRCer()
+        lrcer.run('data/test_video.mp4')

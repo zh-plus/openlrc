@@ -1,19 +1,11 @@
 #  Copyright (C) 2023. Hao Zheng
 #  All rights reserved.
 
-import pytest
+import unittest
 
 from openlrc.prompter import BaseTranslatePrompter
 
-
-@pytest.fixture
-def prompter():
-    return BaseTranslatePrompter('ja', 'zh-cn', 'movie', 'Title', 'Background', 'Synopsis')
-
-
-@pytest.fixture()
-def formatted_user_input():
-    return '''<title>Title</title>
+formatted_user_input = '''<title>Title</title>
 <background>Background</background>
 <synopsis>Synopsis</synopsis>
 <context>
@@ -39,8 +31,13 @@ Translation>
 <scene></scene>'''
 
 
-def test_user_prompt(prompter, formatted_user_input):
-    user_input = '''#1
+class TestPrompter(unittest.TestCase):
+    def setUp(self) -> None:
+        self.prompter = BaseTranslatePrompter('ja', 'zh-cn', 'movie', 'Title', 'Background', 'Synopsis')
+        self.formatted_user_input = formatted_user_input
+
+    def test_user_prompt(self):
+        user_input = '''#1
 Original>
 変わりゆく時代において、
 Translation>
@@ -49,21 +46,19 @@ Translation>
 Original>
 生き残る秘訣は、進化し続けることです。
 Translation>'''
-    assert prompter.user(1, user_input, ['test chunk1 summary', 'test chunk2 summary'],
-                         'test scene content') == formatted_user_input
+        assert self.prompter.user(1, user_input, ['test chunk1 summary', 'test chunk2 summary'],
+                                  'test scene content') == self.formatted_user_input
 
+    def test_format_texts(self):
+        texts = [(1, '変わりゆく時代において、'), (2, '生き残る秘訣は、進化し続けることです。')]
+        expected_output = '#1\nOriginal>\n変わりゆく時代において、\nTranslation>\n\n#2\nOriginal>\n' \
+                          '生き残る秘訣は、進化し続けることです。\nTranslation>\n'
+        assert BaseTranslatePrompter.format_texts(texts) == expected_output
 
-def test_format_texts():
-    texts = [(1, '変わりゆく時代において、'), (2, '生き残る秘訣は、進化し続けることです。')]
-    expected_output = '#1\nOriginal>\n変わりゆく時代において、\nTranslation>\n\n#2\nOriginal>\n生き残る秘訣は、進化し続けることです。\nTranslation>\n'
-    assert BaseTranslatePrompter.format_texts(texts) == expected_output
-
-
-def test_check_format(formatted_user_input):
-    prompter = BaseTranslatePrompter('ja', 'zh-cn', 'movie', 'Title', 'Synopsis')
-    messages = [{'role': 'system', 'content': 'system content'},
-                {'role': 'user', 'content': formatted_user_input}]
-    content = '''<title>Title</title>
+    def test_check_format(self):
+        messages = [{'role': 'system', 'content': 'system content'},
+                    {'role': 'user', 'content': formatted_user_input}]
+        content = '''<title>Title</title>
 <background>Background</background>
 <synopsis>Synopsis</synopsis>
 <context>
@@ -87,4 +82,4 @@ Translation>
 <summary>Summary</summary>
 <scene>Scene</scene>
 '''
-    assert prompter.check_format(messages, content) is True
+        assert self.prompter.check_format(messages, content) is True

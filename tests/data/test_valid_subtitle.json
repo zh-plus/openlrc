@@ -1,5 +1,5 @@
 {
-  "language": "cn",
+  "language": "zh",
   "generator": "test",
   "segments": [
     {
@@ -20,7 +20,7 @@
     {
       "start": 10.0,
       "end": 10.1,
-      "text": "好好"
+      "text": ""
     },
     {
       "start": 12,
@@ -40,7 +40,7 @@
     {
       "start": 23,
       "end": 25,
-      "text": ""
+      "text": "123"
     }
   ]
 }

@@ -58,7 +58,8 @@ def get_file_type(path: Path) -> str:
 
 
 def get_audio_duration(path: str) -> float:
-    return audioread.audio_open(path).duration
+    with audioread.audio_open(path) as audio:
+        return audio.duration
 
 
 def release_memory(model: torch.nn.Module) -> None:

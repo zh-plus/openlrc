@@ -1,89 +1,79 @@
 #  Copyright (C) 2023. Hao Zheng
 #  All rights reserved.
 
-import json
-from pathlib import Path
+import unittest
 
 from openlrc.subtitle import Subtitle
 
 
-class TestSubtitle:
-    #  Tests that a Subtitle object can be created with valid language, generator, segments, and filename
-    def test_create_subtitle_valid(self):
-        segments = [{'start': 0.0, 'end': 1.0, 'text': 'Hello'}, {'start': 1.0, 'end': 2.0, 'text': 'World'}]
-        filename = Path('test.json')
-        subtitle = Subtitle(language='en', generator='test', segments=segments, filename=filename)
-        assert subtitle.lang == 'en'
-        assert subtitle.generator == 'test'
-        assert len(subtitle.segments) == 2
-        assert subtitle.segments[0].start == 0.0
-        assert subtitle.segments[0].end == 1.0
-        assert subtitle.segments[0].text == 'Hello'
-        assert subtitle.segments[1].start == 1.0
-        assert subtitle.segments[1].end == 2.0
-        assert subtitle.segments[1].text == 'World'
-        assert subtitle.filename == filename
+class TestSubtitle(unittest.TestCase):
+    def setUp(self) -> None:
+        self.subtitle = Subtitle.from_json('data/test_valid_subtitle.json')
 
-    #  Tests that the length of a Subtitle object can be obtained
-    def test_get_subtitle_length(self):
-        segments = [{'start': 0.0, 'end': 1.0, 'text': 'Hello'}, {'start': 1.0, 'end': 2.0, 'text': 'World'}]
-        filename = 'test.json'
-        subtitle = Subtitle(language='en', generator='test', segments=segments, filename=filename)
-        assert len(subtitle) == 2
+    def check_content(self, subtitle, length=8):
+        self.assertEqual(subtitle.lang, 'zh')
+        self.assertEqual(len(subtitle), length)
+        self.assertEqual(subtitle.segments[0].start, 0.0)
+        self.assertEqual(subtitle.segments[0].end, 3.0)
+        self.assertEqual(subtitle.segments[0].text, '你好')
+        self.assertEqual(subtitle.segments[2].start, 6.0)
+        self.assertEqual(subtitle.segments[2].end, 9.0)
+        self.assertEqual(subtitle.segments[2].text, '好好好好好好好好好好好好好好好好好好好好好好好好')
 
-    #  Tests that the texts of a Subtitle object can be obtained
-    def test_get_subtitle_texts(self):
-        segments = [{'start': 0.0, 'end': 1.0, 'text': 'Hello'}, {'start': 1.0, 'end': 2.0, 'text': 'World'}]
-        filename = 'test.json'
-        subtitle = Subtitle(language='en', generator='test', segments=segments, filename=filename)
-        assert subtitle.texts == ['Hello', 'World']
+    #  Tests that a valid JSON subtitle file can be loaded
+    def test_load_valid_json(self):
+        self.check_content(self.subtitle)
 
-    #  Tests that the texts of a Subtitle object can be set with a list of valid texts
-    def test_set_subtitle_texts_valid(self):
-        segments = [{'start': 0.0, 'end': 1.0, 'text': 'Hello'}, {'start': 1.0, 'end': 2.0, 'text': 'World'}]
-        filename = 'test.json'
-        subtitle = Subtitle(language='en', generator='test', segments=segments, filename=filename)
-        new_texts = ['Hi', 'Planet']
-        subtitle.set_texts(new_texts)
-        assert subtitle.texts == new_texts
+    #  Tests that a valid LRC subtitle file can be loaded
+    def test_load_lrc(self):
+        subtitle = Subtitle.from_file('data/test_subtitle.lrc')
+        self.check_content(subtitle, length=7)
 
-    #  Tests that a Subtitle object can be saved to a valid JSON file
-    def test_save_subtitle_valid(self, tmp_path):
-        segments = [{'start': 0.0, 'end': 1.0, 'text': 'Hello'}, {'start': 1.0, 'end': 2.0, 'text': 'World'}]
-        filename = tmp_path / 'test.json'
-        subtitle = Subtitle(language='en', generator='test', segments=segments, filename=filename)
-        subtitle.save(filename)
-        with open(filename, 'r') as f:
-            content = json.load(f)
-        assert content['language'] == 'en'
-        assert content['generator'] == 'test'
-        assert len(content['segments']) == 2
-        assert content['segments'][0]['start'] == 0.0
-        assert content['segments'][0]['end'] == 1.0
-        assert content['segments'][0]['text'] == 'Hello'
-        assert content['segments'][1]['start'] == 1.0
-        assert content['segments'][1]['end'] == 2.0
-        assert content['segments'][1]['text'] == 'World'
+    #  Tests that a subtitle can be saved to a valid JSON file
+    def test_save_json(self):
+        subtitle = self.subtitle
+        subtitle.save('data/saved.json')
+        loaded_subtitle = Subtitle.from_file('data/saved.json')
+        self.check_content(loaded_subtitle)
+        loaded_subtitle.filename.unlink()
 
-    #  Tests that a Subtitle object can be converted to LRC format
-    def test_convert_subtitle_to_lrc_valid(self, tmp_path):
-        segments = [{'start': 0.0, 'end': 1.0, 'text': 'Hello'}, {'start': 1.0, 'end': 2.0, 'text': 'World'}]
-        filename = tmp_path / 'test.json'
-        subtitle = Subtitle(language='en', generator='test', segments=segments, filename=filename)
+    #  Tests that a subtitle can be saved to a valid LRC file
+    def test_save_to_lrc(self):
+        subtitle = self.subtitle
         subtitle.to_lrc()
-        lrc_filename = filename.with_suffix('.lrc')
-        with open(lrc_filename, 'r') as f:
-            content = f.read()
-        assert '[00:00.00] Hello' in content
-        assert '[00:01.00] World' in content
+        loaded_subtitle = Subtitle.from_file(subtitle.filename.with_suffix('.lrc'))
+        self.check_content(loaded_subtitle, length=7)
+        loaded_subtitle.filename.unlink()
 
-    def test_test_convert_subtitle_to_srt_valid(self, tmp_path):
-        segments = [{'start': 0.0, 'end': 1.0, 'text': 'Hello'}, {'start': 1.0, 'end': 2.0, 'text': 'World'}]
-        filename = tmp_path / 'test.json'
-        subtitle = Subtitle(language='en', generator='test', segments=segments, filename=filename)
+    def test_save_to_srt(self):
+        subtitle = self.subtitle
         subtitle.to_srt()
-        lrc_filename = filename.with_suffix('.srt')
-        with open(lrc_filename, 'r') as f:
-            content = f.read()
-        assert '1\n00:00:00,000 --> 00:00:01,000\nHello' in content
-        assert '2\n00:00:01,000 --> 00:00:02,000\nWorld' in content
+        loaded_subtitle = Subtitle.from_file(subtitle.filename.with_suffix('.srt'))
+        self.check_content(loaded_subtitle, length=8)
+        loaded_subtitle.filename.unlink()
+
+    #  Tests that the length of the subtitle can be retrieved
+    def test_get_length(self):
+        subtitle = self.subtitle
+        self.assertEqual(len(subtitle), 8)
+
+    #  Tests that the texts of the subtitle can be retrieved
+    def test_get_texts(self):
+        subtitle = self.subtitle
+        self.assertEqual(subtitle.texts, ['你好', '你好', '好好好好好好好好好好好好好好好好好好好好好好好好', '',
+                                          '这太长打发螺丝扣搭街坊拉克斯酱豆腐垃圾啊阿里山扩大飞机拉克斯基的flak涉及到了反馈啊螺丝扣搭街坊拉啊手动阀手动阀阿斯顿发射点发射点发生发射点发射点发萨看见对方这太长打发螺丝扣搭街坊拉克斯酱豆腐垃圾啊阿里山扩大飞机拉克斯基的flak涉及到了反馈啊螺丝扣搭街坊拉啊手动阀手动阀阿斯顿发射点发射点发生发射点发射点发萨看见对方这太长打发螺丝扣搭街坊拉克斯酱豆腐垃圾啊阿里山扩大飞机拉克斯基的flak涉及到了反馈啊螺丝扣搭街坊拉啊手动阀手动阀阿斯顿发射点发射点发生发射点发射点发萨看见对方',
+                                          '繁體的字', '<unk>unk<unk>', '123'])
+
+    #  Tests that texts can be set with a list of different length than the subtitle
+    def test_set_texts_edge_case(self):
+        subtitle = self.subtitle
+        with self.assertRaises(AssertionError):
+            subtitle.set_texts(['Hello'])
+
+    #  Tests that texts can be set with a list containing empty strings
+    def test_set_texts_edge_case_2(self):
+        subtitle = self.subtitle
+        subtitle.set_texts([''] * 8, lang='en')
+        self.assertEqual(subtitle.lang, 'en')
+        self.assertEqual(subtitle.segments[0].text, '')
+        self.assertEqual(subtitle.segments[1].text, '')

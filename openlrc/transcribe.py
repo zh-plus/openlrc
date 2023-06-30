@@ -2,7 +2,8 @@
 #  All rights reserved.
 
 import re
-from typing import NamedTuple, Dict
+from pathlib import Path
+from typing import NamedTuple, Dict, Union
 
 import whisperx
 from punctuators.models import PunctCapSegModelONNX
@@ -23,11 +24,11 @@ class Transcriber:
         self.device = device
         self.no_need_align = ['en']  # Languages that is accurate enough without sentence alignment
 
-    def transcribe(self, audio_path, batch_size=8, language=None, asr_options=None):
+    def transcribe(self, audio_path: Union[str, Path], batch_size=8, language=None, asr_options=None):
         whisper_model = whisperx.load_model(self.model_name, language=language, compute_type=self.compute_type,
                                             device=self.device,
                                             asr_options=asr_options)
-        audio = whisperx.load_audio(audio_path)
+        audio = whisperx.load_audio(str(audio_path))
 
         with Timer('Base Whisper Transcription'):
             result = whisper_model.transcribe(audio, batch_size=batch_size)
@@ -90,20 +91,20 @@ class Transcriber:
                     continue
 
                 # check if first and last is substring of sentence
-                if stc_split[0] not in segment['text']:
+                if stc_split[0].lower() not in segment['text'].lower():
                     logger.error(f'First split: {stc_split[0]} not in {segment["text"]}, skip')
                     continue
-                if stc_split[-1] not in segment['text']:
+                if stc_split[-1].lower() not in segment['text'].lower():
                     logger.error(f'Last split: {stc_split[-1]} not in {segment["text"]}, skip')
                     continue
 
                 # Locate the start and end split in transcribed sentences
-                start_idx = segment['text'].find(stc_split[0], last_end_idx)
+                start_idx = segment['text'].lower().find(stc_split[0].lower(), last_end_idx)
                 if len(stc_split) == 1:
                     end_idx = start_idx + len(stc_split[0]) - 1
                 else:
                     start_find = last_end_idx + len(''.join(stc_split[:-1]))
-                    end_idx = segment['text'].find(stc_split[-1], start_find) + len(stc_split[-1]) - 1
+                    end_idx = segment['text'].lower().find(stc_split[-1].lower(), start_find) + len(stc_split[-1]) - 1
 
                 start_idx = max(start_idx, 0)  # ensure start_idx is not out of range
                 end_idx = min(end_idx, len(segment['words']) - 1)  # ensure end_idx is not out of range
