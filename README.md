@@ -115,3 +115,7 @@ synopsis_map: {
 - https://github.com/openai/whisper
 - https://github.com/machinewrapped/gpt-subtrans
 - https://github.com/MicrosoftTranslator/Text-Translation-API-V3-Python
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=zh-plus/Open-Lyrics&type=Date)](https://star-history.com/#zh-plus/Open-Lyrics&Date)
