@@ -98,14 +98,10 @@ class Timer:
 
     def stop(self):
         self._stop = time.perf_counter()
-        logger.info(f'{self.task} Elapsed: {self.elapsed:.2f}s')
+        logger.info(f'{self.task} Elapsed: {self._elapsed:.2f}s')
 
     @property
-    def elapsed(self):
-        if self._start is None:
-            raise RuntimeError("Timer not started")
-        if self._stop is None:
-            raise RuntimeError("Timer not stopped")
+    def _elapsed(self):
         return self._stop - self._start
 
     def __enter__(self):

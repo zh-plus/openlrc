@@ -3,7 +3,6 @@
 
 import concurrent.futures
 import json
-import traceback
 from concurrent.futures import Future
 from pathlib import Path
 from pprint import pformat
@@ -225,7 +224,7 @@ class LRCer:
             consumer.result()
 
             if self.exception:
-                traceback.print_exception(type(self.exception), self.exception, self.exception.__traceback__)
+                # traceback.print_exception(type(self.exception), self.exception, self.exception.__traceback__)
                 raise self.exception
 
         logger.info(f'Totally used API fee: {self.api_fee:.4f} USD')

@@ -70,8 +70,11 @@ class Transcriber:
 
         sentences_list = pcs_model.infer([segment['text'] for segment in transcribe_result['segments']], apply_sbd=True)
 
+        # len(segment['text']) and len(segment['words']) may not same, align here
+        aligned_segments = [Transcriber.word_align(segment) for segment in transcribe_result['segments']]
+
         pcs_result = {'sentences': []}
-        for segment, sentences in zip(transcribe_result['segments'], sentences_list):
+        for segment, sentences in zip(aligned_segments, sentences_list):
             last_end_idx = 0
             for sentence in sentences:
                 if '<unk>' in sentence.lower():
@@ -82,7 +85,7 @@ class Transcriber:
                     else:
                         logger.warning(f'Unknown token in sentence: {sentence} is still long, keep')
 
-                stc_split = re.split(f'[{punctuations}]', sentence)
+                stc_split = re.split(f'[{punctuations} ]', sentence)
 
                 # Remove empty string
                 stc_split = [split for split in stc_split if split]
@@ -149,5 +152,48 @@ class Transcriber:
         if len(word_segments) == 0:
             return False
 
-        avg_word_len = sum([len(word) for word in word_segments]) / len(word_segments)
-        return avg_word_len >= 1.5
+        avg_word_len = sum([len(word['word']) for word in word_segments]) / len(word_segments)
+        return avg_word_len <= 1.5
+
+    @staticmethod
+    def word_align(segment):
+        """
+        Align segment['text'] and segment['words']
+        """
+        # Remove the space in segment['text']
+        # Note this shouldn't be performed for space separated language (check by need_sentence_align already)
+        segment['text'] = segment['text'].replace(' ', '')
+
+        if len(segment['text']) == len(segment['words']):
+            return segment
+
+        new_words = []
+        words_idx = 0
+        if len(segment['text']) < len(segment['words']):
+            # Align them by kicking out some word in segment['words']
+            logger.warning(f'Segment length mismatch: '
+                           f'segment["text"] {len(segment["text"])} < segment["words"] {len(segment["words"])}')
+            for word in segment['text']:
+                while words_idx < len(segment['words']) and word != segment['words'][words_idx]['word']:
+                    logger.warning(f'Word mismatch: {word} != {segment["words"][words_idx]["word"]}')
+                    words_idx += 1
+
+                if words_idx >= len(segment['words']):
+                    break
+                new_words.append(segment['words'][words_idx])
+                words_idx += 1
+        else:
+            # Align them by inserting empty element to segment['words']
+            logger.warning(f'Segment length mismatch: '
+                           f'segment["text"] {len(segment["text"])} > segment["words"] {len(segment["words"])}')
+            for word in segment['text']:
+                if word == segment['words'][words_idx]['word']:
+                    new_words.append(segment['words'][words_idx])
+                    words_idx += 1
+                else:
+                    new_words.append({'word': '<Added By Transcriber.word_align>'})
+
+        assert len(segment['text']) == len(new_words)
+
+        segment['words'] = new_words
+        return segment
