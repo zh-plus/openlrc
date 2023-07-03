@@ -48,6 +48,8 @@ colorlog = "^6.7.0"
 ffmpeg-python = "^0.2.0"
 lingua-language-detector = "^1.3.2"
 pandas = "^2.0.2"
+filetype = "^1.2.0"
+jaconvV2 = '^0.4'
 whisperx = { git = "https://github.com/m-bain/whisperx.git" }
 #torch = { version = "2.0.1", source = "torch" }
 #torchaudio = { version = "2.0.2", source = "torch" }
