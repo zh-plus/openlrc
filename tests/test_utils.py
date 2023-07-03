@@ -6,16 +6,15 @@ from pathlib import Path
 
 import torch
 
-from openlrc.exceptions import FfmpegException
 from openlrc.utils import format_timestamp, parse_timestamp, get_text_token_number, get_messages_token_number, \
-    extend_filename, release_memory, extract_audio, get_file_type
+    extend_filename, release_memory, extract_audio, get_file_type, normalize
 
 
 class TestUtils(unittest.TestCase):
     def setUp(self) -> None:
         self.audio_file = Path('data/test_audio.wav')
         self.video_file = Path('data/test_video.mp4')
-        self.unsupported = Path('unsupported_file.xyz')
+        self.unsupported = Path('data/unsupported_file.xyz')
 
     def tearDown(self) -> None:
         self.video_file.with_suffix('.wav').unlink(missing_ok=True)
@@ -30,7 +29,7 @@ class TestUtils(unittest.TestCase):
         assert extracted_audio_file == self.audio_file
 
         # Test extracting audio from an unsupported file type
-        with self.assertRaises(FfmpegException):
+        with self.assertRaises(RuntimeError):
             extract_audio(self.unsupported)
 
     def test_get_file_type(self):
@@ -43,7 +42,7 @@ class TestUtils(unittest.TestCase):
         assert file_type == 'audio'
 
         # Test getting the file type of unsupported file type
-        with self.assertRaises(FfmpegException):
+        with self.assertRaises(RuntimeError):
             get_file_type(self.unsupported)
 
     def test_lrc_format(self):
@@ -115,3 +114,25 @@ class TestUtils(unittest.TestCase):
             model.cuda()
         release_memory(model)
         assert torch.cuda.memory_allocated() == 0
+
+    def test_normalize(self):
+        # Full width to half width & lower case
+        alphabet_fw = 'ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ'
+        alphabet_hw = 'abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz'
+        assert normalize(alphabet_fw) == alphabet_hw
+
+        number_fw = '０１２３４５６７８９'
+        number_hw = '0123456789'
+        assert normalize(number_fw) == number_hw
+
+        sign_fw = '！＃＄％＆（）＊＋，－．／：；＜＝＞？＠［］＾＿｀｛｜｝”’￥～'
+        sign_hw = '!#$%&()*+,-./:;<=>?@[]^_`{|}"\'¥~'
+        assert normalize(sign_fw) == sign_hw
+
+        kana_fw = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンガギグゲゴザジズゼゾダヂヅデドバビブベボパピプペポヴァィゥェォッャュョ・ー、。・「」'
+        kana_hw = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜｦﾝｶﾞｷﾞｸﾞｹﾞｺﾞｻﾞｼﾞｽﾞｾﾞｿﾞﾀﾞﾁﾞﾂﾞﾃﾞﾄﾞﾊﾞﾋﾞﾌﾞﾍﾞﾎﾞﾊﾟﾋﾟﾌﾟﾍﾟﾎﾟｳﾞｧｨｩｪｫｯｬｭｮ･ｰ､｡･｢｣'
+        assert normalize(kana_fw) == kana_hw
+
+        space_fw = '　'  # Full-width space (U+3000)
+        space_hw = ' '  # Half-width space (U+0020)
+        assert normalize(space_fw) == space_hw
