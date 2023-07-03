@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Union
 import audioread
 import ffmpeg
 import filetype
+import jaconvV2
 import tiktoken
 import torch
 import unicodedata
@@ -52,7 +53,7 @@ def extract_audio(path: Path) -> Path:
 def get_file_type(path: Path) -> str:
     try:
         file_type = filetype.guess(path).mime.split('/')[0]
-    except TypeError as e:
+    except (TypeError, AttributeError) as e:
         raise RuntimeError(f'File {path} is not a valid file.') from e
 
     if file_type not in ['audio', 'video']:
@@ -76,7 +77,20 @@ def normalize(text):
     """
     Normalize strings using str.lower(), and unicodedata.normalize
     """
-    return unicodedata.normalize('NFKC', text.lower())
+    text = unicodedata.normalize('NFKC', text.lower())
+
+    # unicodedata cant handel quotes as expected'’'
+    quotes_table = str.maketrans('“”‘’', '""\'\'')
+    text = text.translate(quotes_table)
+
+    # unicodedata cant handel kana
+    text = jaconvV2.z2h(text)
+
+    # Special case
+    special_table = str.maketrans('〇①②③④⑤⑥⑦⑧⑨', '0123456789')
+    text = text.translate(special_table)
+
+    return text
 
 
 def get_text_token_number(text: str, model: str = "gpt-3.5-turbo") -> int:
