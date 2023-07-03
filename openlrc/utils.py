@@ -5,16 +5,17 @@ import gc
 import re
 import time
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 
 import audioread
 import ffmpeg
+import filetype
 import tiktoken
 import torch
+import unicodedata
 from langcodes import Language
 from lingua import LanguageDetectorBuilder
 
-from openlrc.exceptions import FfmpegException
 from openlrc.logger import logger
 
 
@@ -50,15 +51,18 @@ def extract_audio(path: Path) -> Path:
 
 def get_file_type(path: Path) -> str:
     try:
-        video_stream = ffmpeg.probe(path, select_streams='v')['streams']
-    except Exception as e:
-        raise FfmpegException(f'ffmpeg error: {e}')
+        file_type = filetype.guess(path).mime.split('/')[0]
+    except TypeError as e:
+        raise RuntimeError(f'File {path} is not a valid file.') from e
 
-    return ['audio', 'video'][len(video_stream) > 0]
+    if file_type not in ['audio', 'video']:
+        raise RuntimeError(f'File {path} is not a valid file. Should be audio or video file.')
+
+    return file_type
 
 
-def get_audio_duration(path: str) -> float:
-    with audioread.audio_open(path) as audio:
+def get_audio_duration(path: Union[str, Path]) -> float:
+    with audioread.audio_open(str(path)) as audio:
         return audio.duration
 
 
@@ -66,6 +70,13 @@ def release_memory(model: torch.nn.Module) -> None:
     gc.collect()
     torch.cuda.empty_cache()
     del model
+
+
+def normalize(text):
+    """
+    Normalize strings using str.lower(), and unicodedata.normalize
+    """
+    return unicodedata.normalize('NFKC', text.lower())
 
 
 def get_text_token_number(text: str, model: str = "gpt-3.5-turbo") -> int:

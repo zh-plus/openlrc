@@ -9,7 +9,7 @@ import whisperx
 from punctuators.models import PunctCapSegModelONNX
 
 from openlrc.logger import logger
-from openlrc.utils import Timer, release_memory, get_audio_duration
+from openlrc.utils import Timer, release_memory, get_audio_duration, normalize
 
 
 class TranscriptionInfo(NamedTuple):
@@ -24,10 +24,10 @@ class Transcriber:
         self.device = device
         self.no_need_align = ['en']  # Languages that is accurate enough without sentence alignment
 
-    def transcribe(self, audio_path: Union[str, Path], batch_size=8, language=None, asr_options=None):
+    def transcribe(self, audio_path: Union[str, Path], batch_size=8, language=None, asr_options=None, vad_options=None):
         whisper_model = whisperx.load_model(self.model_name, language=language, compute_type=self.compute_type,
                                             device=self.device,
-                                            asr_options=asr_options)
+                                            asr_options=asr_options, vad_options=vad_options)
         audio = whisperx.load_audio(str(audio_path))
 
         with Timer('Base Whisper Transcription'):
@@ -93,21 +93,26 @@ class Transcriber:
                 if not stc_split:
                     continue
 
+                # Normalize text, head and tail
+                text = normalize(segment['text'])
+                head = normalize(stc_split[0])
+                tail = normalize(stc_split[-1])
                 # check if first and last is substring of sentence
-                if stc_split[0].lower() not in segment['text'].lower():
-                    logger.error(f'First split: {stc_split[0]} not in {segment["text"]}, skip')
+                if head not in text:
+                    logger.error(f'First split: {head} not in {text}, skip')
                     continue
-                if stc_split[-1].lower() not in segment['text'].lower():
-                    logger.error(f'Last split: {stc_split[-1]} not in {segment["text"]}, skip')
+
+                if tail not in text:
+                    logger.error(f'Last split: {head} not in {text}, skip')
                     continue
 
                 # Locate the start and end split in transcribed sentences
-                start_idx = segment['text'].lower().find(stc_split[0].lower(), last_end_idx)
+                start_idx = text.find(head, last_end_idx)
                 if len(stc_split) == 1:
-                    end_idx = start_idx + len(stc_split[0]) - 1
+                    end_idx = start_idx + len(head) - 1
                 else:
                     start_find = last_end_idx + len(''.join(stc_split[:-1]))
-                    end_idx = segment['text'].lower().find(stc_split[-1].lower(), start_find) + len(stc_split[-1]) - 1
+                    end_idx = text.find(head, start_find) + len(tail) - 1
 
                 start_idx = max(start_idx, 0)  # ensure start_idx is not out of range
                 end_idx = min(end_idx, len(segment['words']) - 1)  # ensure end_idx is not out of range
@@ -165,6 +170,10 @@ class Transcriber:
         segment['text'] = segment['text'].replace(' ', '')
 
         if len(segment['text']) == len(segment['words']):
+            return segment
+
+        if not segment['words']:
+            logger.error(f'Empty segment["words"], but segment["text"]: {segment["text"]}, skip word alignment')
             return segment
 
         new_words = []
