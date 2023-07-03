@@ -102,6 +102,11 @@ synopsis_map: {
 - [ ] [Quality] Use [claude](https://www.anthropic.com/index/introducing-claude) for translation.
 - [ ] [Feature] Add local LLM support.
 - [ ] [Feature] Multiple translate engine (Microsoft, DeepL, Google, etc.) support.
+- [ ] [**Feature**] Build
+  a [electron + fastapi](https://ivanyu2021.hashnode.dev/electron-django-desktop-app-integrate-javascript-and-python)
+  GUI for cross-platform application.
+- [ ] Add [fine-tuned whisper-large-v2](https://huggingface.co/models?search=whisper-large-v2) models for common
+  languages.
 - [ ] [Others] Add transcribed examples.
     - [ ] Song
     - [ ] Podcast

@@ -42,9 +42,12 @@ class Transcriber:
             # {'segments': [{start: 0.0, end: 0.5, text: 'hello'}, ...], 'word_segments': [{start: , end: , word:}]}
         release_memory(align_model)
 
+        # TODO: Split long subtitles
+
         if self.need_sentence_align(aligned_result, result["language"]):
             with Timer('Sentence Alignment'):
                 pcs_result = self.sentence_align(aligned_result)
+                # TODO: Unify the pcs_result and aligned_result
                 # {'sentences': [{text: , start: , end:}, ...]}
         else:
             logger.warning(
