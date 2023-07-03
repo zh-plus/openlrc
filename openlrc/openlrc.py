@@ -22,7 +22,7 @@ from openlrc.utils import Timer, extend_filename, get_audio_duration, format_tim
 
 class LRCer:
     def __init__(self, model_name='large-v2', compute_type='float16', fee_limit=0.1, consumer_thread=11,
-                 asr_options=None):
+                 asr_options=None, vad_options=None):
         """
         :param model_name: Name of whisper model (tiny, tiny.en, base, base.en, small, small.en, medium,
                         medium.en, large-v1, or large-v2) When a size is configured, the converted model is downloaded
@@ -34,6 +34,7 @@ class LRCer:
         :param fee_limit: The maximum fee you are willing to pay for one translation call. Default: ``0.1``
         :param consumer_thread: To prevent exceeding the RPM and TPM limits set by OpenAI, the default is TPM/MAX_TOKEN.
         :param asr_options: parameters for whisper model.
+        :param vad_options: parameters for VAD model.
         """
 
         self.transcriber = Transcriber(model_name=model_name, compute_type=compute_type)
@@ -69,8 +70,17 @@ class LRCer:
             "suppress_numerals": False,
         }
 
+        # Parameters for VAD (see pyannote.audio), reduce them if speech is not being detected
+        self.vad_options = {
+            "vad_onset": 0.500,
+            "vad_offset": 0.363
+        }
+
         if asr_options:
             self.asr_options.update(asr_options)
+
+        if vad_options:
+            self.vad_options.update(vad_options)
 
     def transcription_producer(self, transcription_queue, audio_paths, src_lang):
         """
@@ -83,7 +93,8 @@ class LRCer:
                     logger.info(
                         f'Audio length: {audio_path}: {format_timestamp(get_audio_duration(audio_path), fmt="srt")}')
                     segments, info = self.transcriber.transcribe(audio_path, batch_size=4, language=src_lang,
-                                                                 asr_options=self.asr_options)
+                                                                 asr_options=self.asr_options,
+                                                                 vad_options=self.vad_options)
                     logger.info(f'Detected language: {info.language}')
 
                     # From generator to list with progress bar shown
@@ -191,6 +202,10 @@ class LRCer:
         :param prompter: Currently, only `base_trans` is supported.
         :param context_path: path to context config file. (Default to use `context.yaml` in the first audio's directory)
         """
+        if not paths:
+            logger.warning('No audio/video file given. Skip LRCer.run()')
+            return
+
         if isinstance(paths, str) or isinstance(paths, Path):
             paths = [paths]
 
@@ -252,9 +267,6 @@ class LRCer:
         return result
 
     def pre_process(self, paths):
-        if not paths:
-            raise ValueError('No path provided.')
-
         paths = [Path(path) for path in paths]
 
         # Check if path is audio or video
