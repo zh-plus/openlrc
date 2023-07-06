@@ -1,3 +1,18 @@
+## 0.1.4
+
+This update add input video support and introduce context configuration.
+
+#### New features:
+
+- Add `word_align` and `sentence_split` for non-word-boundary languages to split long text into sentences.
+- Add text-normalization for help matching sentences.
+- Add skip-translation support.
+
+#### Other Changes:
+
+- Use `pathlib` to handle paths.
+- Improve time-line accuracy.
+
 ## 0.1.3
 
 This update add input video support and introduce context configuration.
