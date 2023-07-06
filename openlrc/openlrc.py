@@ -111,17 +111,17 @@ class LRCer:
         transcription_queue.put(None)
         logger.info('Transcription producer finished.')
 
-    def transcription_consumer(self, transcription_queue, target_lang, prompter):
+    def transcription_consumer(self, transcription_queue, target_lang, prompter, skip_trans):
         """
         Parallel Consumer.
         """
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = [executor.submit(self.translation_worker, transcription_queue, target_lang, prompter)
+            futures = [executor.submit(self.consumer_worker, transcription_queue, target_lang, prompter, skip_trans)
                        for _ in range(self.consumer_thread)]
             concurrent.futures.wait(futures)
         logger.info('Transcription consumer finished.')
 
-    def translation_worker(self, transcription_queue, target_lang, prompter):
+    def consumer_worker(self, transcription_queue, target_lang, prompter, skip_trans):
         """
         Parallel translation.
         """
@@ -141,55 +141,64 @@ class LRCer:
 
             # xxx_transcribed_optimized_translated.json
             translated_path = extend_filename(transcribed_opt_sub.filename, '_translated')
-            compare_path = Path(transcribed_path.parent, f'{audio_name}_compare.json')
-            if not translated_path.exists():
-                if not compare_path.exists():
-                    # Translate the transcribed json
-                    translator = GPTTranslator(prompter=prompter, fee_limit=self.fee_limit)
-                    context = self.context
-                    with Timer('Translation process'):
-                        try:
-                            target_texts = translator.translate(
-                                transcribed_opt_sub.texts,
-                                src_lang=transcribed_opt_sub.lang,
-                                target_lang=target_lang,
-                                title=audio_name,
-                                audio_type=context.audio_type,
-                                background=context.background,
-                                synopsis=context.get_synopsis(audio_name),
-                                compare_path=compare_path
-                            )
-                        except Exception as e:
-                            self.exception = e
-
-                    with self._lock:
-                        self.api_fee += translator.api_fee  # Ensure thread-safe
-                else:
-                    logger.info(f'Found compare json file: {compare_path}')
-                    with open(compare_path, 'r', encoding='utf-8') as f:
-                        target_texts = [item['output'] for item in json.load(f)['compare']]
-                    if len(target_texts) != len(transcribed_opt_sub):
-                        logger.error(f'Compare json file {compare_path} is not valid.')
-                        raise ValueError(f'Compare json file {compare_path} is not valid.')
-                transcribed_opt_sub.set_texts(target_texts, lang=target_lang)
-
-                # xxx_transcribed_optimized_translated.json
-                transcribed_opt_sub.save(translated_path, update_name=True)
+            if skip_trans:
+                final_subtitle = transcribed_opt_sub
             else:
-                logger.info(f'Found translated json file: {translated_path}')
-
-            translated_sub = Subtitle.from_json(translated_path)
-            output_filename = Path(str(transcribed_path).replace('_transcribed', '')).with_suffix('.json')
-
-            final_subtitle = self.post_process(translated_sub, output_name=output_filename, t2m=target_lang == 'zh-cn',
-                                               update_name=True)  # xxx.json
+                with Timer('Translation process'):
+                    try:
+                        final_subtitle = self._translate(audio_name, prompter, target_lang, transcribed_opt_sub,
+                                                         translated_path)
+                    except Exception as e:
+                        self.exception = e
 
             final_subtitle.to_lrc()
-            if output_filename.name in self.from_video:
+            if audio_name in self.from_video:
                 final_subtitle.to_srt()
             logger.info(f'Translation fee til now: {self.api_fee:.4f} USD')
 
-    def run(self, paths, src_lang=None, target_lang='zh-cn', prompter='base_trans', context_path=None):
+    def _translate(self, audio_name, prompter, target_lang, transcribed_opt_sub, translated_path):
+        json_filename = Path(audio_name).with_suffix('.json')
+        compare_path = Path(translated_path.parent, f'{audio_name}_compare.json')
+        if not translated_path.exists():
+            if not compare_path.exists():
+                # Translate the transcribed json
+                translator = GPTTranslator(prompter=prompter, fee_limit=self.fee_limit)
+                context = self.context
+
+                target_texts = translator.translate(
+                    transcribed_opt_sub.texts,
+                    src_lang=transcribed_opt_sub.lang,
+                    target_lang=target_lang,
+                    title=audio_name,
+                    audio_type=context.audio_type,
+                    background=context.background,
+                    synopsis=context.get_synopsis(audio_name),
+                    compare_path=compare_path
+                )
+
+                with self._lock:
+                    self.api_fee += translator.api_fee  # Ensure thread-safe
+            else:
+                logger.info(f'Found compare json file: {compare_path}')
+                with open(compare_path, 'r', encoding='utf-8') as f:
+                    target_texts = [item['output'] for item in json.load(f)['compare']]
+                if len(target_texts) != len(transcribed_opt_sub):
+                    logger.error(f'Compare json file {compare_path} is not valid.')
+                    raise ValueError(f'Compare json file {compare_path} is not valid.')
+            transcribed_opt_sub.set_texts(target_texts, lang=target_lang)
+
+            # xxx_transcribed_optimized_translated.json
+            transcribed_opt_sub.save(translated_path, update_name=True)
+        else:
+            logger.info(f'Found translated json file: {translated_path}')
+        translated_sub = Subtitle.from_json(translated_path)
+
+        final_subtitle = self.post_process(translated_sub, output_name=json_filename, t2m=target_lang == 'zh-cn',
+                                           update_name=True)  # xxx.json
+        return final_subtitle
+
+    def run(self, paths, src_lang=None, target_lang='zh-cn', prompter='base_trans', context_path=None,
+            skip_trans=False):
         """
         Split the translation into 2 phases: transcription and translation. They're running in parallel.
         Firstly, transcribe the audios one-by-one. At the same time, translation threads are created and waiting for
@@ -201,6 +210,7 @@ class LRCer:
         :param target_lang: Target language, default to Mandarin Chinese.
         :param prompter: Currently, only `base_trans` is supported.
         :param context_path: path to context config file. (Default to use `context.yaml` in the first audio's directory)
+        :param skip_trans: Skip the translation process if True.
         """
         if not paths:
             logger.warning('No audio/video file given. Skip LRCer.run()')
@@ -231,7 +241,7 @@ class LRCer:
 
         with Timer('Transcription (Producer) and Translation (Consumer) process'):
             consumer = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='Consumer') \
-                .submit(self.transcription_consumer, transcription_queue, target_lang, prompter)
+                .submit(self.transcription_consumer, transcription_queue, target_lang, prompter, skip_trans)
             producer: Future = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='Producer') \
                 .submit(self.transcription_producer, transcription_queue, audio_paths, src_lang)
 

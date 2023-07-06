@@ -57,13 +57,18 @@ class TestLRCer(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             lrcer.run('data/invalid.mp3')
 
+    #  Tests that a video file can be transcribed and translated
+    def test_video_file_transcription_translation(self):
+        lrcer = LRCer()
+        lrcer.run('data/test_video.mp4')
+
     @patch('openlrc.translate.GPTTranslator.translate', MagicMock(side_effect=Exception('test exception')))
     def test_translation_error(self):
         lrcer = LRCer()
         with self.assertRaises(Exception):
             lrcer.run(self.audio_path)
 
-    #  Tests that a video file can be transcribed and translated
-    def test_video_file_transcription_translation(self):
+    @patch('openlrc.translate.GPTTranslator.translate', MagicMock(side_effect=Exception('test exception')))
+    def test_skip_translation(self):
         lrcer = LRCer()
-        lrcer.run('data/test_video.mp4')
+        lrcer.run('data/test_video.mp4', skip_trans=True)
