@@ -11,7 +11,7 @@ This update add input video support and introduce context configuration.
 #### Other Changes:
 
 - Use `pathlib` to handle paths.
-- Improve time-line accuracy.
+- Improve timeline accuracy.
 
 ## 0.1.3
 

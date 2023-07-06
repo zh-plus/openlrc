@@ -66,6 +66,9 @@ lrcer.run(['./data/test_audio.mp3', './data/test_video.mp4'], target_lang='zh-cn
 
 # Use context.yaml to improve translation
 lrcer.run('./data/test.mp3', target_lang='zh-cn', context_path='./data/context.yaml')
+
+# To skip translation process
+lrcer.run('./data/test.mp3', target_lang='en', skip_trans=True)
 ```
 
 ### Context
