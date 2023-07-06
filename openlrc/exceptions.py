@@ -30,3 +30,8 @@ class FfmpegException(Exception):
 class TranscribeException(Exception):
     def __init__(self, message):
         super().__init__(message)
+
+
+class DependencyException(Exception):
+    def __init__(self, message):
+        super().__init__(f'Dependency not correctly installed: {message}')

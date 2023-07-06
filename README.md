@@ -27,7 +27,8 @@ into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/
     pip install git+https://github.com/m-bain/whisperx.git
     ```
 
-5. Install [ffmpeg](https://ffmpeg.org/download.html) and add `bin` directory to your `PATH`.
+5. (Optional) If you want to process videos, install [ffmpeg](https://ffmpeg.org/download.html) and add `bin` directory
+   to your `PATH`.
 
 6. This project can be installed from PyPI:
 
@@ -40,6 +41,9 @@ into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/
     ```shell
     pip install git+https://github.com/zh-plus/Open-Lyrics
     ```
+
+7. Go to [Spacy](https://spacy.io/usage) to install the required package using `spacy download xxx`.
+   For example, you need `spacy download ja_core_news_sm` if the source language is japanese.
 
 ## Usage
 

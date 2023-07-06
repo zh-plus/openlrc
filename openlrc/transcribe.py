@@ -5,11 +5,15 @@ import re
 from pathlib import Path
 from typing import NamedTuple, Dict, Union
 
+import numpy as np
+import pysbd
+import spacy
 import whisperx
-from punctuators.models import PunctCapSegModelONNX
-
+from openlrc.exceptions import DependencyException
 from openlrc.logger import logger
-from openlrc.utils import Timer, release_memory, get_audio_duration, normalize
+from openlrc.utils import Timer, release_memory, get_audio_duration, normalize, get_spacy_lib
+from punctuators.models import PunctCapSegModelONNX
+from pysbd.languages import LANGUAGE_CODES
 
 
 class TranscriptionInfo(NamedTuple):
@@ -22,7 +26,8 @@ class Transcriber:
         self.model_name = model_name
         self.compute_type = compute_type
         self.device = device
-        self.no_need_align = ['en']  # Languages that is accurate enough without sentence alignment
+        self.no_need_align = ['en', 'ja', 'zh']  # Languages that is accurate enough without sentence alignment
+        self.non_word_boundary = ['ja', 'zh']
 
     def transcribe(self, audio_path: Union[str, Path], batch_size=8, language=None, asr_options=None, vad_options=None):
         whisper_model = whisperx.load_model(self.model_name, language=language, compute_type=self.compute_type,
@@ -39,10 +44,11 @@ class Transcriber:
             align_model, metadata = whisperx.load_align_model(language_code=result["language"], device=self.device)
             aligned_result = whisperx.align(result["segments"], align_model, metadata, audio, self.device,
                                             return_char_alignments=False)
-            # {'segments': [{start: 0.0, end: 0.5, text: 'hello'}, ...], 'word_segments': [{start: , end: , word:}]}
+            # {
+            #   'segments': [{start: 0.0, end: 0.5, text: 'hello', words: [{word: , start: , end: }]}, ...],
+            #   'word_segments': [{start: , end: , word:}]
+            # }
         release_memory(align_model)
-
-        # TODO: Split long subtitles
 
         if self.need_sentence_align(aligned_result, result["language"]):
             with Timer('Sentence Alignment'):
@@ -50,19 +56,164 @@ class Transcriber:
                 # TODO: Unify the pcs_result and aligned_result
                 # {'sentences': [{text: , start: , end:}, ...]}
         else:
-            logger.warning(
-                'Skip sentence alignment. Warning: This module is still in beta. '
-                'The resulting sentence maybe too long for subtitle')
-            pcs_result = {'sentences': aligned_result['segments']}
+            with Timer('Sentence Segmentation'):
+                if language in self.non_word_boundary:
+                    aligned_result = self.sentence_split(aligned_result, result["language"])
+                # TODO: add sentence_split for word_boundary languages, e.g. en.
+                pcs_result = {'sentences': aligned_result['segments']}
 
         info = TranscriptionInfo(language=result['language'], duration=get_audio_duration(audio_path))
 
         return pcs_result, info
 
     @staticmethod
-    def sentence_align(transcribe_result):
+    def sentence_split(aligned_result, lang):
+        if lang not in LANGUAGE_CODES.keys():
+            logger.warning(f'Language {lang} not supported. Skip sentence split.')
+            return aligned_result
+
+        lib_name = get_spacy_lib(lang)
+        try:
+            nlp = spacy.load(lib_name)
+        except (IOError, ImportError, OSError):
+            raise DependencyException(
+                f'Try `spacy download {lib_name}` to fix.'
+                f'Check https://spacy.io/usage for more instruction.')
+
+        def mid_split(seg_entry):
+            text = seg_entry['text']
+            doc = nlp(text)
+            # Use w.is_punct for punctuation
+
+            half = len(text) // 2
+            punct_idxes = [i for i, word in enumerate(text) if doc.vocab[word].is_punct]
+
+            if len(punct_idxes) <= 1:
+                # Only the last punct or no punct, return directly from the mid
+                split_idx = half
+                while split_idx > 0 and 'end' not in seg_entry['words'][split_idx].keys():
+                    split_idx -= 1
+
+                former = {
+                    'text': seg_entry['text'][:half],
+                    'start': seg_entry['start'],
+                    'end': seg_entry['words'][split_idx]['end'],
+                    'words': seg_entry['words'][:half]
+                }
+
+                split_idx = half
+                while split_idx < len(text) - 1 and 'start' not in seg_entry['words'][split_idx].keys():
+                    split_idx += 1
+
+                latter = {
+                    'text': seg_entry['text'][half:],
+                    'start': seg_entry['words'][split_idx]['start'],
+                    'end': seg_entry['end'],
+                    'words': seg_entry['words'][half:]
+                }
+
+            else:
+                # Multiple punct, find the nearest one
+                distance = np.abs(np.array(punct_idxes) - half)
+                nearest_idx = punct_idxes[np.argmin(distance)]
+
+                # Split using the first valid seg_entry['words'] in the right part
+                split_idx = nearest_idx
+                while split_idx < len(seg_entry['words']) and 'end' not in seg_entry['words'][split_idx].keys():
+                    split_idx += 1
+
+                former_end_idx = nearest_idx
+                while former_end_idx > 0 and 'end' not in seg_entry['words'][former_end_idx].keys():
+                    former_end_idx -= 1
+
+                if split_idx == len(seg_entry['words']):
+                    # No valid word to the right, skip
+                    logger.warning(
+                        f'No valid word to the right of {seg_entry["text"][nearest_idx]}, skip: {seg_entry["text"]}')
+                    return [seg_entry]
+                elif former_end_idx == 0:
+                    # No valid word to the left, skip
+                    logger.warning(
+                        f'No valid word to the left of {seg_entry["text"][nearest_idx]}, skip: {seg_entry["text"]}')
+                    return [seg_entry]
+
+                former = {
+                    'text': seg_entry['text'][:split_idx],
+                    'start': seg_entry['start'],
+                    'end': seg_entry['words'][former_end_idx]['end'],
+                    'words': seg_entry['words'][:split_idx]
+                }
+
+                latter = {
+                    'text': seg_entry['text'][split_idx:],
+                    'start': seg_entry['words'][split_idx]['start'],
+                    'end': seg_entry['end'],
+                    'words': seg_entry['words'][split_idx:]
+                }
+
+            return [former, latter]
+
+        segmenter = pysbd.Segmenter(language=lang, clean=False)
+
+        # len(segments['text']) and len(segments['words']) may not same, align here
+        aligned_segments = [Transcriber.word_align(segment) for segment in aligned_result['segments']]
+
+        sentences = []  # [{'text': , 'start': , 'end': , 'words': [{word: , start: , end: , score: }, ...]}, ...]
+        for segment in aligned_segments:
+            splits = segmenter.segment(segment['text'])
+            splits = list(filter(None, splits))  # Filter empty split
+            split_start = 0
+
+            for split in splits:
+                start_idx = split_start
+                while start_idx < split_start + len(split) and 'start' not in segment['words'][start_idx].keys():
+                    start_idx += 1
+
+                end_idx = split_start + len(split) - 1
+                while end_idx >= start_idx and 'end' not in segment['words'][end_idx].keys():
+                    end_idx -= 1
+
+                if end_idx < start_idx:
+                    logger.warning(f'End idx < Start idx for sentence split: {split}, among {segment["text"]}')
+                end_idx = max(start_idx, end_idx)  # Ensure end >= start
+
+                entry = {
+                    'text': split,
+                    'start': segment['words'][start_idx]['start'],
+                    'end': segment['words'][end_idx]['end'],
+                    'words': segment['words'][split_start: split_start + len(split)]
+                }
+
+                if len(split) < 50:
+                    sentences.append(entry)
+                else:
+                    # Split them in the middle
+                    sentences.extend(mid_split(entry))
+
+                split_start += len(split)
+
+        aligned_result['segments'] = sentences
+
+        return aligned_result
+
+    def need_sentence_align(self, aligned_result: Dict[str, list], language: str):
+        if language in self.no_need_align:
+            return False
+
+        word_segments = aligned_result['word_segments']
+        if len(word_segments) == 0:
+            return False
+
+        avg_word_len = sum([len(word['word']) for word in word_segments]) / len(word_segments)
+        return avg_word_len <= 1.5
+
+    @staticmethod
+    def sentence_align(aligned_result):
         """
         Align the word-level whisper transcribe result to sentence-level.
+        Should be only used by those languages that whisper cannot produce punctuations.
+
+        TODO: Simplify (or remove) this function.
 
         :return A dict with key 'sentences' and value a list of dict with key 'text', 'start_word', 'end_word'.
         """
@@ -71,10 +222,10 @@ class Transcriber:
         )
         punctuations = '.,?？，。、・।؟;።፣፧،'
 
-        sentences_list = pcs_model.infer([segment['text'] for segment in transcribe_result['segments']], apply_sbd=True)
+        sentences_list = pcs_model.infer([segment['text'] for segment in aligned_result['segments']], apply_sbd=True)
 
-        # len(segment['text']) and len(segment['words']) may not same, align here
-        aligned_segments = [Transcriber.word_align(segment) for segment in transcribe_result['segments']]
+        # len(segments['text']) and len(segments['words']) may not same, align here
+        aligned_segments = [Transcriber.word_align(segment) for segment in aligned_result['segments']]
 
         pcs_result = {'sentences': []}
         for segment, sentences in zip(aligned_segments, sentences_list):
@@ -119,7 +270,6 @@ class Transcriber:
 
                 start_idx = max(start_idx, 0)  # ensure start_idx is not out of range
                 end_idx = min(end_idx, len(segment['words']) - 1)  # ensure end_idx is not out of range
-                last_end_idx = end_idx
 
                 if not segment['words']:
                     start = segment['start']
@@ -146,22 +296,11 @@ class Transcriber:
                 else:
                     end = segment['words'][end_idx]['end']
 
-                sentence = sentence.lstrip(punctuations)
+                last_end_idx = end_idx
 
-                pcs_result['sentences'].append({'text': sentence, 'start': start, 'end': end})
+                pcs_result['sentences'].append({'text': sentence.lstrip(punctuations), 'start': start, 'end': end})
 
         return pcs_result
-
-    def need_sentence_align(self, aligned_result: Dict[str, list], language: str):
-        if language in self.no_need_align:
-            return False
-
-        word_segments = aligned_result['word_segments']
-        if len(word_segments) == 0:
-            return False
-
-        avg_word_len = sum([len(word['word']) for word in word_segments]) / len(word_segments)
-        return avg_word_len <= 1.5
 
     @staticmethod
     def word_align(segment):

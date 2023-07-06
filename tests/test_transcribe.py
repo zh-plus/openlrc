@@ -30,8 +30,8 @@ class TestTranscriber(unittest.TestCase):
 
     def test_transcribe_success(self):
         result, info = self.transcriber.transcribe(self.audio_path)
-        assert result['sentences']
-        assert info.duration == 24347.887142857144
+        self.assertIsNotNone(result['sentences'])
+        self.assertEqual(round(info.duration), 30)
 
     #  Tests that an audio file not found raises an error
     def test_audio_file_not_found(self):

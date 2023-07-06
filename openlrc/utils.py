@@ -16,7 +16,6 @@ import torch
 import unicodedata
 from langcodes import Language
 from lingua import LanguageDetectorBuilder
-
 from openlrc.logger import logger
 
 
@@ -203,3 +202,17 @@ def detect_lang(text):
     name = detector.detect_language_of(' '.join(text)).name.lower()
     lang_code = Language.find(name).language
     return lang_code
+
+
+def get_spacy_lib(lang):
+    special_case = {
+        'core_web': ['zh', 'en'],
+        'ent_wiki': ['xx']
+    }
+
+    mid_str = 'core_news'
+    for k, v in special_case.items():
+        if lang in v:
+            mid_str = k
+
+    return f'{lang}_{mid_str}_sm'
