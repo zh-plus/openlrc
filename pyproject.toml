@@ -36,7 +36,6 @@ include = [
 [tool.poetry.dependencies]
 python = "^3.8"
 openai = "^0.27.6"
-faster-whisper = { git = "https://github.com/guillaumekln/faster-whisper" }
 tiktoken = "^0.3.1"
 langcodes = "^3.3.0"
 language-data = "^1.1"
@@ -52,7 +51,8 @@ filetype = "^1.2.0"
 jaconvV2 = "^0.4"
 spacy = "^3.5.4"
 pysbd = "^0.3.4"
-whisperx = { git = "https://github.com/m-bain/whisperx.git" }
+faster-whisper = "^0.6.0"
+#whisperx = { git = "https://github.com/m-bain/whisperx.git" }
 #torch = { version = "2.0.1", source = "torch" }
 #torchaudio = { version = "2.0.2", source = "torch" }
 #torchvision = { version = "0.15.2", source = "torch" }

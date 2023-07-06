@@ -17,15 +17,16 @@ into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/
 2. Add your [OpenAI API key](https://platform.openai.com/account/api-keys) to environment variable `OPENAI_API_KEY`.
 
 3. Install [PyTorch](https://pytorch.org/get-started/locally/):
-    ```shell
+   ```shell
    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
    ```
 
-4. Install [whisperx](https://github.com/m-bain/whisperX)
-
-    ```shell
-    pip install git+https://github.com/m-bain/whisperx.git
-    ```
+4. Install [whisperx](https://github.com/m-bain/whisperX) and (Recommended) the
+   latest [fast-whisper](https://github.com/guillaumekln/faster-whisper)
+   ```shell
+   pip install git+https://github.com/guillaumekln/faster-whisper
+   pip install git+https://github.com/m-bain/whisperx.git
+   ```
 
 5. (Optional) If you want to process videos, install [ffmpeg](https://ffmpeg.org/download.html) and add `bin` directory
    to your `PATH`.
