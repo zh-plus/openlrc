@@ -1,3 +1,7 @@
+## 0.1.5
+
+Emergent bugfix release.
+
 ## 0.1.4
 
 This update add input video support and introduce context configuration.
