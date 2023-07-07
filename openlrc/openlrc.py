@@ -141,9 +141,9 @@ class LRCer:
 
             # xxx_transcribed_optimized_translated.json
             translated_path = extend_filename(transcribed_opt_sub.filename, '_translated')
-            if skip_trans:
-                final_subtitle = transcribed_opt_sub
-            else:
+
+            final_subtitle = transcribed_opt_sub
+            if not skip_trans:
                 with Timer('Translation process'):
                     try:
                         final_subtitle = self._translate(audio_name, prompter, target_lang, transcribed_opt_sub,
@@ -151,13 +151,15 @@ class LRCer:
                     except Exception as e:
                         self.exception = e
 
+            final_subtitle.filename = Path(translated_path.parent / f'{audio_name}.json')
+
             final_subtitle.to_lrc()
             if audio_name in self.from_video:
                 final_subtitle.to_srt()
             logger.info(f'Translation fee til now: {self.api_fee:.4f} USD')
 
     def _translate(self, audio_name, prompter, target_lang, transcribed_opt_sub, translated_path):
-        json_filename = Path(audio_name).with_suffix('.json')
+        json_filename = Path(translated_path.parent / audio_name).with_suffix('.json')
         compare_path = Path(translated_path.parent, f'{audio_name}_compare.json')
         if not translated_path.exists():
             if not compare_path.exists():
