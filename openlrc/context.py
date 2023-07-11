@@ -10,19 +10,19 @@ from openlrc.logger import logger
 
 
 class Context:
-    def __init__(self, background='', synopsis_map=None, audio_type='Anime', config_path=None):
+    def __init__(self, background='', description_map=None, audio_type='Anime', config_path=None):
         """
         Context(optional) for translation.
 
         :param background: Providing background information for establishing context for the translation.
-        :param synopsis_map: {"name(without extension)": "synopsis", ...}
+        :param description_map: {"name(without extension)": "description", ...}
         :param audio_type: Audio type, default to Anime.
         :param config_path: Path to config file.
         """
         self.config_path = None
         self.background = background
         self.audio_type = audio_type
-        self.synopsis_map = synopsis_map if synopsis_map else dict()
+        self.description_map = description_map if description_map else dict()
 
         # if config_path exist, load yaml file
         if config_path:
@@ -46,8 +46,8 @@ class Context:
         if config.get('audio_type'):
             self.audio_type = config['audio_type']
 
-        if config.get('synopsis_map'):
-            self.synopsis_map = config['synopsis_map']
+        if config.get('description_map'):
+            self.description_map = config['description_map']
 
         self.config_path = config_path
 
@@ -56,21 +56,21 @@ class Context:
             yaml.dump({
                 'background': self.background,
                 'audio_type': self.audio_type,
-                'synopsis_map': self.synopsis_map,
+                'description_map': self.description_map,
             }, f)
 
-    def get_synopsis(self, audio_name):
+    def get_description(self, audio_name):
         value = ''
-        if self.synopsis_map:
-            matches = get_close_matches(audio_name, self.synopsis_map.keys())
+        if self.description_map:
+            matches = get_close_matches(audio_name, self.description_map.keys())
             if matches:
                 key = matches[0]
-                value = self.synopsis_map.get(key)
-                logger.info(f'Found synopsis map: {key} -> {value}')
+                value = self.description_map.get(key)
+                logger.info(f'Found description map: {key} -> {value}')
             else:
-                logger.info(f'No synopsis map for {audio_name} found.')
+                logger.info(f'No description map for {audio_name} found.')
 
         return value
 
     def __str__(self):
-        return f'Context(background={self.background}, audio_type={self.audio_type}, synopsis_map={self.synopsis_map})'
+        return f'Context(background={self.background}, audio_type={self.audio_type}, description_map={self.description_map})'

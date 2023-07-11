@@ -151,7 +151,7 @@ class LRCer:
                     title=audio_name,
                     audio_type=context.audio_type,
                     background=context.background,
-                    synopsis=context.get_synopsis(audio_name),
+                    description=context.get_description(audio_name),
                     compare_path=compare_path
                 )
 

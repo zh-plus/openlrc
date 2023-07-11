@@ -33,7 +33,7 @@ class Transcriber:
         self.asr_options = asr_options
         self.vad_options = vad_options
 
-        self.whisper_model = WhisperModel(model_name, device, compute_type=compute_type, cpu_threads=4, num_workers=2)
+        self.whisper_model = WhisperModel(model_name, device, compute_type=compute_type, num_workers=1)
 
     def transcribe(self, audio_path: Union[str, Path], language=None, vad_filter=True):
         seg_gen, info = self.whisper_model.transcribe(str(audio_path), language=language,
@@ -49,6 +49,8 @@ class Transcriber:
                 timestamps = seg.end
             if timestamps < info.duration:  # silence at the end of the audio
                 pbar.update(info.duration - timestamps)
+
+        assert segments, 'No voice found!'
 
         with Timer('Sentence Segmentation'):
             result = self.sentence_split(segments, info.language)

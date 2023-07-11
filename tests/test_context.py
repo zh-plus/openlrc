@@ -11,26 +11,26 @@ from openlrc.context import Context
 class TestContext(unittest.TestCase):
     def setUp(self) -> None:
         self.context = Context(background='test background', audio_type='test audio type',
-                               synopsis_map={'test audio name': 'synopsis'})
+                               description_map={'test audio name': 'description'})
 
     def test_init(self):
         context = self.context
         assert context.background == 'test background'
         assert context.audio_type == 'test audio type'
-        assert context.synopsis_map == {'test audio name': 'synopsis'}
+        assert context.description_map == {'test audio name': 'description'}
         assert context.config_path is None
 
     def test_init_with_config_file(self):
         with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
             f.write(
-                'background: config background\naudio_type: config audio type\nsynopsis_map:\n  config: config synopsis\n')
+                'background: config background\naudio_type: config audio type\ndescription_map:\n  config: config description\n')
             config_path = Path(f.name)
 
         context = Context(config_path=config_path)
 
         assert context.background == 'config background'
         assert context.audio_type == 'config audio type'
-        assert context.synopsis_map == {'config': 'config synopsis'}
+        assert context.description_map == {'config': 'config description'}
         assert context.config_path == config_path
 
         config_path.unlink()
@@ -43,14 +43,14 @@ class TestContext(unittest.TestCase):
         context = self.context
         with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
             f.write(
-                'background: config background\naudio_type: config audio type\nsynopsis_map:\n  config: config synopsis\n')
+                'background: config background\naudio_type: config audio type\ndescription_map:\n  config: config description\n')
             config_path = Path(f.name)
 
         context.load_config(config_path)
 
         assert context.background == 'config background'
         assert context.audio_type == 'config audio type'
-        assert context.synopsis_map == {'config': 'config synopsis'}
+        assert context.description_map == {'config': 'config description'}
         assert context.config_path == config_path
 
         config_path.unlink()
@@ -68,15 +68,15 @@ class TestContext(unittest.TestCase):
 
         assert 'background: test background' in config
         assert 'audio_type: test audio type' in config
-        assert 'synopsis_map:\n  test audio name: synopsis' in config
+        assert 'description_map:\n  test audio name: description' in config
 
         config_path.unlink()
 
-    def test_get_synopsis(self):
+    def test_get_description(self):
         context = self.context
-        assert context.get_synopsis('test audio name') == 'synopsis'
-        assert context.get_synopsis('audio name without synopsis') == ''
+        assert context.get_description('test audio name') == 'description'
+        assert context.get_description('audio name without description') == ''
 
     def test_str(self):
         assert str(self.context) == \
-               'Context(background=test background, audio_type=test audio type, synopsis_map={\'test audio name\': \'synopsis\'})'
+               'Context(background=test background, audio_type=test audio type, description_map={\'test audio name\': \'description\'})'

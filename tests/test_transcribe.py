@@ -11,24 +11,19 @@ from openlrc.transcribe import Transcriber, TranscriptionInfo
 
 
 @patch('faster_whisper.WhisperModel', MagicMock())
-@patch('faster_whisper.WhisperModel.transcribe', MagicMock(return_value=([
-                                                                             Segment(
-                                                                                 0, 0, 0, 3, 'hello world', [], 0, 0.8,
-                                                                                 0, 0, words=[
-                                                                                     Word(0, 1.5, 'hello',
-                                                                                          probability=0.8),
-                                                                                     Word(1.6, 3, ' world',
-                                                                                          probability=0.8)
-                                                                                 ]),
-                                                                             Segment(
-                                                                                 0, 0, 3, 6, 'hello world', [], 0, 0.8,
-                                                                                 0, 0, words=[
-                                                                                     Word(3, 4.5, 'hello',
-                                                                                          probability=0.8),
-                                                                                     Word(4.6, 6, ' world',
-                                                                                          probability=0.8)
-                                                                                 ]),
-                                                                         ], TranscriptionInfo('en', 30))))
+@patch('faster_whisper.WhisperModel.transcribe', MagicMock(
+    return_value=([
+                      Segment(
+                          0, 0, 0, 3, 'hello world', [], 0, 0.8, 0, 0, words=[
+                              Word(0, 1.5, 'hello', probability=0.8),
+                              Word(1.6, 3, ' world', probability=0.8)
+                          ]),
+                      Segment(
+                          0, 0, 3, 6, 'hello world', [], 0, 0.8, 0, 0, words=[
+                              Word(3, 4.5, 'hello', probability=0.8),
+                              Word(4.6, 6, ' world', probability=0.8)
+                          ]),
+                  ], TranscriptionInfo('en', 30))))
 class TestTranscriber(unittest.TestCase):
     def setUp(self) -> None:
         self.audio_path = Path('data/test_audio.wav')
