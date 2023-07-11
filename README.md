@@ -21,11 +21,9 @@ into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/
    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
    ```
 
-4. Install [whisperx](https://github.com/m-bain/whisperX) and (Recommended) the
-   latest [fast-whisper](https://github.com/guillaumekln/faster-whisper)
+4. Install latest [fast-whisper](https://github.com/guillaumekln/faster-whisper)
    ```shell
    pip install git+https://github.com/guillaumekln/faster-whisper
-   pip install git+https://github.com/m-bain/whisperx.git
    ```
 
 5. (Optional) If you want to process videos, install [ffmpeg](https://ffmpeg.org/download.html) and add `bin` directory
@@ -89,11 +87,15 @@ synopsis_map: {
 }
 ```
 
+## Known issue
+
+- Process crash after the `LRCer` get GC-ed in Windows. (from https://github.com/guillaumekln/faster-whisper/issues/71).
+  No workaround now.
+
 ## Todo
 
 - [x] [Efficiency] Batched translate/polish for GPT request (enable contextual ability).
 - [x] [Efficiency] Concurrent support for GPT request.
-- [x] [Efficiency & Transcription Quality] Use [whisperx](https://github.com/m-bain/whisperX) for transcription.
 - [x] [Translation Quality] Make translate prompt more robust according to https://github.com/openai/openai-cookbook.
 - [x] [Feature] Automatically fix json encoder error using GPT.
 - [x] [Efficiency] Asynchronously perform transcription and translation for multiple audio inputs.

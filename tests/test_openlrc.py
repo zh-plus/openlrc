@@ -5,16 +5,25 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+from faster_whisper.transcribe import Segment, Word
+
 from openlrc.openlrc import LRCer
 from openlrc.transcribe import TranscriptionInfo
 from openlrc.utils import extend_filename
 
 
 @patch('openlrc.transcribe.Transcriber.transcribe',
-       MagicMock(return_value=[{'sentences': [
-           {'text': 'test sentence1', 'start': 0.0, 'end': 3.0},
-           {'text': 'test sentence2', 'start': 3.0, 'end': 6.0}
-       ]}, TranscriptionInfo('en', 6.0)]))
+       MagicMock(return_value=(
+               [
+                   Segment(
+                       0, 0, 0, 3, 'hello world1', [], 0, 0.8, 0, 0, words=[
+                           Word(0, 1.5, 'hello', probability=0.8), Word(1.6, 3, ' world1', probability=0.8)
+                       ]),
+                   Segment(
+                       0, 0, 3, 6, 'hello world2', [], 0, 0.8, 0, 0, words=[
+                           Word(3, 4.5, 'hello', probability=0.8), Word(4.6, 6, ' world2', probability=0.8)
+                       ])],
+               TranscriptionInfo('en', 6.0))))
 class TestLRCer(unittest.TestCase):
     def setUp(self) -> None:
         self.audio_path = Path('data/test_audio.wav')
