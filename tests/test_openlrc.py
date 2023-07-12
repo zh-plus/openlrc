@@ -12,6 +12,7 @@ from openlrc.transcribe import TranscriptionInfo
 from openlrc.utils import extend_filename
 
 
+@patch('faster_whisper.WhisperModel', MagicMock())
 @patch('openlrc.transcribe.Transcriber.transcribe',
        MagicMock(return_value=(
                [
