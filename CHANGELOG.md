@@ -1,3 +1,18 @@
+## 0.2.0
+
+This update switch the underlying transcription model from `whisperx` to `faster-whisper`, which enable VAD parameter
+tuning.
+
+#### New features:
+
+- Switch whisperx back to faster-whisper for VAD parameter tuning.
+
+#### Other Changes:
+
+- Update translation prompt
+  from https://github.com/machinewrapped/gpt-subtrans/commit/82bd2ca0d868f209d0e0c5f7c04255523daabe3c.
+- Change the default parameters of `faster-whisper` for consistent transcription.
+
 ## 0.1.5
 
 Emergent bugfix release.
