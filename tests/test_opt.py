@@ -37,7 +37,7 @@ class TestSubtitleOptimizer(unittest.TestCase):
         subtitle = self.subtitle
         optimizer = SubtitleOptimizer(subtitle)
         optimizer.cut_long(keep=2)
-        assert optimizer.subtitle.segments[4].text == '这太(Cut to 2)'
+        assert optimizer.subtitle.segments[4].text == '这太'
 
     def test_traditional2mandarin(self):
         subtitle = self.subtitle

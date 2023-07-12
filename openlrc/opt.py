@@ -58,11 +58,11 @@ class SubtitleOptimizer:
                         # If the merged elements is still too small, find the smaller element nearby and merge it
                         if new_elements[-1].duration > element.duration:
                             # merge to the next
-                            element.text = merged_element.text + ' ' + element.text
+                            element.text = merged_element.text + element.text
                             element.start = merged_element.start
                         else:
                             # merge to the last
-                            new_elements[-1].text += ' ' + merged_element.text
+                            new_elements[-1].text += merged_element.text
                             new_elements[-1].end = merged_element.end
                     else:
                         new_elements.append(merged_element)
@@ -74,7 +74,7 @@ class SubtitleOptimizer:
                 if not merged_element:
                     merged_element = element
                 else:
-                    merged_element.text += ' ' + element.text
+                    merged_element.text += element.text
                     merged_element.end = element.end
 
         self.subtitle.segments = new_elements
@@ -107,7 +107,7 @@ class SubtitleOptimizer:
             if len(element.text) > threshold and len(element.text) / len(set(element.text)) > 3.0:
                 # text length larger than threshold and text density is larger than 3.0
                 logger.warning(f'Cut long text: {element.text}\nInto: {element.text[:keep]}...')
-                new_elements[i].text = element.text[:keep] + f'(Cut to {keep})'
+                new_elements[i].text = element.text[:keep]
 
         self.subtitle.segments = new_elements
 

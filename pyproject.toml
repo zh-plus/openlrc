@@ -52,7 +52,6 @@ jaconvV2 = "^0.4"
 spacy = "^3.5.4"
 pysbd = "^0.3.4"
 faster-whisper = "^0.6.0"
-#whisperx = { git = "https://github.com/m-bain/whisperx.git" }
 #torch = { version = "2.0.1", source = "torch" }
 #torchaudio = { version = "2.0.2", source = "torch" }
 #torchvision = { version = "0.15.2", source = "torch" }

@@ -7,7 +7,7 @@ from openlrc.prompter import BaseTranslatePrompter
 
 formatted_user_input = '''<title>Title</title>
 <background>Background</background>
-<synopsis>Synopsis</synopsis>
+<description>Description</description>
 <context>
 <scene>test scene content</scene>
 <chunk> Chunk 1: test chunk1 summary
@@ -33,7 +33,7 @@ Translation>
 
 class TestPrompter(unittest.TestCase):
     def setUp(self) -> None:
-        self.prompter = BaseTranslatePrompter('ja', 'zh-cn', 'movie', 'Title', 'Background', 'Synopsis')
+        self.prompter = BaseTranslatePrompter('ja', 'zh-cn', 'movie', 'Title', 'Background', 'Description')
         self.formatted_user_input = formatted_user_input
 
     def test_user_prompt(self):
@@ -60,7 +60,7 @@ Translation>'''
                     {'role': 'user', 'content': formatted_user_input}]
         content = '''<title>Title</title>
 <background>Background</background>
-<synopsis>Synopsis</synopsis>
+<description>Description</description>
 <context>
 <scene>Scene</scene>
 <chunk> Chunk 1:  </chunk>

@@ -32,7 +32,8 @@ jobs:
         run: |
           poetry lock --no-update
           poetry install
-          poetry run pip install git+https://github.com/m-bain/whisperx.git
+          poetry run pip install git+https://github.com/guillaumekln/faster-whisper
+          poetry run spacy download en_core_web_sm
       - name: Install ffmpeg
         uses: FedericoCarboni/setup-ffmpeg@v2
         id: setup-ffmpeg

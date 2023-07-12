@@ -3,14 +3,16 @@
 
 import concurrent.futures
 import json
-from concurrent.futures import Future
 from pathlib import Path
 from pprint import pformat
 from queue import Queue
 from threading import Lock
 from typing import List
 
+from faster_whisper.transcribe import Segment
+
 from openlrc.context import Context
+from openlrc.defaults import default_asr_options, default_vad_options
 from openlrc.logger import logger
 from openlrc.opt import SubtitleOptimizer
 from openlrc.subtitle import Subtitle
@@ -21,23 +23,22 @@ from openlrc.utils import Timer, extend_filename, get_audio_duration, format_tim
 
 
 class LRCer:
+    """
+     :param model_name: Name of whisper model (tiny, tiny.en, base, base.en, small, small.en, medium,
+                    medium.en, large-v1, or large-v2) When a size is configured, the converted model is downloaded
+                    from the Hugging Face Hub.
+                    Default: ``large-v2``
+    :param compute_type: The type of computation to use. Can be ``int8``, ``int8_float16``, ``int16``,
+                    ``float16`` or ``float32``.
+                    Default: ``float16``
+    :param fee_limit: The maximum fee you are willing to pay for one translation call. Default: ``0.1``
+    :param consumer_thread: To prevent exceeding the RPM and TPM limits set by OpenAI, the default is TPM/MAX_TOKEN.
+    :param asr_options: parameters for whisper model.
+    :param vad_options: parameters for VAD model.
+    """
+
     def __init__(self, model_name='large-v2', compute_type='float16', fee_limit=0.1, consumer_thread=11,
                  asr_options=None, vad_options=None):
-        """
-        :param model_name: Name of whisper model (tiny, tiny.en, base, base.en, small, small.en, medium,
-                        medium.en, large-v1, or large-v2) When a size is configured, the converted model is downloaded
-                        from the Hugging Face Hub.
-                        Default: ``large-v2``
-        :param compute_type: The type of computation to use. Can be ``int8``, ``int8_float16``, ``int16``,
-                        ``float16`` or ``float32``.
-                        Default: ``float16``
-        :param fee_limit: The maximum fee you are willing to pay for one translation call. Default: ``0.1``
-        :param consumer_thread: To prevent exceeding the RPM and TPM limits set by OpenAI, the default is TPM/MAX_TOKEN.
-        :param asr_options: parameters for whisper model.
-        :param vad_options: parameters for VAD model.
-        """
-
-        self.transcriber = Transcriber(model_name=model_name, compute_type=compute_type)
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
         self.from_video = set()
@@ -48,39 +49,19 @@ class LRCer:
         self.consumer_thread = consumer_thread
 
         # Default Automatic Speech Recognition (ASR) options
-        self.asr_options = {
-            "beam_size": 5,
-            "best_of": 5,
-            "patience": 1,
-            "length_penalty": 1,
-            "temperatures": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
-            "compression_ratio_threshold": 2.4,
-            "log_prob_threshold": -1.0,
-            "no_speech_threshold": 0.6,
-            "condition_on_previous_text": True,
-            "initial_prompt": None,
-            "prefix": None,
-            "suppress_blank": True,
-            "suppress_tokens": [-1],
-            "without_timestamps": True,
-            "max_initial_timestamp": 0.0,
-            "word_timestamps": False,
-            "prepend_punctuations": "\"'“¿([{-",
-            "append_punctuations": "\"'.。,，!！?？:：”)]}、",
-            "suppress_numerals": False,
-        }
+        self.asr_options = default_asr_options
 
-        # Parameters for VAD (see pyannote.audio), reduce them if speech is not being detected
-        self.vad_options = {
-            "vad_onset": 0.500,
-            "vad_offset": 0.363
-        }
+        # Parameters for VAD (see faster_whisper.vad.VadOptions), tune them if speech is not being detected
+        self.vad_options = default_vad_options
 
         if asr_options:
             self.asr_options.update(asr_options)
 
         if vad_options:
             self.vad_options.update(vad_options)
+
+        self.transcriber = Transcriber(model_name=model_name, compute_type=compute_type,
+                                       asr_options=self.asr_options, vad_options=self.vad_options)
 
     def transcription_producer(self, transcription_queue, audio_paths, src_lang):
         """
@@ -92,21 +73,17 @@ class LRCer:
                 with Timer('Transcription process'):
                     logger.info(
                         f'Audio length: {audio_path}: {format_timestamp(get_audio_duration(audio_path), fmt="srt")}')
-                    segments, info = self.transcriber.transcribe(audio_path, batch_size=4, language=src_lang,
-                                                                 asr_options=self.asr_options,
-                                                                 vad_options=self.vad_options)
+                    segments, info = self.transcriber.transcribe(audio_path, language=src_lang)
                     logger.info(f'Detected language: {info.language}')
 
-                    # From generator to list with progress bar shown
-                    seg_list = segments['sentences']  # [{'text': ..., 'start': ..., 'end':...}, ...]
-                    logger.debug(f'Transcribed fast-whisper Segments: {seg_list}')
+                    # [Segment(start, end, text, words=[Word(start, end, word, probability)])]
 
                 # Save the transcribed json
-                self.to_json(seg_list, name=transcribed_path, lang=info.language)  # xxx_transcribed.json
+                self.to_json(segments, name=transcribed_path, lang=info.language)  # xxx_transcribed.json
             else:
                 logger.info(f'Found transcribed json file: {transcribed_path}')
             transcription_queue.put(transcribed_path)
-            logger.info(f'Put transcription: {transcribed_path}')
+            # logger.info(f'Put transcription: {transcribed_path}')
 
         transcription_queue.put(None)
         logger.info('Transcription producer finished.')
@@ -159,7 +136,7 @@ class LRCer:
             logger.info(f'Translation fee til now: {self.api_fee:.4f} USD')
 
     def _translate(self, audio_name, prompter, target_lang, transcribed_opt_sub, translated_path):
-        json_filename = Path(translated_path.parent / audio_name).with_suffix('.json')
+        json_filename = Path(translated_path.parent / (audio_name + '.json'))
         compare_path = Path(translated_path.parent, f'{audio_name}_compare.json')
         if not translated_path.exists():
             if not compare_path.exists():
@@ -174,7 +151,7 @@ class LRCer:
                     title=audio_name,
                     audio_type=context.audio_type,
                     background=context.background,
-                    synopsis=context.get_synopsis(audio_name),
+                    description=context.get_description(audio_name),
                     compare_path=compare_path
                 )
 
@@ -244,7 +221,7 @@ class LRCer:
         with Timer('Transcription (Producer) and Translation (Consumer) process'):
             consumer = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='Consumer') \
                 .submit(self.transcription_consumer, transcription_queue, target_lang, prompter, skip_trans)
-            producer: Future = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='Producer') \
+            producer = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='Producer') \
                 .submit(self.transcription_producer, transcription_queue, audio_paths, src_lang)
 
             producer.result()
@@ -257,7 +234,7 @@ class LRCer:
         logger.info(f'Totally used API fee: {self.api_fee:.4f} USD')
 
     @staticmethod
-    def to_json(segments, name, lang):
+    def to_json(segments: List[Segment], name, lang):
         result = {
             'generator': 'LRC generated by https://github.com/zh-plus/Open-Lyrics',
             'language': lang,
@@ -266,9 +243,9 @@ class LRCer:
 
         for segment in segments:
             result['segments'].append({
-                'start': segment["start"],
-                'end': segment["end"],
-                'text': segment["text"]
+                'start': segment.start,
+                'end': segment.end,
+                'text': segment.text
             })
 
         with open(name, 'w', encoding='utf-8') as f:
