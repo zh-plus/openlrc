@@ -33,7 +33,7 @@ class Transcriber:
         self.asr_options = asr_options
         self.vad_options = vad_options
 
-        self.whisper_model = WhisperModel(model_name, device, compute_type=compute_type, num_workers=1)
+        self.whisper_model = WhisperModel(model_name, device, compute_type=compute_type, num_workers=2)
 
     def transcribe(self, audio_path: Union[str, Path], language=None, vad_filter=True):
         seg_gen, info = self.whisper_model.transcribe(str(audio_path), language=language,
@@ -78,6 +78,9 @@ class Transcriber:
                            seg.temperature, seg.avg_logprob, seg.compression_ratio, seg.no_speech_prob, words)
 
         def mid_split(seg_entry):
+            """
+            Todo: Split into multiple segments (>2)
+            """
             text = seg_entry.text
             doc = nlp(text)
 
@@ -115,20 +118,26 @@ class Transcriber:
         sentences = []  # [{'text': , 'start': , 'end': , 'words': [{word: , start: , end: , score: }, ...]}, ...]
         for segment in segments:
             splits = segmenter.segment(segment.text)
-            splits = [s for s in filter(None, splits)]  # Filter empty split & remove space
+            splits = [s for s in filter(None, splits)]  # Filter empty split
             word_start = 0
 
             for split in splits:
                 split_words = []
                 split_words_len = 0
                 for i in range(len(split)):
-                    split_words.append(segment.words[word_start + i])
-                    split_words_len += len(segment.words[word_start + i].word)
-                    if split_words_len >= len(split):
+                    if word_start + i < len(segment.words):
+                        split_words.append(segment.words[word_start + i])
+                        split_words_len = len(''.join([word.word for word in split_words]).rstrip())
+                    else:
+                        logger.warning(f'word_start + i exceed len(segment.words): '
+                                       f'{word_start + i} >= {len(segment.words)}, keep split_words: {"".join([word.word for word in split_words])}, discard: {split[split_words_len:]}, skip')
+                        break
+                    if split_words_len >= len(split.rstrip()):
                         break
 
-                if split_words_len >= len(split) + 2:
-                    raise ValueError(f'Extracted split words length mismatch: {split_words_len} >= {len(split)} + 2')
+                if split_words_len >= len(split.rstrip()) + 2:
+                    logger.warning(
+                        f'Extracted split words len mismatch: {split_words_len} >= {len(split)} + 2')
 
                 word_start += len(split_words)
 
@@ -140,7 +149,8 @@ class Transcriber:
                     id_cnt += 1
                 else:
                     # Split them in the middle
+                    origin_len = len(sentences)
                     sentences.extend(mid_split(entry))
-                    id_cnt += 2
+                    id_cnt += (len(sentences) - origin_len)
 
         return sentences

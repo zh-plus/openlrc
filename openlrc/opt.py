@@ -107,7 +107,7 @@ class SubtitleOptimizer:
             if len(element.text) > threshold and len(element.text) / len(set(element.text)) > 3.0:
                 # text length larger than threshold and text density is larger than 3.0
                 logger.warning(f'Cut long text: {element.text}\nInto: {element.text[:keep]}...')
-                new_elements[i].text = element.text[:keep] + f'(Cut to {keep})'
+                new_elements[i].text = element.text[:keep]
 
         self.subtitle.segments = new_elements
 
