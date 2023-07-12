@@ -12,7 +12,7 @@ from openlrc.transcribe import TranscriptionInfo
 from openlrc.utils import extend_filename
 
 
-@patch('faster_whisper.WhisperModel', MagicMock())
+@patch('openlrc.transcribe.WhisperModel', MagicMock())
 @patch('openlrc.transcribe.Transcriber.transcribe',
        MagicMock(return_value=(
                [
@@ -53,33 +53,33 @@ class TestLRCer(unittest.TestCase):
     @patch('openlrc.translate.GPTTranslator.translate',
            MagicMock(return_value=['test translation1', 'test translation2']))
     def test_single_audio_transcription_translation(self):
-        lrcer = LRCer()
+        lrcer = LRCer(model_name='tiny')
         lrcer.run(self.audio_path)
 
     @patch('openlrc.translate.GPTTranslator.translate',
            MagicMock(return_value=['test translation1', 'test translation2']))
     def test_multiple_audio_transcription_translation(self):
-        lrcer = LRCer()
+        lrcer = LRCer(model_name='tiny')
         lrcer.run([self.audio_path, self.video_path])
 
     #  Tests that an error is raised when an audio file is not found
     def test_audio_file_not_found(self):
-        lrcer = LRCer()
+        lrcer = LRCer(model_name='tiny')
         with self.assertRaises(FileNotFoundError):
             lrcer.run('data/invalid.mp3')
 
     #  Tests that a video file can be transcribed and translated
     def test_video_file_transcription_translation(self):
-        lrcer = LRCer()
+        lrcer = LRCer(model_name='tiny')
         lrcer.run('data/test_video.mp4')
 
     @patch('openlrc.translate.GPTTranslator.translate', MagicMock(side_effect=Exception('test exception')))
     def test_translation_error(self):
-        lrcer = LRCer()
+        lrcer = LRCer(model_name='tiny')
         with self.assertRaises(Exception):
             lrcer.run(self.audio_path)
 
     @patch('openlrc.translate.GPTTranslator.translate', MagicMock(side_effect=Exception('test exception')))
     def test_skip_translation(self):
-        lrcer = LRCer()
+        lrcer = LRCer(model_name='tiny')
         lrcer.run('data/test_video.mp4', skip_trans=True)

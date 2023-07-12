@@ -6,8 +6,7 @@ from typing import NamedTuple, Union, List
 
 import pysbd
 import spacy
-from faster_whisper import WhisperModel
-from faster_whisper.transcribe import Segment
+from faster_whisper.transcribe import WhisperModel, Segment
 from pysbd.languages import LANGUAGE_CODES
 from tqdm import tqdm
 
