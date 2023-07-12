@@ -9,11 +9,12 @@ import numpy as np
 import pysbd
 import spacy
 import whisperx
+from punctuators.models import PunctCapSegModelONNX
+from pysbd.languages import LANGUAGE_CODES
+
 from openlrc.exceptions import DependencyException
 from openlrc.logger import logger
 from openlrc.utils import Timer, release_memory, get_audio_duration, normalize, get_spacy_lib
-from punctuators.models import PunctCapSegModelONNX
-from pysbd.languages import LANGUAGE_CODES
 
 
 class TranscriptionInfo(NamedTuple):
@@ -94,6 +95,11 @@ class Transcriber:
                 while split_idx > 0 and 'end' not in seg_entry['words'][split_idx].keys():
                     split_idx -= 1
 
+                if split_idx == 0:
+                    logger.warning(
+                        f'No valid word to the left of {seg_entry["text"][half]}, skip: {seg_entry["text"]}')
+                    return [seg_entry]
+
                 former = {
                     'text': seg_entry['text'][:half],
                     'start': seg_entry['start'],
@@ -104,6 +110,11 @@ class Transcriber:
                 split_idx = half
                 while split_idx < len(text) - 1 and 'start' not in seg_entry['words'][split_idx].keys():
                     split_idx += 1
+
+                if split_idx == len(seg_entry['words']) or 'start' not in seg_entry['words'][split_idx].keys():
+                    logger.warning(
+                        f'No valid word to the right of {seg_entry["text"][half]}, skip: {seg_entry["text"]}')
+                    return [seg_entry]
 
                 latter = {
                     'text': seg_entry['text'][half:],
@@ -163,6 +174,9 @@ class Transcriber:
             splits = segmenter.segment(segment['text'])
             splits = list(filter(None, splits))  # Filter empty split
             split_start = 0
+
+            if not segment['words']:
+                continue
 
             for split in splits:
                 start_idx = split_start
