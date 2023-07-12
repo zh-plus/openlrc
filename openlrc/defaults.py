@@ -2,15 +2,19 @@
 #  All rights reserved.
 
 default_asr_options = {
-    "beam_size": 5,
+    "beam_size": 3,
     "best_of": 5,
     "patience": 1,
     "length_penalty": 1,
-    "temperature": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
-    "compression_ratio_threshold": 2.4,
-    "log_prob_threshold": -1.0,
-    "no_speech_threshold": 0.6,
-    "condition_on_previous_text": True,
+    "temperature": 0,
+
+    # We assume the voice is valid after VAD, log_prob_threshold is not reliable, set these 3 to None to prevent
+    # miss-transcription, see https://github.com/openai/whisper/discussions/29#discussioncomment-3726710 for details
+    "compression_ratio_threshold": None,
+    "log_prob_threshold": None,
+    "no_speech_threshold": None,
+
+    "condition_on_previous_text": False,
     "initial_prompt": None,
     "prefix": None,
     "suppress_blank": True,
