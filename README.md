@@ -67,6 +67,11 @@ lrcer.run('./data/test.mp3', target_lang='zh-cn', context_path='./data/context.y
 
 # To skip translation process
 lrcer.run('./data/test.mp3', target_lang='en', skip_trans=True)
+
+# Change asr_options or vad_options, check openlrc.defaults for details
+vad_options = {"threshold": 0.1}
+lrcer = LRCer(vad_options=vad_options)
+lrcer.run('./data/test.mp3', target_lang='zh-cn')
 ```
 
 ### Context
@@ -86,11 +91,6 @@ description_map: {
   movie_name3 (without extension): "This is a single-line description for movie 3.",
 }
 ```
-
-## Known issue
-
-- Process crash after the `LRCer` get GC-ed in Windows. (from https://github.com/guillaumekln/faster-whisper/issues/71).
-  No workaround now.
 
 ## Todo
 

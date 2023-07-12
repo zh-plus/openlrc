@@ -1,6 +1,7 @@
 #  Copyright (C) 2023. Hao Zheng
 #  All rights reserved.
 
+# Check https://github.com/guillaumekln/faster-whisper/blob/3b4a6aa1c22d293ddde9f08bdd31fc842086a6ea/faster_whisper/transcribe.py#L153 for details
 default_asr_options = {
     "beam_size": 3,
     "best_of": 5,
@@ -26,6 +27,7 @@ default_asr_options = {
     "append_punctuations": "\"'.。,，!！?？:：”)]}、",
 }
 
+# Check https://github.com/guillaumekln/faster-whisper/blob/3b4a6aa1c22d293ddde9f08bdd31fc842086a6ea/faster_whisper/vad.py#L14 for details
 default_vad_options = {
     "threshold": 0.382,
     "min_speech_duration_ms": 250,
