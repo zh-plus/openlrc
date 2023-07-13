@@ -11,11 +11,14 @@ import audioread
 import ffmpeg
 import filetype
 import jaconvV2
+import langcodes
+import spacy
 import tiktoken
 import torch
 import unicodedata
-from langcodes import Language
 from lingua import LanguageDetectorBuilder
+
+from openlrc.defaults import supported_languages_lingua
 from openlrc.logger import logger
 
 
@@ -198,9 +201,9 @@ def format_timestamp(seconds: float, fmt: str = 'lrc') -> str:
 
 
 def detect_lang(text):
-    detector = LanguageDetectorBuilder.from_all_languages().build()
+    detector = LanguageDetectorBuilder.from_languages(*supported_languages_lingua).build()
     name = detector.detect_language_of(' '.join(text)).name.lower()
-    lang_code = Language.find(name).language
+    lang_code = langcodes.Language.find(name).language
     return lang_code
 
 
@@ -216,3 +219,30 @@ def get_spacy_lib(lang):
             mid_str = k
 
     return f'{lang}_{mid_str}_sm'
+
+
+def spacy_load(lang) -> spacy.Language:
+    lib_name = get_spacy_lib(lang)
+    try:
+        nlp = spacy.load(lib_name)
+    except (IOError, ImportError, OSError):
+        logger.warning(f'Spacy model {lib_name} missed, downloading')
+        spacy.cli.download(lib_name)
+        nlp = spacy.load(lib_name)
+
+    return nlp
+
+
+def get_similarity(text1, text2):
+    lang1 = detect_lang(text1)
+    lang2 = detect_lang(text2)
+
+    if lang1 != lang2:
+        raise ValueError(f'language of {text1} ({lang1}) is not the same as {text2} ({lang2})')
+
+    nlp = spacy_load(lang1)
+
+    doc1 = nlp(text1)
+    doc2 = nlp(text2)
+
+    return doc1.similarity(doc2)

@@ -5,15 +5,13 @@ from pathlib import Path
 from typing import NamedTuple, Union, List
 
 import pysbd
-import spacy
 from faster_whisper.transcribe import WhisperModel, Segment
 from pysbd.languages import LANGUAGE_CODES
 from tqdm import tqdm
 
 from openlrc.defaults import default_asr_options, default_vad_options
-from openlrc.exceptions import DependencyException
 from openlrc.logger import logger
-from openlrc.utils import Timer, get_audio_duration, get_spacy_lib
+from openlrc.utils import Timer, get_audio_duration, spacy_load
 
 
 class TranscriptionInfo(NamedTuple):
@@ -63,13 +61,7 @@ class Transcriber:
             logger.warning(f'Language {lang} not supported. Skip sentence split.')
             return segments
 
-        lib_name = get_spacy_lib(lang)
-        try:
-            nlp = spacy.load(lib_name)
-        except (IOError, ImportError, OSError):
-            raise DependencyException(
-                f'Try `spacy download {lib_name}` to fix.'
-                f'Check https://spacy.io/usage for more instruction.')
+        nlp = spacy_load(lang)
 
         def seg_from_words(seg: Segment, seg_id, words, tokens):
             text = ''.join([word.word for word in words])

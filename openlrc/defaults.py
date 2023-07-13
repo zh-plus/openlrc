@@ -1,5 +1,6 @@
 #  Copyright (C) 2023. Hao Zheng
 #  All rights reserved.
+from lingua import Language
 
 # Check https://github.com/guillaumekln/faster-whisper/blob/3b4a6aa1c22d293ddde9f08bdd31fc842086a6ea/faster_whisper/transcribe.py#L153 for details
 default_asr_options = {
@@ -35,4 +36,17 @@ default_vad_options = {
     "min_silence_duration_ms": 2000,
     "window_size_samples": 1024,
     "speech_pad_ms": 400,
+}
+
+# Currently bottleneck-ed by Spacy
+supported_languages = {
+    'ca', 'zh', 'hr', 'da', 'nl', 'en', 'fi', 'fr', 'de', 'el', 'it', 'ja', 'ko', 'lt', 'mk', 'nb', 'pl', 'pt', 'ro',
+    'ru', 'sl', 'es', 'sv', 'uk'
+}
+
+supported_languages_lingua = {
+    Language.CATALAN, Language.CHINESE, Language.CROATIAN, Language.DANISH, Language.DUTCH, Language.ENGLISH,
+    Language.FINNISH, Language.FRENCH, Language.GERMAN, Language.GREEK, Language.ITALIAN, Language.JAPANESE,
+    Language.KOREAN, Language.LITHUANIAN, Language.MACEDONIAN, Language.BOKMAL, Language.POLISH, Language.PORTUGUESE,
+    Language.ROMANIAN, Language.RUSSIAN, Language.SLOVENE, Language.SPANISH, Language.SWEDISH, Language.UKRAINIAN
 }

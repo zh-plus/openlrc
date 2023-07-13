@@ -5,6 +5,7 @@ import json
 import os
 import re
 import uuid
+from typing import Union, List
 
 import requests
 
@@ -71,8 +72,11 @@ class GPTTranslator:
             logger.error(f'Failed to extract contents from response: {content}')
             raise e
 
-    def translate(self, texts, src_lang, target_lang, audio_type='Anime', title='', background='', description='',
-                  compare_path='test_intermediate.json'):
+    def translate(self, texts: Union[str, List[str]], src_lang, target_lang, audio_type='Anime', title='',
+                  background='', description='', compare_path='test_intermediate.json'):
+        if not isinstance(texts, list):
+            texts = [texts]
+
         prompter: BaseTranslatePrompter = prompter_map[self.prompter](
             src_lang, target_lang, audio_type, title=title, background=background, description=description)
         translate_bot = GPTBot(fee_limit=self.fee_limit)
