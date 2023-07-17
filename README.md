@@ -74,7 +74,7 @@ lrcer = LRCer(vad_options=vad_options)
 lrcer.run('./data/test.mp3', target_lang='zh-cn')
 
 # Enhance the audio using noise suppression (consume more time).
-lrcer.run('./data/test.mp3', target_lang='zh-cn', noise_suppress=False)
+lrcer.run('./data/test.mp3', target_lang='zh-cn', noise_suppress=True)
 ```
 
 ### Context
