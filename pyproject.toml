@@ -8,7 +8,7 @@ in-project = true
 
 [tool.poetry]
 name = "openlrc"
-version = "0.2.0"
+version = "0.2.1"
 description = "Transcribe (whisper) and translate (gpt) voice into LRC file."
 license = "MIT"
 authors = [
@@ -54,6 +54,7 @@ pysbd = "^0.3.4"
 faster-whisper = "^0.6.0"
 soundfile = "^0.12.1"
 ffmpeg-normalize = "^1.27.5"
+deepfilternet = "^0.5.3"
 #torch = { version = "2.0.1", source = "torch" }
 #torchaudio = { version = "2.0.2", source = "torch" }
 #torchvision = { version = "0.15.2", source = "torch" }

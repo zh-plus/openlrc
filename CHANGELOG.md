@@ -1,3 +1,16 @@
+## 0.2.1
+
+This update add preprocessor to enhance input audio (loudness normalization & noise suppression).
+
+#### New features:
+
+- Loudness Normalization from [ffmpeg-normalize](https://github.com/slhck/ffmpeg-normalize)
+- Noise Suppression from [DeepFilterNet](https://github.com/Rikorose/DeepFilterNet)
+
+#### Other Changes:
+
+- Now all the intermediate files are saved in `./path/to/audio/preprocess`.
+
 ## 0.2.0
 
 This update switch the underlying transcription model from `whisperx` to `faster-whisper`, which enable VAD parameter
