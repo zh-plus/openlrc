@@ -3,6 +3,7 @@
 
 import concurrent.futures
 import json
+import shutil
 from pathlib import Path
 from pprint import pformat
 from queue import Queue
@@ -15,6 +16,7 @@ from openlrc.context import Context
 from openlrc.defaults import default_asr_options, default_vad_options
 from openlrc.logger import logger
 from openlrc.opt import SubtitleOptimizer
+from openlrc.preprocess import Preprocessor
 from openlrc.subtitle import Subtitle
 from openlrc.transcribe import Transcriber
 from openlrc.translate import GPTTranslator
@@ -33,8 +35,8 @@ class LRCer:
                     Default: ``float16``
     :param fee_limit: The maximum fee you are willing to pay for one translation call. Default: ``0.1``
     :param consumer_thread: To prevent exceeding the RPM and TPM limits set by OpenAI, the default is TPM/MAX_TOKEN.
-    :param asr_options: parameters for whisper model.
-    :param vad_options: parameters for VAD model.
+    :param asr_options: Parameters for whisper model.
+    :param vad_options: Parameters for VAD model.
     """
 
     def __init__(self, model_name='large-v2', compute_type='float16', fee_limit=0.1, consumer_thread=11,
@@ -120,7 +122,8 @@ class LRCer:
             translated_path = extend_filename(transcribed_opt_sub.filename, '_translated')
 
             final_subtitle = transcribed_opt_sub
-            if not skip_trans:
+            final_subtitle.filename = Path(translated_path.parent / f'{audio_name}.json')
+            if not skip_trans and not final_subtitle.exists():
                 with Timer('Translation process'):
                     try:
                         final_subtitle = self._translate(audio_name, prompter, target_lang, transcribed_opt_sub,
@@ -128,11 +131,13 @@ class LRCer:
                     except Exception as e:
                         self.exception = e
 
-            final_subtitle.filename = Path(translated_path.parent / f'{audio_name}.json')
-
-            final_subtitle.to_lrc()
+            # Copy preprocessed/xxx_preprocessed.lrc or preprocessed/xxx_preprocessed.srt to xxx.lrc or xxx.srt
+            lrc_path = final_subtitle.to_lrc()
+            shutil.copy(lrc_path, lrc_path.parents[1] / lrc_path.name.replace('_preprocessed.lrc', '.lrc'))
             if audio_name in self.from_video:
-                final_subtitle.to_srt()
+                srt_path = final_subtitle.to_srt()
+                shutil.copy(srt_path, srt_path.parents[1] / srt_path.name.replace('_preprocessed.srt', '.srt'))
+
             logger.info(f'Translation fee til now: {self.api_fee:.4f} USD')
 
     def _translate(self, audio_name, prompter, target_lang, transcribed_opt_sub, translated_path):
@@ -172,12 +177,12 @@ class LRCer:
             logger.info(f'Found translated json file: {translated_path}')
         translated_sub = Subtitle.from_json(translated_path)
 
-        final_subtitle = self.post_process(translated_sub, output_name=json_filename, t2m=target_lang == 'zh-cn',
-                                           update_name=True)  # xxx.json
+        final_subtitle = self.post_process(translated_sub, output_name=json_filename, update_name=True)  # xxx.json
+
         return final_subtitle
 
     def run(self, paths, src_lang=None, target_lang='zh-cn', prompter='base_trans', context_path=None,
-            skip_trans=False):
+            skip_trans=False, noise_suppress=False):
         """
         Split the translation into 2 phases: transcription and translation. They're running in parallel.
         Firstly, transcribe the audios one-by-one. At the same time, translation threads are created and waiting for
@@ -185,11 +190,12 @@ class LRCer:
         translate the transcribed texts.
 
         :param paths: Audio/Video paths, can be a list or a single path.
-        :param src_lang: Language of the audio, default to auto detect.
+        :param src_lang: Language of the audio, default to auto-detect.
         :param target_lang: Target language, default to Mandarin Chinese.
         :param prompter: Currently, only `base_trans` is supported.
         :param context_path: path to context config file. (Default to use `context.yaml` in the first audio's directory)
-        :param skip_trans: Skip the translation process if True.
+        :param skip_trans: Whether to skip the translation process. (Default to False)
+        :param noise_suppress: Whether to suppress the noise in the audio. (Default to False)
         """
         if not paths:
             logger.warning('No audio/video file given. Skip LRCer.run()')
@@ -198,9 +204,7 @@ class LRCer:
         if isinstance(paths, str) or isinstance(paths, Path):
             paths = [paths]
 
-        audio_paths = self.pre_process(paths)
-
-        logger.info(f'Working on {len(audio_paths)} audio files: {pformat(audio_paths)}')
+        paths = list(map(Path, paths))
 
         if context_path:
             context_path = Path(context_path)
@@ -210,11 +214,15 @@ class LRCer:
         else:
             # Try to find the default `context.yaml` in the first audio's directory
             try:
-                context_path = audio_paths[0].parent / 'context.yaml'
+                context_path = paths[0].parent / 'context.yaml'
                 self.context.load_config(context_path)
                 logger.info(f'Found context config file: {context_path}')
             except FileNotFoundError:
                 logger.info(f'Default context config not found: {self.context}, using default context.')
+
+        audio_paths = self.pre_process(paths, noise_suppress=noise_suppress)
+
+        logger.info(f'Working on {len(audio_paths)} audio files: {pformat(audio_paths)}')
 
         transcription_queue = Queue()
 
@@ -255,7 +263,7 @@ class LRCer:
 
         return result
 
-    def pre_process(self, paths):
+    def pre_process(self, paths, noise_suppress=False):
         paths = [Path(path) for path in paths]
 
         # Check if path is audio or video
@@ -268,13 +276,17 @@ class LRCer:
             if get_file_type(path) == 'video':
                 self.from_video.add(path.name)
 
+        # Audio-based process
+        preprocessor = Preprocessor(paths)
+        paths = preprocessor.run(noise_suppress)
+
         return paths
 
     @staticmethod
-    def post_process(transcribed_sub: Path, output_name: Path = None, remove_files: List[Path] = None, t2m=False,
+    def post_process(transcribed_sub: Path, output_name: Path = None, remove_files: List[Path] = None,
                      update_name=False):
         optimizer = SubtitleOptimizer(transcribed_sub)
-        optimizer.perform_all(t2m=t2m)
+        optimizer.perform_all()
         optimizer.save(output_name, update_name=update_name)
 
         # Remove intermediate files

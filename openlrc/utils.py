@@ -79,11 +79,11 @@ def normalize(text):
     """
     Normalize strings using str.lower(), and unicodedata.normalize
     """
-    text = unicodedata.normalize('NFKC', text.lower())
-
     # unicodedata cant handel quotes as expected'’'
-    quotes_table = str.maketrans('“”‘’', '""\'\'')
+    quotes_table = str.maketrans('〈〉゛“”‘’', '<>"""\'\'')
     text = text.translate(quotes_table)
+
+    text = unicodedata.normalize('NFKC', text.lower())
 
     # unicodedata cant handel kana
     text = jaconvV2.z2h(text)

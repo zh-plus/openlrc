@@ -129,6 +129,11 @@ class Transcriber:
                 if split_words_len >= len(split.rstrip()) + 2:
                     logger.warning(
                         f'Extracted split words len mismatch: {split_words_len} >= {len(split)} + 2')
+                if split_words_len == 0:
+                    logger.warning(
+                        f'Extracted zero split words: {split_words_len} == 0, for split: {split}, skip'
+                    )
+                    continue
 
                 word_start += len(split_words)
 

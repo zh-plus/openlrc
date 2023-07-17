@@ -81,7 +81,7 @@ class GPTBot:
                         f'Failed to get completion. Exceed max token length. '
                         f'Prompt tokens: {response.usage["prompt_tokens"]}, '
                         f'Completion tokens: {response.usage["completion_tokens"]}, '
-                        f'Total tokens: {response.usage["total_tokens"]}'
+                        f'Total tokens: {response.usage["total_tokens"]} '
                         f'Reduce chunk_size may help.'
                     )
                 if not output_checker(messages, response.choices[0].message.content):

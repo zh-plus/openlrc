@@ -1,6 +1,7 @@
 #  Copyright (C) 2023. Hao Zheng
 #  All rights reserved.
 
+import shutil
 import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -50,6 +51,8 @@ class TestLRCer(unittest.TestCase):
 
         self.video_path.with_suffix('.wav').unlink(missing_ok=True)
 
+        shutil.rmtree('data/preprocessed', ignore_errors=True)
+
     @patch('openlrc.translate.GPTTranslator.translate',
            MagicMock(return_value=['test translation1', 'test translation2']))
     def test_single_audio_transcription_translation(self):
@@ -62,13 +65,11 @@ class TestLRCer(unittest.TestCase):
         lrcer = LRCer(model_name='tiny')
         lrcer.run([self.audio_path, self.video_path])
 
-    #  Tests that an error is raised when an audio file is not found
     def test_audio_file_not_found(self):
         lrcer = LRCer(model_name='tiny')
         with self.assertRaises(FileNotFoundError):
             lrcer.run('data/invalid.mp3')
 
-    #  Tests that a video file can be transcribed and translated
     def test_video_file_transcription_translation(self):
         lrcer = LRCer(model_name='tiny')
         lrcer.run('data/test_video.mp4')

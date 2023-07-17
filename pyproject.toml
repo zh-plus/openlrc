@@ -52,6 +52,8 @@ jaconvV2 = "^0.4"
 spacy = "^3.5.4"
 pysbd = "^0.3.4"
 faster-whisper = "^0.6.0"
+soundfile = "^0.12.1"
+ffmpeg-normalize = "^1.27.5"
 #torch = { version = "2.0.1", source = "torch" }
 #torchaudio = { version = "2.0.2", source = "torch" }
 #torchvision = { version = "0.15.2", source = "torch" }

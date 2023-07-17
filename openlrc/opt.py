@@ -130,7 +130,7 @@ class SubtitleOptimizer:
     def remove_empty(self):
         self.subtitle.segments = [element for element in self.subtitle.segments if element.text]
 
-    def perform_all(self, t2m=False):
+    def perform_all(self):
         for _ in range(2):
             self.merge_same()
             self.merge_short()
@@ -139,7 +139,7 @@ class SubtitleOptimizer:
             self.remove_unk()
             self.remove_empty()
 
-            if t2m or self.subtitle.lang.lower() == 'zh-cn':
+            if self.subtitle.lang.lower() == 'zh-cn':
                 self.traditional2mandarin()
 
     def save(self, output_name=None, update_name=False):

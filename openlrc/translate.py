@@ -73,7 +73,7 @@ class GPTTranslator:
             raise e
 
     def translate(self, texts: Union[str, List[str]], src_lang, target_lang, audio_type='Anime', title='',
-                  background='', description='', compare_path='test_intermediate.json'):
+                  background='', description='', compare_path='translate_intermediate.json'):
         if not isinstance(texts, list):
             texts = [texts]
 

@@ -36,7 +36,6 @@ class TestTranscriber(unittest.TestCase):
             self.assertIsNotNone(result)
             self.assertEqual(round(info.duration), 30)
 
-    #  Tests that an audio file not found raises an error
     def test_audio_file_not_found(self):
         with patch('openlrc.transcribe.WhisperModel') as MockModel:
             MockModel.return_value.transcribe.return_value = return_tuple
