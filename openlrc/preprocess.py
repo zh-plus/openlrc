@@ -4,8 +4,10 @@ import logging
 from pathlib import Path
 from typing import List, Union
 
+import torch
 from df.enhance import enhance, init_df, load_audio, save_audio
 from ffmpeg_normalize import FFmpegNormalize
+from tqdm import tqdm
 
 from openlrc.logger import logger
 from openlrc.utils import release_memory
@@ -30,7 +32,8 @@ class Preprocessor:
         """
         Supress noise in audio.
         """
-        logger.info('Noise suppressing...')
+        if not audio_paths:
+            return []
 
         model, df_state, _ = init_df()
 
@@ -40,12 +43,24 @@ class Preprocessor:
             ns_path = output_path / f'{audio_name}_ns.wav'
 
             if not ns_path.exists():
-                audio, _ = load_audio(audio_path, sr=df_state.sr())
-                enhanced = enhance(model, df_state, audio, atten_lim_db=atten_lim_db)
+                audio, info = load_audio(audio_path, sr=df_state.sr())
+
+                # Split audio into 10min chunks
+                audio_chunks = [audio[:, i:i + 600 * info.sample_rate]
+                                for i in range(0, audio.shape[1], 600 * info.sample_rate)]
+
+                enhanced_chunks = []
+                for ac in tqdm(audio_chunks, desc='Noise suppressing...'):
+                    enhanced_chunks.append(enhance(model, df_state, ac, atten_lim_db=atten_lim_db))
+
+                enhanced = torch.cat(enhanced_chunks, dim=1)
+
+                assert enhanced.shape == audio.shape, 'Enhanced audio shape does not match original audio shape.'
 
                 save_audio(ns_path, enhanced, sr=df_state.sr())
 
             ns_audio_paths.append(ns_path)
+            logger.debug(f'Noise suppressed audio saved to {ns_path}')
 
         release_memory(model)
 
