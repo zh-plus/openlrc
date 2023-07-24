@@ -3,7 +3,9 @@
 
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, Mock
+
+import torch
 
 from openlrc.preprocess import Preprocessor
 
@@ -16,9 +18,13 @@ class TestPreprocessor(unittest.TestCase):
     @patch('openlrc.preprocess.release_memory')
     def test_noise_suppression_returns_path_objects(self, mock_release_memory, mock_save_audio, mock_load_audio,
                                                     mock_init_df, mock_enhance):
-        mock_enhance.return_value = unittest.mock.Mock()
-        mock_init_df.return_value = (unittest.mock.Mock(), unittest.mock.Mock(), unittest.mock.Mock())
-        mock_load_audio.return_value = (unittest.mock.Mock(), unittest.mock.Mock())
+        mock_enhance.return_value = torch.zeros((2, 600 * 16000))
+        mock_init_df.return_value = (Mock(), Mock(), Mock())
+
+        mock_info = Mock()
+        mock_info.sample_rate = 16000
+        mock_load_audio.return_value = (torch.zeros((2, 1200 * 16000)), mock_info)
+
         mock_save_audio.return_value = None
         mock_release_memory.return_value = None
         preprocessor = Preprocessor('audio.wav')
