@@ -274,7 +274,7 @@ class LRCer:
             paths[i] = extract_audio(path)
 
             if get_file_type(path) == 'video':
-                self.from_video.add(path.name)
+                self.from_video.add(path.name + '_preprocessed')
 
         # Audio-based process
         preprocessor = Preprocessor(paths)

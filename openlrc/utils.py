@@ -131,6 +131,10 @@ class Timer:
     def _elapsed(self):
         return self._stop - self._start
 
+    @property
+    def duration(self):
+        return time.perf_counter() - self._start
+
     def __enter__(self):
         self.start()
         return self
