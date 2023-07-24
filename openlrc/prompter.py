@@ -9,8 +9,7 @@ from lingua import LanguageDetectorBuilder
 from openlrc.logger import logger
 
 # instruction prompt modified from https://github.com/machinewrapped/gpt-subtrans
-base_instruction = f'''You are a translator, your task is to accurately revise and translate subtitles into a target language.
-The input are transcribed from audio, so there may be errors in the transcription. Please correct any errors you find in the sentences first, based on their context. Then translate them to target language according to the revised sentences.
+base_instruction = f'''You are a translator tasked with revising and translating subtitles into a target language. Your goal is to ensure accurate, concise, and natural-sounding translations for each line of dialogue. The input consists of transcribed audio, which may contain transcription errors. Your task is to first correct any errors you find in the sentences based on their context, and then translate them to the target language according to the revised sentences.
 The user will provide a chunk of lines, you should respond with an accurate, concise, and natural-sounding translation for the dialogue. 
 The user may provide additional context, such as background, description or title of the source material, a summary of the current scene, or a list of character names. Use this information to improve the quality of your translation.
 Your response will be processed by an automated system, so it is imperative that you adhere to the required output format.
