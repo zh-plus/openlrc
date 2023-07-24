@@ -1,6 +1,15 @@
+## 0.2.2
+
+This update address minor issues.
+
+#### Other Changes:
+
+- Split audio during noise suppression to avoid out-of-memory.
+- Improve translate prompt.
+
 ## 0.2.1
 
-This update add preprocessor to enhance input audio (loudness normalization & noise suppression).
+This update adds a preprocessor to enhance input audio (loudness normalization & noise suppression).
 
 #### New features:
 
