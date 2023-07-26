@@ -1,6 +1,7 @@
 #  Copyright (C) 2023. Hao Zheng
 #  All rights reserved.
 import logging
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import List, Union
 
@@ -11,6 +12,21 @@ from tqdm import tqdm
 
 from openlrc.logger import logger
 from openlrc.utils import release_memory
+
+
+def loudness_norm_single(_audio_path: Path, _ln_path: Path):
+    """
+    Normalize the loudness of a single audio file using FFmpegNormalize.
+
+    :param _audio_path: The path to the input audio file.
+    :param _ln_path: The path to save the normalized audio file.
+    """
+    normalizer = FFmpegNormalize(output_format='wav', sample_rate=48000, progress=logger.level <= logging.DEBUG,
+                                 keep_lra_above_loudness_range_target=True)
+
+    if not _ln_path.exists():
+        normalizer.add_media_file(str(_audio_path), str(_ln_path))
+        normalizer.run_normalization()
 
 
 class Preprocessor:
@@ -45,7 +61,7 @@ class Preprocessor:
             if not ns_path.exists():
                 audio, info = load_audio(audio_path, sr=df_state.sr())
 
-                # Split audio into 10min chunks
+                # Split audio into 10 min chunks
                 audio_chunks = [audio[:, i:i + 600 * info.sample_rate]
                                 for i in range(0, audio.shape[1], 600 * info.sample_rate)]
 
@@ -72,20 +88,16 @@ class Preprocessor:
         """
         logger.info('Loudness normalizing...')
 
-        normalizer = FFmpegNormalize(output_format='wav', sample_rate=48000, progress=logger.level <= logging.DEBUG,
-                                     keep_lra_above_loudness_range_target=True)
+        args = []
         ln_audio_paths = []
         for audio_path, output_path in zip(audio_paths, self.output_paths):
-            audio_name = audio_path.stem
-
-            ln_path = output_path / f'{audio_name}_ln.wav'
-
-            if not ln_path.exists():
-                normalizer.add_media_file(audio_path, ln_path)
-
+            ln_path = output_path / f'{audio_path.stem}_ln.wav'
+            args.append((audio_path, ln_path))
             ln_audio_paths.append(ln_path)
 
-        normalizer.run_normalization()
+        # Multi-processing
+        with ProcessPoolExecutor() as executor:
+            _ = [executor.submit(loudness_norm_single, *arg) for arg in args]
 
         return ln_audio_paths
 
