@@ -108,7 +108,7 @@ class Subtitle:
         if self.segments[-1].end >= 3600:
             logger.warning('Duration larger than 1 hour, use srt file instead')
             self.to_srt()
-            return
+            return self.filename.with_suffix('.srt')
 
         lrc_path = self.filename.with_suffix('.lrc')
         fmt = partial(format_timestamp, fmt='lrc')

@@ -1,11 +1,11 @@
 ## 0.2.2
 
-This update address minor issues.
+This update addresses minor issues.
 
 #### Other Changes:
 
 - Split audio during noise suppression to avoid out-of-memory.
-- Improve translate prompt.
+- Improve translation prompt.
 
 ## 0.2.1
 

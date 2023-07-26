@@ -132,11 +132,12 @@ class LRCer:
                         self.exception = e
 
             # Copy preprocessed/xxx_preprocessed.lrc or preprocessed/xxx_preprocessed.srt to xxx.lrc or xxx.srt
-            lrc_path = final_subtitle.to_lrc()
-            shutil.copy(lrc_path, lrc_path.parents[1] / lrc_path.name.replace('_preprocessed.lrc', '.lrc'))
             if audio_name in self.from_video:
                 srt_path = final_subtitle.to_srt()
                 shutil.copy(srt_path, srt_path.parents[1] / srt_path.name.replace('_preprocessed.srt', '.srt'))
+            else:
+                lrc_path = final_subtitle.to_lrc()
+                shutil.copy(lrc_path, lrc_path.parents[1] / lrc_path.name.replace('_preprocessed.lrc', '.lrc'))
 
             logger.info(f'Translation fee til now: {self.api_fee:.4f} USD')
 
@@ -274,7 +275,7 @@ class LRCer:
             paths[i] = extract_audio(path)
 
             if get_file_type(path) == 'video':
-                self.from_video.add(path.name + '_preprocessed')
+                self.from_video.add(path.stem + '_preprocessed')
 
         # Audio-based process
         preprocessor = Preprocessor(paths)
