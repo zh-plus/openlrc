@@ -53,6 +53,9 @@ def extract_audio(path: Path) -> Path:
 
 
 def get_file_type(path: Path) -> str:
+    if path.suffix == '.ts':
+        return 'video'
+
     try:
         file_type = filetype.guess(path).mime.split('/')[0]
     except (TypeError, AttributeError) as e:
