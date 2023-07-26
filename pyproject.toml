@@ -57,6 +57,8 @@ ffmpeg-normalize = "^1.27.5"
 deepfilternet = "^0.5.3"
 aiohttp = "^3.8.5"
 torch = ">=2.0.0, !=2.0.1"
+torchaudio = "^2.0.0"
+torchvision = "^0.15.0"
 #torch = { version = "2.0.1", source = "torch" }
 #torchaudio = { version = "2.0.2", source = "torch" }
 #torchvision = { version = "0.15.2", source = "torch" }
