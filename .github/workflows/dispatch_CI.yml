@@ -24,11 +24,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
+        with:
+          ref: ${{ inputs.myCommit }}
       - uses: ./.github/actions/setup-python-poetry
         with:
           python-version: ${{ matrix.python-version }}
           poetry-version: 1.5.1
-          ref: ${{ inputs.myCommit }}
       - name: Install dependencies
         run: |
           poetry lock --no-update
