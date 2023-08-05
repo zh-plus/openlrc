@@ -7,6 +7,7 @@ import time
 from typing import List, Union, Dict, Callable
 
 import openai
+from litellm import completion
 from aiohttp import ClientSession
 
 from openlrc.exceptions import ChatBotException
@@ -18,7 +19,7 @@ class GPTBot:
     def __init__(self, model='gpt-3.5-turbo-16k', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.05):
         openai.api_key = os.getenv("OPENAI_API_KEY")
 
-        self.model = model
+        self.model = model #litellm supported models: https://litellm.readthedocs.io/en/latest/supported/
         self.temperature = temperature
         self.top_p = top_p
         self.retry = retry
@@ -69,7 +70,7 @@ class GPTBot:
         response = None
         for i in range(self.retry):
             try:
-                response = openai.ChatCompletion.create(
+                response = completion(
                     model=self.model,
                     messages=messages,
                     temperature=self.temperature,
