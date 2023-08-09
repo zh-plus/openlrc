@@ -106,11 +106,11 @@ description_map: {
   to [gpt-subtrans](https://github.com/machinewrapped/gpt-subtrans).
 - [x] [Feature] Input video support.
 - [X] [Feature] Multiple output format support.
+- [x] [Quality] Speech enhancement for input audio.
 - [ ] [Feature] Align ground-truth transcription with audio.
 - [ ] [Quality]
   Use [multilingual language model](https://www.sbert.net/docs/pretrained_models.html#multi-lingual-models) to assess
   translation quality.
-- [ ] [Quality] Speech enhancement for input audio.
 - [ ] [Efficiency] Add Azure OpenAI Service support.
 - [ ] [Quality] Use [claude](https://www.anthropic.com/index/introducing-claude) for translation.
 - [ ] [Feature] Add local LLM support.
