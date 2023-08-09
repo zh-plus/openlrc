@@ -8,6 +8,7 @@ default_asr_options = {
     "best_of": 5,
     "patience": 1,
     "length_penalty": 1,
+    "repetition_penalty": 1.2,
     "temperature": 0,
 
     # We assume the voice is valid after VAD, log_prob_threshold is not reliable, set these 3 to None to prevent
@@ -36,6 +37,10 @@ default_vad_options = {
     "min_silence_duration_ms": 2000,
     "window_size_samples": 1024,
     "speech_pad_ms": 400,
+}
+
+default_preprocess_options = {
+    'atten_lim_db': 15
 }
 
 # Currently bottleneck-ed by Spacy

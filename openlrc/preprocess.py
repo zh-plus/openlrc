@@ -10,22 +10,23 @@ from df.enhance import enhance, init_df, load_audio, save_audio
 from ffmpeg_normalize import FFmpegNormalize
 from tqdm import tqdm
 
+from openlrc.defaults import default_preprocess_options
 from openlrc.logger import logger
 from openlrc.utils import release_memory
 
 
-def loudness_norm_single(_audio_path: Path, _ln_path: Path):
+def loudness_norm_single(audio_path: Path, ln_path: Path):
     """
     Normalize the loudness of a single audio file using FFmpegNormalize.
 
-    :param _audio_path: The path to the input audio file.
-    :param _ln_path: The path to save the normalized audio file.
+    :param audio_path: The path to the input audio file.
+    :param ln_path: The path to save the normalized audio file.
     """
     normalizer = FFmpegNormalize(output_format='wav', sample_rate=48000, progress=logger.level <= logging.DEBUG,
                                  keep_lra_above_loudness_range_target=True)
 
-    if not _ln_path.exists():
-        normalizer.add_media_file(str(_audio_path), str(_ln_path))
+    if not ln_path.exists():
+        normalizer.add_media_file(str(audio_path), str(ln_path))
         normalizer.run_normalization()
 
 
@@ -34,11 +35,13 @@ class Preprocessor:
     Preprocess audio to make it clear and normalized.
     """
 
-    def __init__(self, audio_paths: Union[str, Path, List[str], List[Path]], output_folder='preprocessed'):
+    def __init__(self, audio_paths: Union[str, Path, List[str], List[Path]], output_folder='preprocessed',
+                 options: dict = default_preprocess_options):
         if not isinstance(audio_paths, list):
             audio_paths = [audio_paths]
         self.audio_paths = [Path(p) for p in audio_paths]
         self.output_paths = [p.parent / output_folder for p in self.audio_paths]
+        self.options = options
 
         for path in self.output_paths:
             if not path.exists():
@@ -50,6 +53,9 @@ class Preprocessor:
         """
         if not audio_paths:
             return []
+
+        if 'atten_lim_db' in self.options.keys():
+            atten_lim_db = self.options['atten_lim_db']
 
         model, df_state, _ = init_df()
 

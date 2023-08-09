@@ -13,7 +13,7 @@ from typing import List
 from faster_whisper.transcribe import Segment
 
 from openlrc.context import Context
-from openlrc.defaults import default_asr_options, default_vad_options
+from openlrc.defaults import default_asr_options, default_vad_options, default_preprocess_options
 from openlrc.logger import logger
 from openlrc.opt import SubtitleOptimizer
 from openlrc.preprocess import Preprocessor
@@ -40,7 +40,7 @@ class LRCer:
     """
 
     def __init__(self, model_name='large-v2', compute_type='float16', fee_limit=0.1, consumer_thread=11,
-                 asr_options=None, vad_options=None):
+                 asr_options=None, vad_options=None, preprocess_options=None):
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
         self.from_video = set()
@@ -56,11 +56,16 @@ class LRCer:
         # Parameters for VAD (see faster_whisper.vad.VadOptions), tune them if speech is not being detected
         self.vad_options = default_vad_options
 
+        self.preprocess_options = default_preprocess_options
+
         if asr_options:
             self.asr_options.update(asr_options)
 
         if vad_options:
             self.vad_options.update(vad_options)
+
+        if preprocess_options:
+            self.preprocess_options.update(preprocess_options)
 
         self.transcriber = Transcriber(model_name=model_name, compute_type=compute_type,
                                        asr_options=self.asr_options, vad_options=self.vad_options)
@@ -133,11 +138,13 @@ class LRCer:
 
             # Copy preprocessed/xxx_preprocessed.lrc or preprocessed/xxx_preprocessed.srt to xxx.lrc or xxx.srt
             if audio_name in self.from_video:
-                srt_path = final_subtitle.to_srt()
-                shutil.copy(srt_path, srt_path.parents[1] / srt_path.name.replace('_preprocessed.srt', '.srt'))
+                subtitle_path = final_subtitle.to_srt()
             else:
-                lrc_path = final_subtitle.to_lrc()
-                shutil.copy(lrc_path, lrc_path.parents[1] / lrc_path.name.replace('_preprocessed.lrc', '.lrc'))
+                subtitle_path = final_subtitle.to_lrc()
+
+            suffix = subtitle_path.suffix
+            shutil.copy(subtitle_path,
+                        subtitle_path.parents[1] / subtitle_path.name.replace(f'_preprocessed{suffix}', suffix))
 
             logger.info(f'Translation fee til now: {self.api_fee:.4f} USD')
 
@@ -278,7 +285,7 @@ class LRCer:
                 self.from_video.add(path.stem + '_preprocessed')
 
         # Audio-based process
-        preprocessor = Preprocessor(paths)
+        preprocessor = Preprocessor(paths, options=self.preprocess_options)
         paths = preprocessor.run(noise_suppress)
 
         return paths
