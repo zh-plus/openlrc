@@ -41,9 +41,6 @@ into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/
     pip install git+https://github.com/zh-plus/Open-Lyrics
     ```
 
-7. Go to [Spacy](https://spacy.io/usage) to install the required package using `spacy download xxx`.
-   For example, you need `spacy download ja_core_news_sm` if the source language is japanese.
-
 ## Usage
 
 ```python
@@ -76,6 +73,8 @@ lrcer.run('./data/test.mp3', target_lang='zh-cn')
 # Enhance the audio using noise suppression (consume more time).
 lrcer.run('./data/test.mp3', target_lang='zh-cn', noise_suppress=True)
 ```
+
+Check more details in [Documentation](https://zh-plus.github.io/openlrc/#/).
 
 ### Context
 

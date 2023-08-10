@@ -69,7 +69,7 @@ as your audio file.
 lrcer.run('./data/test.mp3', target_lang='zh-cn', context_path='./data/context.yaml')
 ```
 
-### context.yaml
+#### context.yaml
 
 ```yaml
 background: "This is a multi-line background.
@@ -97,13 +97,13 @@ lrcer.run('./data/test.mp3', target_lang='zh-cn')
 
 ## Flow control
 
-### skip translation
+#### skip translation
 
 ```python
 lrcer.run('./data/test.mp3', target_lang='zh-cn', skip_trans=True)
 ```
 
-### enable noise suppression (false in default)
+#### enable noise suppression (false in default)
 
 *Note this would noticeable consume more time (1/10 audio times)*
 
