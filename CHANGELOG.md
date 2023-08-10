@@ -1,3 +1,13 @@
+## 0.2.3
+
+This update improves preprocess efficiency and minor changes.
+
+#### Other Changes:
+
+- Introduce multiprocessing for loudness normalization.
+- Fix the .srt generation issue for video input.
+- Add preprocess options, which users can tune.
+
 ## 0.2.2
 
 This update addresses minor issues.
