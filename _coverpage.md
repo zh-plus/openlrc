@@ -10,4 +10,3 @@
 
 [GitHub](https://github.com/zh-plus/openlrc)
 [Get Started](#Open-Lyrics)
-

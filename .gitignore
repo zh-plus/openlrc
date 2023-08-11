@@ -1,7 +1,0 @@
-# Project exclude paths
-.idea
-run.py
-/data/
-/dist/
-/openfaker.egg-info/
-__pycache__/

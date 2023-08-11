@@ -1,15 +1,4 @@
-# Open-Lyrics
-
-[![PyPI](https://img.shields.io/pypi/v/openlrc)](https://pypi.org/project/openlrc/)
-[![PyPI - License](https://img.shields.io/pypi/l/openlrc)](https://pypi.org/project/openlrc/)
-[![Downloads](https://static.pepy.tech/badge/openlrc)](https://pepy.tech/project/openlrc)
-![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/zh-plus/Open-Lyrics/ci.yml)
-
-Open-Lyrics is a Python library that transcribes voice files using
-[faster-whisper](https://github.com/guillaumekln/faster-whisper), and translates/polishes the resulting text
-into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/openai/openai-python).
-
-## Installation
+# Installation
 
 1. Please install CUDA and cuDNN first according to https://opennmt.net/CTranslate2/installation.html to
    enable `faster-whisper`.
@@ -41,45 +30,46 @@ into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/
     pip install git+https://github.com/zh-plus/Open-Lyrics
     ```
 
-## Usage
+# Usage
 
 ```python
 from openlrc import LRCer
 
 lrcer = LRCer()
-
-# Single file
-lrcer.run('./data/test.mp3', target_lang='zh-cn')  # Generate translated ./data/test.lrc with default translate prompt.
-
-# Multiple files
-lrcer.run(['./data/test1.mp3', './data/test2.mp3'], target_lang='zh-cn')
-# Note we run the transcription sequentially, but run the translation concurrently for each file.
-
-# Path can contain video
-lrcer.run(['./data/test_audio.mp3', './data/test_video.mp4'], target_lang='zh-cn')
-# Generate translated ./data/test_audio.lrc and ./data/test_video.srt
-
-# Use context.yaml to improve translation
-lrcer.run('./data/test.mp3', target_lang='zh-cn', context_path='./data/context.yaml')
-
-# To skip translation process
-lrcer.run('./data/test.mp3', target_lang='en', skip_trans=True)
-
-# Change asr_options or vad_options, check openlrc.defaults for details
-vad_options = {"threshold": 0.1}
-lrcer = LRCer(vad_options=vad_options)
-lrcer.run('./data/test.mp3', target_lang='zh-cn')
-
-# Enhance the audio using noise suppression (consume more time).
-lrcer.run('./data/test.mp3', target_lang='zh-cn', noise_suppress=True)
 ```
 
-Check more details in [Documentation](https://zh-plus.github.io/openlrc/#/).
+## Single file
 
-### Context
+```python
+lrcer.run('./data/test.mp3', target_lang='zh-cn')
+# Generate translated ./data/test.lrc with default translate prompt.
+```
 
-Utilize the available context to enhance the quality of your translation.
-Save them as `context.yaml` in the same directory as your audio file.
+## Multiple files
+
+```python
+lrcer.run(['./data/test1.mp3', './data/test2.mp3'], target_lang='zh-cn')
+# Note we run the transcription sequentially, but run the translation concurrently for each file.
+```
+
+## Video file
+
+```python
+lrcer.run(['./data/test_audio.mp3', './data/test_video.mp4'], target_lang='zh-cn')
+# Generate translated ./data/test_audio.lrc and ./data/test_video.srt
+```
+
+## Context
+
+You can provide some extra context to enhance GPT translation quality. Save them as `context.yaml` in the same directory
+as your audio file.
+
+```python
+# Use context.yaml to improve translation
+lrcer.run('./data/test.mp3', target_lang='zh-cn', context_path='./data/context.yaml')
+```
+
+#### context.yaml
 
 ```yaml
 background: "This is a multi-line background.
@@ -94,45 +84,30 @@ description_map: {
 }
 ```
 
-## Todo
+## Change default parameters
 
-- [x] [Efficiency] Batched translate/polish for GPT request (enable contextual ability).
-- [x] [Efficiency] Concurrent support for GPT request.
-- [x] [Translation Quality] Make translate prompt more robust according to https://github.com/openai/openai-cookbook.
-- [x] [Feature] Automatically fix json encoder error using GPT.
-- [x] [Efficiency] Asynchronously perform transcription and translation for multiple audio inputs.
-- [x] [Quality] Improve batched translation/polish prompt according
-  to [gpt-subtrans](https://github.com/machinewrapped/gpt-subtrans).
-- [x] [Feature] Input video support.
-- [X] [Feature] Multiple output format support.
-- [x] [Quality] Speech enhancement for input audio.
-- [ ] [Feature] Align ground-truth transcription with audio.
-- [ ] [Quality]
-  Use [multilingual language model](https://www.sbert.net/docs/pretrained_models.html#multi-lingual-models) to assess
-  translation quality.
-- [ ] [Efficiency] Add Azure OpenAI Service support.
-- [ ] [Quality] Use [claude](https://www.anthropic.com/index/introducing-claude) for translation.
-- [ ] [Feature] Add local LLM support.
-- [ ] [Feature] Multiple translate engine (Microsoft, DeepL, Google, etc.) support.
-- [ ] [**Feature**] Build
-  a [electron + fastapi](https://ivanyu2021.hashnode.dev/electron-django-desktop-app-integrate-javascript-and-python)
-  GUI for cross-platform application.
-- [ ] Add [fine-tuned whisper-large-v2](https://huggingface.co/models?search=whisper-large-v2) models for common
-  languages.
-- [ ] [Others] Add transcribed examples.
-    - [ ] Song
-    - [ ] Podcast
-    - [ ] Audiobook
+```python
+asr_options = {"beam_size": 5}
+vad_options = {"threshold": 0.2}
+preprocess_options = {"atten_lim_db": 20}
 
-## Credits
+lrcer = LRCer(asr_options=asr_options, vad_options=vad_options, preprocess_options=preprocess_options)
+lrcer.run('./data/test.mp3', target_lang='zh-cn')
+```
 
-- https://github.com/guillaumekln/faster-whisper
-- https://github.com/m-bain/whisperX
-- https://github.com/openai/openai-python
-- https://github.com/openai/whisper
-- https://github.com/machinewrapped/gpt-subtrans
-- https://github.com/MicrosoftTranslator/Text-Translation-API-V3-Python
+## Flow control
 
-## Star History
+#### skip translation
 
-[![Star History Chart](https://api.star-history.com/svg?repos=zh-plus/Open-Lyrics&type=Date)](https://star-history.com/#zh-plus/Open-Lyrics&Date)
+```python
+lrcer.run('./data/test.mp3', target_lang='zh-cn', skip_trans=True)
+```
+
+#### enable noise suppression (false in default)
+
+*Note this would noticeable consume more time (1/10 audio times)*
+
+```python
+lrcer.run('./data/test.mp3', target_lang='zh-cn', noise_suppress=True)
+```
+
