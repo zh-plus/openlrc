@@ -96,11 +96,11 @@ class GPTBot:
                 logger.warning(f'Timeout. Wait 3 before retry. Retry num: {i + 1}.')
                 time.sleep(3)
             except (openai.error.APIConnectionError, openai.error.ServiceUnavailableError):
-                logger.warning(f'API connection error. Wait 30s before retry. Retry num: {i + 1}.')
-                time.sleep(30)
+                logger.warning(f'API connection error. Wait 15s before retry. Retry num: {i + 1}.')
+                time.sleep(15)
             except openai.error.APIError:
-                logger.warning(f'API error. Wait 30s before retry. Retry num: {i + 1}.')
-                time.sleep(30)
+                logger.warning(f'API error. Wait 15s before retry. Retry num: {i + 1}.')
+                time.sleep(15)
 
         if not response:
             raise ChatBotException('Failed to create a chat.')
