@@ -9,6 +9,7 @@ default_asr_options = {
     "patience": 1,
     "length_penalty": 1,
     "repetition_penalty": 1.0,
+    "no_repeat_ngram_size": 0,
     "temperature": 0,
 
     # We assume the voice is valid after VAD, log_prob_threshold is not reliable, set these 3 to None to prevent
