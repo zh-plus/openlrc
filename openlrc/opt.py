@@ -139,7 +139,7 @@ class SubtitleOptimizer:
             self.remove_unk()
             self.remove_empty()
 
-            if self.subtitle.lang.lower() == 'zh-cn':
+            if self.subtitle.lang.lower() in ['zh-cn', 'zh']:
                 self.traditional2mandarin()
 
     def save(self, output_name=None, update_name=False):
