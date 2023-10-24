@@ -5,8 +5,10 @@ import json
 import os
 import re
 import uuid
+from abc import ABC, abstractmethod
 from typing import Union, List
 
+import deepl
 import requests
 
 from openlrc.chatbot import GPTBot
@@ -14,7 +16,14 @@ from openlrc.logger import logger
 from openlrc.prompter import prompter_map, BaseTranslatePrompter
 
 
-class GPTTranslator:
+class Translator(ABC):
+
+    @abstractmethod
+    def translate(self, texts: Union[str, List[str]], src_lang, target_lang):
+        pass
+
+
+class GPTTranslator(Translator):
     def __init__(self, prompter: str = 'base_trans', fee_limit=0.1, chunk_size=30, intercept_line=None):
         """
         :param prompter: Translate prompter, choices can be found in `prompter_map` from prompter.py.
@@ -54,6 +63,10 @@ class GPTTranslator:
         return chunks
 
     def parse_responses(self, response):
+        """
+        Parse response from OpenAI API.
+        :return: summary, scene, translations
+        """
         content = response.choices[0].message.content
 
         try:
@@ -115,7 +128,7 @@ class GPTTranslator:
         return translations
 
 
-class MSTranslator:
+class MSTranslator(Translator):
     def __init__(self):
         self.key = os.environ['MS_TRANSLATOR_KEY']
         self.endpoint = 'https://api.cognitive.microsofttranslator.com'
@@ -130,7 +143,7 @@ class MSTranslator:
             'X-ClientTraceId': str(uuid.uuid4())
         }
 
-    def translate(self, texts, src_lang, target_lang):
+    def translate(self, texts: Union[str, List[str]], src_lang, target_lang):
         params = {
             'api-version': '3.0',
             'from': src_lang,
@@ -146,3 +159,31 @@ class MSTranslator:
         response = request.json()
 
         return json.dumps(response, sort_keys=True, ensure_ascii=False, indent=4, separators=(',', ': '))
+
+
+class DeepLTranslator(Translator):
+    def __init__(self):
+        self.key = os.environ['DEEPL_KEY']
+        self.translator = deepl.Translator(self.key)
+
+    def _check_limit(self, texts: List[str]):
+        usage = self.translator.get_usage()
+        char_num = sum([len(text) for text in texts])
+
+        if usage.character.count + char_num > usage.character.limit:
+            raise RuntimeError(f'This translate call would exceed DeepL character limit: {usage.character.limit}')
+
+    def translate(self, texts: Union[str, List[str]], src_lang, target_lang):
+        if not isinstance(texts, list):
+            texts = [texts]
+
+        self._check_limit(texts)
+
+        translations = self.translator.translate_text(texts, target_lang=target_lang)
+
+        if not isinstance(translations, list):
+            translations = [translations]
+
+        translations = [translation.text for translation in translations]
+
+        return translations
