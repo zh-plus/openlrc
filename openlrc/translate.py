@@ -8,7 +8,6 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Union, List
 
-import deepl
 import requests
 
 from openlrc.chatbot import GPTBot
@@ -160,30 +159,31 @@ class MSTranslator(Translator):
 
         return json.dumps(response, sort_keys=True, ensure_ascii=False, indent=4, separators=(',', ': '))
 
-
-class DeepLTranslator(Translator):
-    def __init__(self):
-        self.key = os.environ['DEEPL_KEY']
-        self.translator = deepl.Translator(self.key)
-
-    def _check_limit(self, texts: List[str]):
-        usage = self.translator.get_usage()
-        char_num = sum([len(text) for text in texts])
-
-        if usage.character.count + char_num > usage.character.limit:
-            raise RuntimeError(f'This translate call would exceed DeepL character limit: {usage.character.limit}')
-
-    def translate(self, texts: Union[str, List[str]], src_lang, target_lang):
-        if not isinstance(texts, list):
-            texts = [texts]
-
-        self._check_limit(texts)
-
-        translations = self.translator.translate_text(texts, target_lang=target_lang)
-
-        if not isinstance(translations, list):
-            translations = [translations]
-
-        translations = [translation.text for translation in translations]
-
-        return translations
+# Not integrated by the openlrc main function because of performance
+#
+# class DeepLTranslator(Translator):
+#     def __init__(self):
+#         self.key = os.environ['DEEPL_KEY']
+#         self.translator = deepl.Translator(self.key)
+#
+#     def _check_limit(self, texts: List[str]):
+#         usage = self.translator.get_usage()
+#         char_num = sum([len(text) for text in texts])
+#
+#         if usage.character.count + char_num > usage.character.limit:
+#             raise RuntimeError(f'This translate call would exceed DeepL character limit: {usage.character.limit}')
+#
+#     def translate(self, texts: Union[str, List[str]], src_lang, target_lang):
+#         if not isinstance(texts, list):
+#             texts = [texts]
+#
+#         self._check_limit(texts)
+#
+#         translations = self.translator.translate_text(texts, target_lang=target_lang)
+#
+#         if not isinstance(translations, list):
+#             translations = [translations]
+#
+#         translations = [translation.text for translation in translations]
+#
+#         return translations

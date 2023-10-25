@@ -43,3 +43,20 @@ class TestGPTTranslator(unittest.TestCase):
         translator = GPTTranslator()
         translations = translator.translate(texts, 'en', 'es')
         assert translations == []
+
+# Not integrated by the openlrc main function because of performance
+#
+# class TestDeepLTranslator(unittest.TestCase):
+#     def test_single_chunk_translation(self):
+#         text = 'Hello, how are you?'
+#         translator = DeepLTranslator()
+#         translation = translator.translate(text, 'en', 'es')[0]
+#
+#         assert get_similarity(translation, 'Hola, ¿cómo estás?') > 0.618
+#
+#     def test_multiple_chunk_translation(self):
+#         texts = ['Hello, how are you?', 'I am fine, thank you.']
+#         translator = DeepLTranslator()
+#         translations = translator.translate(texts, 'en', 'es')
+#         assert get_similarity(translations[0], 'Hola, ¿cómo estás?') > 0.618
+#         assert get_similarity(translations[1], 'Estoy bien, gracias.') > 0.618
