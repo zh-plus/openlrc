@@ -169,7 +169,22 @@ Please translate these subtitles for {self.audio_type}{f" named {self.title}" if
             return False
 
         # Ensure the translated langauge is in the target language
-        translated_lang = self.lan_detector.detect_language_of(' '.join(translation)).name.lower()
+        if len(translation) >= 3:
+            # 3-voting for detection stability
+            chunk_size = len(translation) // 3
+            translation_chunks = [translation[i:i + chunk_size] for i in range(0, len(translation), chunk_size)]
+            if len(translation_chunks) > 3:
+                translation_chunks[-2].extend(translation_chunks[-1])
+                translation_chunks.pop()
+
+            translated_langs = [self.lan_detector.detect_language_of(' '.join(chunk)).name.lower()
+                                for chunk in translation_chunks]
+
+            # get the most common language
+            translated_lang = max(set(translated_langs), key=translated_langs.count)
+        else:
+            translated_lang = self.lan_detector.detect_language_of(' '.join(translation)).name.lower()
+
         target_lang = Language.get(self.target_lang).language_name().lower()
         if translated_lang != target_lang:
             logger.warning(f'Translated language is {translated_lang}, not {target_lang}.')
