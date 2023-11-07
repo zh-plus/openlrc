@@ -98,6 +98,7 @@ class GPTTranslator(Translator):
         logger.info(f'Translating {title}: {len(chunks)} chunks, {len(texts)} lines in total.')
 
         # Start chunk-by-chunk translation
+        # TODO: Save intermediate results for resume
         translations = []
         summaries = []
         summary, scene = '', ''

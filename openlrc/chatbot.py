@@ -15,24 +15,35 @@ from openlrc.utils import get_messages_token_number, get_text_token_number
 
 
 class GPTBot:
-    def __init__(self, model='gpt-3.5-turbo-16k', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.05):
+    def __init__(self, model='gpt-3.5-turbo-1106', temperature=1, top_p=1, retry=8, max_async=16, json_mode=False,
+                 fee_limit=0.05):
         openai.api_key = os.getenv("OPENAI_API_KEY")
+
+        # Pricing for 1k tokens, info from https://openai.com/pricing
+        self.pricing = {
+            'gpt-3.5-turbo-1106': (0.001, 0.002),
+            'gpt-4-1106-preview': (0.01, 0.03)
+        }
 
         self.model = model
         self.temperature = temperature
         self.top_p = top_p
         self.retry = retry
         self.max_async = max_async
+        self.json_mode = json_mode
         self.fee_limit = fee_limit
 
-        # Pricing for 1k tokens, info from https://openai.com/pricing
-        self.pricing = {
-            'gpt-3.5-turbo': (0.0015, 0.002),
-            'gpt-3.5-turbo-16k': (0.003, 0.004),
-            'gpt-4': (0.03, 0.06),
-            'gpt-4-32k': (0.06, 0.12)
-        }
         self.api_fees = []  # OpenAI API fee for each call
+
+    @property
+    def model(self):
+        return self._model
+
+    @model.setter
+    def model(self, model):
+        if model not in self.pricing:
+            raise ValueError(f'Invalid model {model}.')
+        self._model = model
 
     def update(self, temperature=None, top_p=None):
         if temperature:
@@ -73,7 +84,8 @@ class GPTBot:
                     model=self.model,
                     messages=messages,
                     temperature=self.temperature,
-                    top_p=self.top_p
+                    top_p=self.top_p,
+                    response_format='json_object' if self.json_mode else 'text'
                 )
                 self.update_fee(response)
                 if response.choices[0].finish_reason == 'length':
