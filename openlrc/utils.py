@@ -245,7 +245,7 @@ def get_similarity(text1, text2):
     lang2 = detect_lang(text2)
 
     if lang1 != lang2:
-        raise ValueError(f'language of {text1} ({lang1}) is not the same as {text2} ({lang2})')
+        raise ValueError(f'language of "{text1}" ({lang1}) is not the same as "{text2}" ({lang2})')
 
     nlp = spacy_load(lang1)
 

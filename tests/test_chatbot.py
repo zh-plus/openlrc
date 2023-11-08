@@ -2,10 +2,21 @@
 #  All rights reserved.
 
 import unittest
-from collections import namedtuple
 from math import isclose
 
+from pydantic import BaseModel
+
 from openlrc.chatbot import GPTBot
+
+
+class CompletionUsage(BaseModel):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class OpenAIResponse(BaseModel):
+    usage: CompletionUsage
 
 
 class TestChatBot(unittest.TestCase):
@@ -19,24 +30,23 @@ class TestChatBot(unittest.TestCase):
             {'role': 'user', 'content': 'Hello'},
         ]
         fee = bot.estimate_fee(messages)
-        assert isclose(fee, 2.6e-05)
+        assert isclose(fee, 1e-05)
 
     def test_update_fee(self):
         bot = self.bot
-        Response = namedtuple('response', 'usage')
         bot.api_fees += [0]
-        response1 = Response({'prompt_tokens': 100, 'completion_tokens': 200, 'total_tokens': 300})
+        response1 = OpenAIResponse(usage=CompletionUsage(prompt_tokens=100, completion_tokens=200, total_tokens=300))
         bot.update_fee(response1)
 
         bot.api_fees += [0]
-        response2 = Response({'prompt_tokens': 200, 'completion_tokens': 400, 'total_tokens': 600})
+        response2 = OpenAIResponse(usage=CompletionUsage(prompt_tokens=200, completion_tokens=400, total_tokens=600))
         bot.update_fee(response2)
 
         bot.api_fees += [0]
-        response3 = Response({'prompt_tokens': 300, 'completion_tokens': 600, 'total_tokens': 900})
+        response3 = OpenAIResponse(usage=CompletionUsage(prompt_tokens=300, completion_tokens=600, total_tokens=900))
         bot.update_fee(response3)
 
-        assert bot.api_fees == [0.0011, 0.0022, 0.0033]
+        assert bot.api_fees == [0.0005, 0.001, 0.0015]
 
     def test_message(self):
         bot = self.bot

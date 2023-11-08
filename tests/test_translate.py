@@ -33,8 +33,8 @@ class TestGPTTranslator(unittest.TestCase):
         text = 'Hello, how are you?'
         translator = GPTTranslator()
         try:
-            translation = translator.translate(text, 'en', 'fr')[0]
-            assert get_similarity(translation, 'Bonjour, comment ça va?') > 0.618
+            translation = translator.translate(text, 'en', 'ja')[0]
+            assert get_similarity(translation, 'こんにちは、お元気ですか？') > 0.618
         except openai.OpenAIError:
             pass
 
