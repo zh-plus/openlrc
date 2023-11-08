@@ -3,7 +3,6 @@
 
 import json
 import os
-import re
 import uuid
 from abc import ABC, abstractmethod
 from typing import Union, List
@@ -69,16 +68,12 @@ class GPTTranslator(Translator):
         content = response.choices[0].message.content
 
         try:
-            # Extract summary tag
-            summary = re.search(r'<summary>(.*)</summary>', content)
-            scene = re.search(r'<scene>(.*)</scene>', content)
+            content_json = json.loads(content)
+            summary = content_json['context-out']['summary'].strip()
+            scene = content_json['context-out']['scene'].strip()
+            translation = [t['translation'].strip() for t in content_json['text']]
 
-            summary = summary.group(1) if summary else ''
-            scene = scene.group(1) if scene else ''
-
-            translation = re.findall(r'Translation>\n*(.*?)(?:#\d+|<summary>|\n*$)', content, re.DOTALL)
-
-            return summary.strip(), scene.strip(), [t.strip() for t in translation]
+            return summary, scene, translation
 
         except Exception as e:
             logger.error(f'Failed to extract contents from response: {content}')
@@ -103,10 +98,9 @@ class GPTTranslator(Translator):
         summaries = []
         summary, scene = '', ''
         for i, chunk in enumerate(chunks, start=1):
-            user_input = prompter.format_texts(chunk)
             messages_list = [
                 {'role': 'system', 'content': prompter.system()},
-                {'role': 'user', 'content': prompter.user(i, user_input, summaries, scene)}
+                {'role': 'user', 'content': prompter.user(i, chunk, summaries, scene)}
             ]
             response = translate_bot.message(messages_list, output_checker=prompter.check_format)[0]
             summary, scene, translated = self.parse_responses(response)

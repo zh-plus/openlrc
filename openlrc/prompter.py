@@ -1,7 +1,6 @@
 #  Copyright (C) 2023. Hao Zheng
 #  All rights reserved.
-
-import re
+import json
 
 from langcodes import Language
 from lingua import LanguageDetectorBuilder
@@ -9,74 +8,99 @@ from lingua import LanguageDetectorBuilder
 from openlrc.logger import logger
 
 # instruction prompt modified from https://github.com/machinewrapped/gpt-subtrans
-base_instruction = f'''You are a translator tasked with revising and translating subtitles into a target language. Your goal is to ensure accurate, concise, and natural-sounding translations for each line of dialogue. The input consists of transcribed audio, which may contain transcription errors. Your task is to first correct any errors you find in the sentences based on their context, and then translate them to the target language according to the revised sentences.
-The user will provide a chunk of lines, you should respond with an accurate, concise, and natural-sounding translation for the dialogue. 
+base_instruction = r'''You are a translator tasked with revising and translating subtitles into a target language. Your goal is to ensure accurate, concise, and natural-sounding translations for each line of dialogue. The input consists of transcribed audio, which may contain transcription errors. Your task is to first correct any errors you find in the sentences based on their context, and then translate them to the target language according to the revised sentences.
+The user will provide a JSON object containing original lines, you should respond with an accurate, concise, and natural-sounding translation for the dialogue. 
 The user may provide additional context, such as background, description or title of the source material, a summary of the current scene, or a list of character names. Use this information to improve the quality of your translation.
 Your response will be processed by an automated system, so it is imperative that you adhere to the required output format.
 
 Example input (Japanese to Chinese):
 
-#200
-Original>
-変わりゆく時代において、
-Translation>
+{
+  "text": [
+    {
+      "num": 200,
+      "original": "変わりゆく時代において、"
+      "translation": ""
+    },
+    {
+      "num": 501,
+      "original": "生き残る秘訣は、進化し続けることです。"
+      "translation": ""
+    }
+  ]
+}
 
-#501
-Original>
-生き残る秘訣は、進化し続けることです。
-Translation>
+You should respond with JSON:
 
-You should respond with:
-
-#200
-Original>
-変わく時代いて、
-Translation>
-在变化的时代中，
-
-#501
-Original>
-生き残る秘訣は、進化し続けることです。
-Translation>
-生存的秘诀是不断进化。
+{
+  "text": [
+    {
+      "num": 200,
+      "original": "変わりゆく時代において、",
+      "translation": "在变化的时代中，"
+    },
+    {
+      "num": 501,
+      "original": "生き残る秘訣は、進化し続けることです。",
+      "translation": "生存的秘诀是不断进化。"
+    }
+  ]
+}
 
 Example input (English to German):
 
-#700
-Original>
-those who resist change may find themselves left behind.
-Translation>
+{
+  "ChunkID": "Scene 1 Chunk 3",
+  "context-in": {
+    "title": "John and Sarah",
+    "background": "The story after John and Sarah go back to downtown.",
+    "description": "John and Sarah meet Tom in the office. They discuss their plan to locate a suspect.",
+    "previous_summaries": "Chunk 1: John and Sarah is on the way to office, discussing the lunch plan. Chunk 2: John and Sarah meet Tom in the office.",
+    "scene": "John and Sarah wake up and get ready for work."
+  },
+  "text": [
+    {
+      "num": 700,
+      "original": "those who resist change may find themselves left behind."
+      "translation": ""
+    },
+    {
+      "num": 701,
+      "original": "those resist change find themselves left."
+      "translation": ""
+    }
+  ]
+}
 
-#701
-Original>
-those resist change find themselves left.
-Translation>
+You should respond with JSON:
 
-You should respond with:
+{
+  "ChunkID": "Scene 1 Chunk 3",
+  "text": [
+    {
+      "num": 700,
+      "original": "those who resist change may find themselves left behind.",
+      "translation": "Im Zeitalter der digitalen Transformation,"
+    },
+    {
+      "num": 701,
+      "original": "those resist change find themselves left.",
+      "translation": "diejenigen, die sich dem Wandel widersetzen, könnten sich zurückgelassen finden."
+    }
+  ],
+  "context-out": {
+    "summary": "John and Sarah discuss their plan to locate a suspect, deducing that he is likely in the uptown area.",
+    "scene": "John and Sarah are in their office analyzing data and planning their next steps. They deduce that the suspect is probably in the uptown area and decide to start their search there."
+  }
+}
 
-#700
-Original>
-In the age of digital transformation,
-Translation>
-Im Zeitalter der digitalen Transformation,
+Please ensure that each line of dialogue remains distinct in the translation. Merging lines together can lead to timing problems during playback.
 
-#701
-Original>
-those who resist change may find themselves left behind.
-Translation>
-diejenigen, die sich dem Wandel widersetzen, könnten sich zurückgelassen finden.
+At the end of each set of translations, include a one or two line synopsis of the input text in ```context-out.summary``` using target language.
 
-Please ensure that each line of dialogue remains distinct in the  translation. Merging lines together can lead to timing problems during playback.
+Use the available information to add a short description of the current scene in ```context-out.scene``` using target language.
 
-At the end of each set of translations, include a one or two line synopsis of the input text in a <summary/> tag, for example:
-<summary>John and Sarah discuss their plan to locate a suspect, deducing that he is likely in the uptown area.</summary>
-Remember to end this tag with ``</summary>``.
-
-Use the available information to add a short description of the current scene in a <scene/> tag, for example:
-<scene>John and Sarah are in their office analyzing data and planning their next steps. They deduce that the suspect is probably in the uptown area and decide to start their search there.</scene>
-Remember to end this tag with ``</scene>``.
-
-Use the target language when writing content for the <summary/> and <scene/> tags. 
+Use the target language when writing content for the summary and scene context. 
 Ensure that the summary and scene are concise, containing less than 100 words.
 You need to update your summary and scene with the new information you have.
 Do not guess or improvise if the context is unclear, just summarise the dialogue.
@@ -86,10 +110,11 @@ The translation should be in a lovely colloquial style and suitable for high-qua
 #######################
 There was an issue with the previous translation. 
 
-Remember to include ``<summary>`` and ``<scene>`` tags in your response.
-Do not translate ``Original>`` and ``Translation>``.
+Remember to include ``summary`` and ``scene`` tags in your response.
+Do not translate ``original`` and ``translation`` key value.
 Please translate the subtitles again, paying careful attention to ensure that each line is translated separately, and that every line has a matching translation.
-Do not merge lines together in the translation, it leads to incorrect timings and confusion for the reader.'''
+Do not merge lines together in the translation, it leads to incorrect timings and confusion for the reader.
+Do not directly translate the original text, make full use of the context to make the translation sound more natural.'''
 
 
 class TranslatePrompter:
@@ -117,62 +142,70 @@ class BaseTranslatePrompter(TranslatePrompter):
         self.title = title
         self.background = background
         self.description = description
-        self.user_prompt = f'''
-{f"<title>{self.title}</title>" if self.title else ""}
-{f"<background>{self.background}</background>" if self.background else ""}
-{f"<description>{self.description}</description>" if self.description else ""}
-<context>
-<scene>{{scene}}</scene>
-<chunk> {{summaries_str}} </chunk>
-</context>
-<chunk_id> Scene 1 Chunk {{chunk_num}} <chunk_id>
-
-Please translate these subtitles for {self.audio_type}{f" named {self.title}" if self.title else ""} from {self.src_lang_display} to {self.target_lang_display}.\n
-{{user_input}}
-
-<summary></summary>
-<scene></scene>'''
+        self.user_prompt = f'''Please translate these subtitles from {self.src_lang_display} to {self.target_lang_display}:\n'''
 
     @staticmethod
     def system():
         return base_instruction
 
-    def user(self, chunk_num, user_input, summaries='', scene=''):
+    def user(self, chunk_num, chunk, summaries='', scene=''):
         summaries_str = '\n'.join(f'Chunk {i}: {summary}' for i, summary in enumerate(summaries, 1))
-        return self.user_prompt.format(summaries_str=summaries_str, scene=scene,
-                                       chunk_num=chunk_num, user_input=user_input).strip()
 
-    @classmethod
-    def format_texts(cls, texts):
-        """
-        Reconstruct list of text into desired format.
-        :param texts: List of (id, text).
-        """
-        return '\n'.join([f'#{i}\nOriginal>\n{text}\nTranslation>\n' for i, text in texts])
+        input_json = {
+            "ChunkID": f"Scene 1 Chunk {chunk_num}",
+            "context-in": {
+                "title": self.title,
+                "background": self.background,
+                "description": self.description,
+                "previous_summaries": summaries_str,
+                "scene": scene
+            },
+            "text": [
+                {"num": num, "original": text, "translation": ""} for num, text in chunk
+            ]
+        }
 
-    def check_format(self, messages, content):
-        summary = re.search(r'<summary>(.*)</summary>', content)
-        scene = re.search(r'<scene>(.*)</scene>', content)
-        original = re.findall(r'Original>\n(.*?)\nTranslation>', messages[1]['content'], re.DOTALL)
-        translation = re.findall(r'Translation>\n*(.*?)(?:#\d+|<summary>|\n*$)', content, re.DOTALL)
+        # Remove empty context fields
+        input_json['context-in'] = {k: v for k, v in input_json['context-in'].items() if v}
 
-        if not original or not translation:
-            logger.warning(f'Fail to extract original or translation.')
-            logger.debug(f'Content: {content}')
+        return self.user_prompt + json.dumps(input_json)
+
+    def check_format(self, input_messages, output_content):
+        try:
+            output_data = json.loads(output_content)
+        except json.JSONDecodeError:
+            logger.warning(f'Fail to decode json.')
             return False
 
-        if len(original) != len(translation):
+        # Check json fields
+        if 'text' not in output_data:
+            logger.warning(f'Fail to find text in json.')
+            return False
+        if any(['translation' not in j for j in output_data['text']]):
+            logger.warning(f'Fail to find translation in text.')
+            return False
+        if 'context-out' not in output_data:
+            logger.warning(f'Fail to find context-out in json.')
+            return False
+        if 'summary' not in output_data['context-out']:
+            logger.warning(f'Fail to find summary in context-out.')
+        if 'scene' not in output_data['context-out']:
+            logger.warning(f'Fail to find scene in context-out')
+
+        # Check input and output text number
+        input_data = json.loads(input_messages[1]['content'][len(self.user_prompt):])
+        originals = input_data['text']
+        translations = output_data['text']
+        if len(originals) != len(translations):
             logger.warning(
-                f'Fail to ensure length consistent: original is {len(original)}, translation is {len(translation)}')
-            logger.debug(f'original: {original}')
-            logger.debug(f'translation: {original}')
-            return False
+                f'Fail to ensure length consistent: original is {len(originals)}, translation is {len(translations)}')
 
         # Ensure the translated langauge is in the target language
-        if len(translation) >= 3:
+        translations = [t['translation'] for t in translations]
+        if len(translations) >= 3:
             # 3-voting for detection stability
-            chunk_size = len(translation) // 3
-            translation_chunks = [translation[i:i + chunk_size] for i in range(0, len(translation), chunk_size)]
+            chunk_size = len(translations) // 3
+            translation_chunks = [translations[i:i + chunk_size] for i in range(0, len(translations), chunk_size)]
             if len(translation_chunks) > 3:
                 translation_chunks[-2].extend(translation_chunks[-1])
                 translation_chunks.pop()
@@ -183,18 +216,12 @@ Please translate these subtitles for {self.audio_type}{f" named {self.title}" if
             # get the most common language
             translated_lang = max(set(translated_langs), key=translated_langs.count)
         else:
-            translated_lang = self.lan_detector.detect_language_of(' '.join(translation)).name.lower()
+            translated_lang = self.lan_detector.detect_language_of(' '.join(translations)).name.lower()
 
         target_lang = Language.get(self.target_lang).language_name().lower()
         if translated_lang != target_lang:
             logger.warning(f'Translated language is {translated_lang}, not {target_lang}.')
             return False
-
-        # It's ok to keep going without summary and scene
-        if not summary or not summary.group(1):
-            logger.warning(f'Fail to extract summary.')
-        if not scene or not scene.group(1):
-            logger.warning(f'Fail to extract scene.')
 
         return True
 
