@@ -7,7 +7,7 @@ import time
 from typing import List, Union, Dict, Callable
 
 import openai
-from aiohttp import ClientSession
+from openai import AsyncClient
 
 from openlrc.exceptions import ChatBotException
 from openlrc.logger import logger
@@ -17,7 +17,7 @@ from openlrc.utils import get_messages_token_number, get_text_token_number
 class GPTBot:
     def __init__(self, model='gpt-3.5-turbo-1106', temperature=1, top_p=1, retry=8, max_async=16, json_mode=False,
                  fee_limit=0.05):
-        openai.api_key = os.getenv("OPENAI_API_KEY")
+        self.client = AsyncClient(api_key=os.environ['OPENAI_API_KEY'])
 
         # Pricing for 1k tokens, info from https://openai.com/pricing
         self.pricing = {
@@ -69,8 +69,8 @@ class GPTBot:
     def update_fee(self, response):
         prompt_price, completion_price = self.pricing[self.model]
 
-        prompt_tokens = response.usage['prompt_tokens']
-        completion_tokens = response.usage['completion_tokens']
+        prompt_tokens = response.usage.prompt_tokens
+        completion_tokens = response.usage.completion_tokens
 
         self.api_fees[-1] += (prompt_tokens * prompt_price + completion_tokens * completion_price) / 1000
 
@@ -80,20 +80,20 @@ class GPTBot:
         response = None
         for i in range(self.retry):
             try:
-                response = openai.ChatCompletion.create(
+                response = await self.client.chat.completions.create(
                     model=self.model,
                     messages=messages,
                     temperature=self.temperature,
                     top_p=self.top_p,
-                    response_format='json_object' if self.json_mode else 'text'
+                    response_format={'type': 'json_object' if self.json_mode else 'text'}
                 )
                 self.update_fee(response)
                 if response.choices[0].finish_reason == 'length':
                     raise ChatBotException(
                         f'Failed to get completion. Exceed max token length. '
-                        f'Prompt tokens: {response.usage["prompt_tokens"]}, '
-                        f'Completion tokens: {response.usage["completion_tokens"]}, '
-                        f'Total tokens: {response.usage["total_tokens"]} '
+                        f'Prompt tokens: {response.usage.prompt_tokens}, '
+                        f'Completion tokens: {response.usage.completion_tokens}, '
+                        f'Total tokens: {response.usage.total_tokens} '
                         f'Reduce chunk_size may help.'
                     )
                 if not output_checker(messages, response.choices[0].message.content):
@@ -101,24 +101,21 @@ class GPTBot:
                     continue
 
                 break
-            except openai.error.RateLimitError:
+            except openai.RateLimitError:
                 logger.warning(f'Rate limit exceeded. Wait 10s before retry. Retry num: {i + 1}.')
                 time.sleep(10)
-            except openai.error.Timeout:
+            except openai.APITimeoutError:
                 logger.warning(f'Timeout. Wait 3 before retry. Retry num: {i + 1}.')
                 time.sleep(3)
-            except (openai.error.APIConnectionError, openai.error.ServiceUnavailableError):
+            except openai.APIConnectionError:
                 logger.warning(f'API connection error. Wait 15s before retry. Retry num: {i + 1}.')
                 time.sleep(15)
-            except openai.error.APIError:
+            except openai.APIError:
                 logger.warning(f'API error. Wait 15s before retry. Retry num: {i + 1}.')
                 time.sleep(15)
 
         if not response:
             raise ChatBotException('Failed to create a chat.')
-
-        if not output_checker(messages, response.choices[0].message.content):
-            raise ChatBotException('Failed to create a chat. Invalid response format.')
 
         return response
 
@@ -126,12 +123,12 @@ class GPTBot:
         """
         Async send messages to the GPT chatbot.
         """
-        async with openai.aiosession.get(ClientSession()):
-            results = await asyncio.gather(
-                *(self._create_achat(message, output_checker=output_checker) for message in messages_list)
-            )
 
-            return results
+        results = await asyncio.gather(
+            *(self._create_achat(message, output_checker=output_checker) for message in messages_list)
+        )
+
+        return results
 
     def message(self, messages_list: Union[List[Dict], List[List[Dict]]],
                 output_checker: Callable = lambda *args, **kw: True):
