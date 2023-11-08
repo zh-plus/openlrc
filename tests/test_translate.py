@@ -35,7 +35,7 @@ class TestGPTTranslator(unittest.TestCase):
         try:
             translation = translator.translate(text, 'en', 'fr')[0]
             assert get_similarity(translation, 'Bonjour, comment ça va?') > 0.618
-        except openai.error.OpenAIError:
+        except openai.OpenAIError:
             pass
 
     def test_empty_text_list_translation(self):
