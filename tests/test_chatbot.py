@@ -10,7 +10,7 @@ from openlrc.chatbot import GPTBot
 
 class TestChatBot(unittest.TestCase):
     def setUp(self):
-        self.bot = GPTBot(model='gpt-3.5-turbo-16k', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.05)
+        self.bot = GPTBot(temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.05)
 
     def test_estimate_fee(self):
         bot = self.bot
