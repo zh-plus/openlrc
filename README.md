@@ -46,32 +46,34 @@ into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/
 ```python
 from openlrc import LRCer
 
-lrcer = LRCer()
+if __name__ == '__main__':
+    lrcer = LRCer()
 
-# Single file
-lrcer.run('./data/test.mp3', target_lang='zh-cn')  # Generate translated ./data/test.lrc with default translate prompt.
+    # Single file
+    lrcer.run('./data/test.mp3',
+              target_lang='zh-cn')  # Generate translated ./data/test.lrc with default translate prompt.
 
-# Multiple files
-lrcer.run(['./data/test1.mp3', './data/test2.mp3'], target_lang='zh-cn')
-# Note we run the transcription sequentially, but run the translation concurrently for each file.
+    # Multiple files
+    lrcer.run(['./data/test1.mp3', './data/test2.mp3'], target_lang='zh-cn')
+    # Note we run the transcription sequentially, but run the translation concurrently for each file.
 
-# Path can contain video
-lrcer.run(['./data/test_audio.mp3', './data/test_video.mp4'], target_lang='zh-cn')
-# Generate translated ./data/test_audio.lrc and ./data/test_video.srt
+    # Path can contain video
+    lrcer.run(['./data/test_audio.mp3', './data/test_video.mp4'], target_lang='zh-cn')
+    # Generate translated ./data/test_audio.lrc and ./data/test_video.srt
 
-# Use context.yaml to improve translation
-lrcer.run('./data/test.mp3', target_lang='zh-cn', context_path='./data/context.yaml')
+    # Use context.yaml to improve translation
+    lrcer.run('./data/test.mp3', target_lang='zh-cn', context_path='./data/context.yaml')
 
-# To skip translation process
-lrcer.run('./data/test.mp3', target_lang='en', skip_trans=True)
+    # To skip translation process
+    lrcer.run('./data/test.mp3', target_lang='en', skip_trans=True)
 
-# Change asr_options or vad_options, check openlrc.defaults for details
-vad_options = {"threshold": 0.1}
-lrcer = LRCer(vad_options=vad_options)
-lrcer.run('./data/test.mp3', target_lang='zh-cn')
+    # Change asr_options or vad_options, check openlrc.defaults for details
+    vad_options = {"threshold": 0.1}
+    lrcer = LRCer(vad_options=vad_options)
+    lrcer.run('./data/test.mp3', target_lang='zh-cn')
 
-# Enhance the audio using noise suppression (consume more time).
-lrcer.run('./data/test.mp3', target_lang='zh-cn', noise_suppress=True)
+    # Enhance the audio using noise suppression (consume more time).
+    lrcer.run('./data/test.mp3', target_lang='zh-cn', noise_suppress=True)
 ```
 
 Check more details in [Documentation](https://zh-plus.github.io/openlrc/#/).
