@@ -11,10 +11,9 @@ into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/
 
 ## Installation
 
-1. Please install CUDA 11.x and [cuDNN 8 for CUDA 11](https://developer.nvidia.com/cudnn) first according to https://opennmt.net/CTranslate2/installation.html to
-   enable `faster-whisper`. 
-   Currently `faster-whisper` is only compatible with CUDA version 11 (11.x).
+1. Please install CUDA 11.x and [cuDNN 8 for CUDA 11](https://developer.nvidia.com/cudnn) first according to https://opennmt.net/CTranslate2/installation.html to enable `faster-whisper`. 
    `faster-whisper` also needs * [cuBLAS for CUDA 11](https://developer.nvidia.com/cublas) installed.
+   
    (For Windows Users only) Windows user can Download the libraries from Purfview's repository:
    Purfview's [whisper-standalone-win](https://github.com/Purfview/whisper-standalone-win) provides the required NVIDIA libraries for Windows in a [single archive](https://github.com/Purfview/whisper-standalone-win/releases/tag/libs). Decompress the archive and place the libraries in a directory included in the `PATH`.
 
