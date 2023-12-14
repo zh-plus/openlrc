@@ -44,6 +44,13 @@ class TestGPTTranslator(unittest.TestCase):
         translations = translator.translate(texts, 'en', 'es')
         assert translations == []
 
+    def test_atomic_translate(self):
+        texts = ['Hello, how are you?', 'I am fine, thank you.']
+        translator = GPTTranslator()
+        translations = translator.atomic_translate(texts, 'en', 'zh')
+        assert get_similarity(translations[0], '你好，你好吗？') > 0.618
+        assert get_similarity(translations[1], '我很好，谢谢。') > 0.618
+
 # Not integrated by the openlrc main function because of performance
 #
 # class TestDeepLTranslator(unittest.TestCase):

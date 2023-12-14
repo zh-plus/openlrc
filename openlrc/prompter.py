@@ -183,7 +183,11 @@ Please translate these subtitles for {self.audio_type}{f" named {self.title}" if
             # get the most common language
             translated_lang = max(set(translated_langs), key=translated_langs.count)
         else:
-            translated_lang = self.lan_detector.detect_language_of(' '.join(translation)).name.lower()
+            detected_lang = self.lan_detector.detect_language_of(' '.join(translation))
+            if not detected_lang:
+                # Cant detect language
+                return True
+            translated_lang = detected_lang.name.lower()
 
         target_lang = Language.get(self.target_lang).language_name().lower()
         if translated_lang != target_lang:
@@ -195,6 +199,34 @@ Please translate these subtitles for {self.audio_type}{f" named {self.title}" if
             logger.warning(f'Fail to extract summary.')
         if not scene or not scene.group(1):
             logger.warning(f'Fail to extract scene.')
+
+        return True
+
+
+class AtomicTranslatePrompter(TranslatePrompter):
+    def __init__(self, src_lang, target_lang):
+        self.src_lang = src_lang
+        self.target_lang = target_lang
+        self.src_lang_display = Language.get(src_lang).display_name('en')
+        self.target_lang_display = Language.get(target_lang).display_name('en')
+        self.lan_detector = LanguageDetectorBuilder.from_all_languages().build()
+
+    def user(self, text):
+        return f'''Please translate the following text from {self.src_lang_display} to {self.target_lang_display}. 
+Please do not output any content other than the translated text. Here is the text: {text}'''
+
+    def check_format(self, messages, output_str):
+        # Ensure the translated langauge is in the target language
+        detected_lang = self.lan_detector.detect_language_of(output_str)
+        if not detected_lang:
+            # Cant detect language
+            return True
+
+        translated_lang = detected_lang.name.lower()
+        target_lang = Language.get(self.target_lang).language_name().lower()
+        if translated_lang != target_lang:
+            logger.warning(f'Translated text: "{output_str}" is {translated_lang}, not {target_lang}.')
+            return False
 
         return True
 
