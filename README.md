@@ -108,6 +108,7 @@ description_map: {
 - [x] [Feature] Input video support.
 - [X] [Feature] Multiple output format support.
 - [x] [Quality] Speech enhancement for input audio.
+- [ ] [Feature] Preprocessor: Voice-music separation.
 - [ ] [Feature] Align ground-truth transcription with audio.
 - [ ] [Quality]
   Use [multilingual language model](https://www.sbert.net/docs/pretrained_models.html#multi-lingual-models) to assess

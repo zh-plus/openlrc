@@ -1,3 +1,16 @@
+## 0.1.0
+
+This update introduce new features.
+
+#### New features:
+
+- Resume from previous translation.
+- Add atomic translation for src-trans inconsistency.
+
+#### Other Changes:
+
+- Update default whisper model to `whisper-large-v3`.
+
 ## 0.2.3
 
 This update improves preprocess efficiency and minor changes.
