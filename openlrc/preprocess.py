@@ -72,7 +72,7 @@ class Preprocessor:
                                 for i in range(0, audio.shape[1], 600 * info.sample_rate)]
 
                 enhanced_chunks = []
-                for ac in tqdm(audio_chunks, desc='Noise suppressing...'):
+                for ac in tqdm(audio_chunks, desc=f'Noise suppressing for {audio_name}'):
                     enhanced_chunks.append(enhance(model, df_state, ac, atten_lim_db=atten_lim_db))
 
                 enhanced = torch.cat(enhanced_chunks, dim=1)

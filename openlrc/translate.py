@@ -6,13 +6,15 @@ import os
 import re
 import uuid
 from abc import ABC, abstractmethod
+from itertools import zip_longest
+from pathlib import Path
 from typing import Union, List
 
 import requests
 
 from openlrc.chatbot import GPTBot
 from openlrc.logger import logger
-from openlrc.prompter import prompter_map, BaseTranslatePrompter
+from openlrc.prompter import prompter_map, BaseTranslatePrompter, AtomicTranslatePrompter
 
 
 class Translator(ABC):
@@ -85,7 +87,7 @@ class GPTTranslator(Translator):
             raise e
 
     def translate(self, texts: Union[str, List[str]], src_lang, target_lang, audio_type='Anime', title='',
-                  background='', description='', compare_path='translate_intermediate.json'):
+                  background='', description='', compare_path: Path = Path('translate_intermediate.json')):
         if not isinstance(texts, list):
             texts = [texts]
 
@@ -98,11 +100,24 @@ class GPTTranslator(Translator):
         logger.info(f'Translating {title}: {len(chunks)} chunks, {len(texts)} lines in total.')
 
         # Start chunk-by-chunk translation
-        # TODO: Save intermediate results for resume
         translations = []
         summaries = []
         summary, scene = '', ''
-        for i, chunk in enumerate(chunks, start=1):
+        compare_list = []
+        start_chunk = 0
+
+        if compare_path.exists():
+            logger.info(f'Resume from {compare_path}')
+            with open(compare_path, 'r', encoding='utf-8') as f:
+                compare_results = json.load(f)
+            compare_list = compare_results['compare']
+            summaries = compare_results['summaries']
+            scene = compare_results['scene']
+            translations = [item['output'] for item in compare_list]
+            start_chunk = compare_list[-1]['chunk']
+            logger.info(f'Resume translation from chunk {start_chunk}')
+
+        for i, chunk in list(enumerate(chunks, start=1))[start_chunk:]:
             user_input = prompter.format_texts(chunk)
             messages_list = [
                 {'role': 'system', 'content': prompter.system()},
@@ -110,22 +125,50 @@ class GPTTranslator(Translator):
             ]
             response = translate_bot.message(messages_list, output_checker=prompter.check_format)[0]
             summary, scene, translated = self.parse_responses(response)
+            # TODO: Check translation consistency (1-to-1 correspondence)
+
+            # fail to ensure length consistent after retries, use atomic translation instead
+            if len(translated) != len(chunk):
+                logger.warning(f'Chunk {i} translation length inconsistent: {len(translated)} vs {len(chunk)},'
+                               f'Trying to use atomic translation instead.')
+                chunk_texts = [item[1] for item in chunk]
+                translated = self.atomic_translate(chunk_texts, src_lang, target_lang)
+
             translations.extend(translated)
             summaries.append(summary)
             logger.info(f'Translating {title}: {i}/{len(chunks)}')
             logger.info(f'summary: {summary}')
             logger.info(f'scene: {scene}')
 
-        self.api_fee += sum(translate_bot.api_fees)
-        compare_results = {
-            'compare': [{'idx': i, 'input': user_input, 'output': translation} for
-                        i, (user_input, translation) in
-                        enumerate(zip(texts, translations), start=1)]}
+            compare_list.extend([{'chunk': i,
+                                  'idx': item[0] if item else 'N\\A',
+                                  'input': item[1] if item else 'N\\A',
+                                  'output': trans if trans else 'N\\A'}
+                                 for (item, trans) in zip_longest(chunk, translated)])
+            compare_results = {'compare': compare_list, 'summaries': summaries, 'scene': scene}
+            # Save for resume
+            with open(compare_path, 'w', encoding='utf-8') as f:
+                json.dump(compare_results, f, indent=4, ensure_ascii=False)
 
-        with open(compare_path, 'w', encoding='utf-8') as f:
-            json.dump(compare_results, f, indent=4, ensure_ascii=False)
+        self.api_fee += sum(translate_bot.api_fees)
 
         return translations
+
+    def atomic_translate(self, texts, src_lang, target_lang):
+        translate_bot = GPTBot(fee_limit=self.fee_limit)
+        translate_bot.update(temperature=0.7)
+
+        prompter = AtomicTranslatePrompter(src_lang, target_lang)
+        message_lists = [[
+            {'role': 'user', 'content': prompter.user(text)}
+        ] for text in texts]
+
+        responses = translate_bot.message(message_lists, output_checker=prompter.check_format)
+        translated = [response.choices[0].message.content for response in responses]
+
+        assert len(translated) == len(texts), f'Atomic translation failed: {len(translated)} vs {len(texts)}'
+
+        return translated
 
 
 class MSTranslator(Translator):

@@ -152,31 +152,24 @@ class LRCer:
         json_filename = Path(translated_path.parent / (audio_name + '.json'))
         compare_path = Path(translated_path.parent, f'{audio_name}_compare.json')
         if not translated_path.exists():
-            if not compare_path.exists():
-                # Translate the transcribed json
-                translator = GPTTranslator(prompter=prompter, fee_limit=self.fee_limit)
-                context = self.context
+            # Translate the transcribed json
+            translator = GPTTranslator(prompter=prompter, fee_limit=self.fee_limit)
+            context = self.context
 
-                target_texts = translator.translate(
-                    transcribed_opt_sub.texts,
-                    src_lang=transcribed_opt_sub.lang,
-                    target_lang=target_lang,
-                    title=audio_name,
-                    audio_type=context.audio_type,
-                    background=context.background,
-                    description=context.get_description(audio_name),
-                    compare_path=compare_path
-                )
+            target_texts = translator.translate(
+                transcribed_opt_sub.texts,
+                src_lang=transcribed_opt_sub.lang,
+                target_lang=target_lang,
+                title=audio_name,
+                audio_type=context.audio_type,
+                background=context.background,
+                description=context.get_description(audio_name),
+                compare_path=compare_path
+            )
 
-                with self._lock:
-                    self.api_fee += translator.api_fee  # Ensure thread-safe
-            else:
-                logger.info(f'Found compare json file: {compare_path}')
-                with open(compare_path, 'r', encoding='utf-8') as f:
-                    target_texts = [item['output'] for item in json.load(f)['compare']]
-                if len(target_texts) != len(transcribed_opt_sub):
-                    logger.error(f'Compare json file {compare_path} is not valid.')
-                    raise ValueError(f'Compare json file {compare_path} is not valid.')
+            with self._lock:
+                self.api_fee += translator.api_fee  # Ensure thread-safe
+
             transcribed_opt_sub.set_texts(target_texts, lang=target_lang)
 
             # xxx_transcribed_optimized_translated.json
