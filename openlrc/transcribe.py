@@ -20,7 +20,7 @@ class TranscriptionInfo(NamedTuple):
 
 
 class Transcriber:
-    def __init__(self, model_name='large-v2', compute_type='float16', device='cuda',
+    def __init__(self, model_name='large-v3', compute_type='float16', device='cuda',
                  asr_options=default_asr_options, vad_options=default_vad_options):
         self.model_name = model_name
         self.compute_type = compute_type
