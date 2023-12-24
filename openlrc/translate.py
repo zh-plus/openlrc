@@ -80,6 +80,13 @@ class GPTTranslator(Translator):
 
             translation = re.findall(r'Translation>\n*(.*?)(?:#\d+|<summary>|\n*$)', content, re.DOTALL)
 
+            # Remove "</summary>\nxxx</scene>" tags (or some wierd tags like </p> ❓) from translation
+            if any([re.search(r'(<.*?>|</.*?>)', t) for t in translation]):
+                logger.warning(f'The extracted translation from response contains tags: {content}, removed')
+                translation = [
+                    re.sub(r'(</summary>|<summary>|</translation>|<translation>|</p>|</div>).*', '', t, flags=re.DOTALL)
+                    for t in translation]
+
             return summary.strip(), scene.strip(), [t.strip() for t in translation]
 
         except Exception as e:
