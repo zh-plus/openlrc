@@ -27,9 +27,9 @@ from openlrc.utils import Timer, extend_filename, get_audio_duration, format_tim
 class LRCer:
     """
      :param model_name: Name of whisper model (tiny, tiny.en, base, base.en, small, small.en, medium,
-                    medium.en, large-v1, or large-v2) When a size is configured, the converted model is downloaded
+                    medium.en, large-v1, large-v2, large-v3) When a size is configured, the converted model is downloaded
                     from the Hugging Face Hub.
-                    Default: ``large-v2``
+                    Default: ``large-v3``
     :param compute_type: The type of computation to use. Can be ``int8``, ``int8_float16``, ``int16``,
                     ``float16`` or ``float32``.
                     Default: ``float16``
@@ -39,7 +39,7 @@ class LRCer:
     :param vad_options: Parameters for VAD model.
     """
 
-    def __init__(self, model_name='large-v2', compute_type='float16', fee_limit=0.1, consumer_thread=11,
+    def __init__(self, model_name='large-v3', compute_type='float16', fee_limit=0.1, consumer_thread=11,
                  asr_options=None, vad_options=None, preprocess_options=None):
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
