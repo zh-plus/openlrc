@@ -1,4 +1,13 @@
-## 0.1.0
+## 1.0.1
+
+This update fix minor issues.
+
+#### Other Changes:
+
+- Fix issue that prevent the usage of whisper-large-v3.
+- Remove tags from translation texts.
+
+## 1.0.0
 
 This update introduce new features.
 

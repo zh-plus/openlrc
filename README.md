@@ -94,6 +94,9 @@ Check more details in [Documentation](https://zh-plus.github.io/openlrc/#/).
 Utilize the available context to enhance the quality of your translation.
 Save them as `context.yaml` in the same directory as your audio file.
 
+> [!NOTE]
+> The improvement of translation quality from Context is **NOT** guaranteed.
+
 ```yaml
 background: "This is a multi-line background.
 This is a basic example."
