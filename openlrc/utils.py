@@ -3,6 +3,7 @@
 
 import gc
 import re
+import subprocess
 import time
 from pathlib import Path
 from typing import List, Dict, Any, Union
@@ -253,3 +254,26 @@ def get_similarity(text1, text2):
     doc2 = nlp(text2)
 
     return doc1.similarity(doc2)
+
+
+def merge_subtitle(video_path, subtitle_path, output_path):
+    def convert2ffmpeg_path(path):
+        abs_path = str(Path(path).absolute()).replace("\\", "/")
+
+        abs_path = abs_path[0] + '\\\\' + abs_path[1:]
+
+        return abs_path
+
+    # check ffmpeg
+    try:
+        subprocess.check_output('ffmpeg -version')
+    except FileNotFoundError:
+        raise RuntimeError('ffmpeg is not installed. Please install ffmpeg first.')
+
+    subtitle_path = convert2ffmpeg_path(subtitle_path)
+    style = 'FontSize=24,Bold=1'
+    subprocess.call(
+        f'ffmpeg -y -i "{video_path}" -vf subtitles="{subtitle_path}":force_style=\'{style}\' "{output_path}"',
+        shell=True)
+
+    logger.info(f'Subtitled video saved to {output_path}')
