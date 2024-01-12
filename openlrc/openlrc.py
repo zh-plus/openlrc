@@ -1,4 +1,4 @@
-#  Copyright (C) 2023. Hao Zheng
+#  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
 import concurrent.futures
@@ -95,17 +95,18 @@ class LRCer:
         transcription_queue.put(None)
         logger.info('Transcription producer finished.')
 
-    def transcription_consumer(self, transcription_queue, target_lang, prompter, skip_trans):
+    def transcription_consumer(self, transcription_queue, target_lang, prompter, skip_trans, bilingual_sub):
         """
         Parallel Consumer.
         """
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = [executor.submit(self.consumer_worker, transcription_queue, target_lang, prompter, skip_trans)
+            futures = [executor.submit(self.consumer_worker, transcription_queue, target_lang, prompter, skip_trans,
+                                       bilingual_sub)
                        for _ in range(self.consumer_thread)]
             concurrent.futures.wait(futures)
         logger.info('Transcription consumer finished.')
 
-    def consumer_worker(self, transcription_queue, target_lang, prompter, skip_trans):
+    def consumer_worker(self, transcription_queue, target_lang, prompter, skip_trans, bilingual_sub):
         """
         Parallel translation.
         """
@@ -183,7 +184,7 @@ class LRCer:
         return final_subtitle
 
     def run(self, paths, src_lang=None, target_lang='zh-cn', prompter='base_trans', context_path=None,
-            skip_trans=False, noise_suppress=False):
+            skip_trans=False, noise_suppress=False, bilingual_sub=False):
         """
         Split the translation into 2 phases: transcription and translation. They're running in parallel.
         Firstly, transcribe the audios one-by-one. At the same time, translation threads are created and waiting for
@@ -197,6 +198,7 @@ class LRCer:
         :param context_path: path to context config file. (Default to use `context.yaml` in the first audio's directory)
         :param skip_trans: Whether to skip the translation process. (Default to False)
         :param noise_suppress: Whether to suppress the noise in the audio. (Default to False)
+        :param bilingual_sub: Whether to generate bilingual subtitles. (Default to False)
         """
         if not paths:
             logger.warning('No audio/video file given. Skip LRCer.run()')
@@ -229,7 +231,8 @@ class LRCer:
 
         with Timer('Transcription (Producer) and Translation (Consumer) process'):
             consumer = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='Consumer') \
-                .submit(self.transcription_consumer, transcription_queue, target_lang, prompter, skip_trans)
+                .submit(self.transcription_consumer, transcription_queue, target_lang, prompter, skip_trans,
+                        bilingual_sub)
             producer = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='Producer') \
                 .submit(self.transcription_producer, transcription_queue, audio_paths, src_lang)
 

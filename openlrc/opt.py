@@ -1,4 +1,4 @@
-#  Copyright (C) 2023. Hao Zheng
+#  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
 import re
@@ -130,6 +130,14 @@ class SubtitleOptimizer:
     def remove_empty(self):
         self.subtitle.segments = [element for element in self.subtitle.segments if element.text]
 
+    def strip(self):
+        new_elements = self.subtitle.segments
+
+        for i, element in enumerate(new_elements):
+            new_elements[i].text = element.text.strip()
+
+        self.subtitle.segments = new_elements
+
     def perform_all(self):
         for _ in range(2):
             self.merge_same()
@@ -138,6 +146,7 @@ class SubtitleOptimizer:
             self.cut_long()
             self.remove_unk()
             self.remove_empty()
+            self.strip()
 
             if self.subtitle.lang.lower() in ['zh-cn', 'zh']:
                 self.traditional2mandarin()
