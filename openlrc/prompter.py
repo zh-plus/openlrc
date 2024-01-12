@@ -1,4 +1,4 @@
-#  Copyright (C) 2023. Hao Zheng
+#  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
 import re
@@ -82,6 +82,8 @@ You need to update your summary and scene with the new information you have.
 Do not guess or improvise if the context is unclear, just summarise the dialogue.
 
 The translation should be in a lovely colloquial style and suitable for high-quality subtitles.
+
+I’m going to tip $1000 for a better translation!
 
 #######################
 There was an issue with the previous translation. 
