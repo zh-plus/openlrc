@@ -1,4 +1,4 @@
-#  Copyright (C) 2023. Hao Zheng
+#  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
 import json
@@ -82,7 +82,7 @@ class GPTTranslator(Translator):
 
             # Remove "</summary>\nxxx</scene>" tags (or some wierd tags like </p> ❓) from translation
             if any([re.search(r'(<.*?>|</.*?>)', t) for t in translation]):
-                logger.warning(f'The extracted translation from response contains tags: {content}, removed')
+                logger.warning(f'The extracted translation from response contains tags: {content}, tags removed')
                 translation = [
                     re.sub(r'(</summary>|<summary>|</translation>|<translation>|</p>|</div>).*', '', t, flags=re.DOTALL)
                     for t in translation]
