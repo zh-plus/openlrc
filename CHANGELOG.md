@@ -1,3 +1,12 @@
+## 1.0.2
+
+This update add minor features.
+
+#### Other Changes:
+
+- Binlingual subtitle support (Beta).
+- Improve translation prompt.
+
 ## 1.0.1
 
 This update fix minor issues.
