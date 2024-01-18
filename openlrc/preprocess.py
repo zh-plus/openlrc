@@ -1,4 +1,4 @@
-#  Copyright (C) 2023. Hao Zheng
+#  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 import logging
 from concurrent.futures import ProcessPoolExecutor
@@ -103,7 +103,15 @@ class Preprocessor:
 
         # Multi-processing
         with ProcessPoolExecutor() as executor:
-            _ = [executor.submit(loudness_norm_single, *arg) for arg in args]
+            results = [executor.submit(loudness_norm_single, *arg) for arg in args]
+
+            exceptions = [res.exception() for res in results]
+            if any(exceptions):
+                # Get the first not None exception
+                exception = next(filter(None, exceptions))
+
+                logger.error(f'Loudness normalization failed, exception: {exception}')
+                raise exception
 
         return ln_audio_paths
 
