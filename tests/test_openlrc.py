@@ -1,4 +1,4 @@
-#  Copyright (C) 2023. Hao Zheng
+#  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
 import shutil
@@ -26,7 +26,7 @@ from openlrc.utils import extend_filename
                            Word(3, 4.5, 'hello', probability=0.8), Word(4.6, 6, ' world2', probability=0.8)
                        ])
                ],
-               TranscriptionInfo('en', 6.0))))
+               TranscriptionInfo('en', 6.0, 6.0))))
 class TestLRCer(unittest.TestCase):
     def setUp(self) -> None:
         self.audio_path = Path('data/test_audio.wav')

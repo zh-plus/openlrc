@@ -1,4 +1,4 @@
-#  Copyright (C) 2023. Hao Zheng
+#  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
 import unittest
@@ -20,7 +20,7 @@ return_tuple = ([
                             Word(3, 4.5, 'hello', probability=0.8),
                             Word(4.6, 6, ' world', probability=0.8)
                         ]),
-                ], TranscriptionInfo('en', 30))
+                ], TranscriptionInfo('en', 30, 30))
 
 
 class TestTranscriber(unittest.TestCase):

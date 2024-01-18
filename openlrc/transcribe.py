@@ -1,4 +1,4 @@
-#  Copyright (C) 2023. Hao Zheng
+#  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
 from pathlib import Path
@@ -17,6 +17,11 @@ from openlrc.utils import Timer, get_audio_duration, spacy_load
 class TranscriptionInfo(NamedTuple):
     language: str
     duration: float
+    duration_after_vad: float
+
+    @property
+    def vad_ratio(self):
+        return 1 - self.duration_after_vad / self.duration
 
 
 class Transcriber:
@@ -52,7 +57,13 @@ class Transcriber:
         with Timer('Sentence Segmentation'):
             result = self.sentence_split(segments, info.language)
 
-        info = TranscriptionInfo(language=info.language, duration=get_audio_duration(audio_path))
+        info = TranscriptionInfo(language=info.language, duration=get_audio_duration(audio_path),
+                                 duration_after_vad=info.duration_after_vad)
+
+        if info.vad_ratio > 0.5:
+            logger.warning(f'VAD ratio is too high, check your audio quality. '
+                           f'VAD ratio: {info.vad_ratio}, duration: {info.duration}, duration_after_vad: {info.duration_after_vad}. '
+                           f'Try to decrease the threshold in vad_options.')
 
         return result, info
 
