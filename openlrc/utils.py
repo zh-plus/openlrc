@@ -1,4 +1,4 @@
-#  Copyright (C) 2023. Hao Zheng
+#  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
 import gc
@@ -266,7 +266,7 @@ def merge_subtitle(video_path, subtitle_path, output_path):
 
     # check ffmpeg
     try:
-        subprocess.check_output('ffmpeg -version')
+        subprocess.check_output('ffmpeg -version', shell=True)
     except FileNotFoundError:
         raise RuntimeError('ffmpeg is not installed. Please install ffmpeg first.')
 
