@@ -37,7 +37,7 @@ into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/
    pip install git+https://github.com/guillaumekln/faster-whisper
    ```
 
-5. (Optional) If you want to process videos, install [ffmpeg](https://ffmpeg.org/download.html) and add `bin` directory
+5. Install [ffmpeg](https://ffmpeg.org/download.html) and add `bin` directory
    to your `PATH`.
 
 6. This project can be installed from PyPI:
