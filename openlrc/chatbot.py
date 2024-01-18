@@ -1,8 +1,9 @@
-#  Copyright (C) 2023. Hao Zheng
+#  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
 import asyncio
 import os
+import random
 import time
 from typing import List, Union, Dict, Callable
 
@@ -102,8 +103,9 @@ class GPTBot:
 
                 break
             except openai.RateLimitError:
-                logger.warning(f'Rate limit exceeded. Wait 10s before retry. Retry num: {i + 1}.')
-                time.sleep(10)
+                sleep_time = random.randint(30, 60)
+                logger.warning(f'Rate limit exceeded. Wait {sleep_time}s before retry. Retry num: {i + 1}.')
+                time.sleep(sleep_time)
             except openai.APITimeoutError:
                 logger.warning(f'Timeout. Wait 3 before retry. Retry num: {i + 1}.')
                 time.sleep(3)
