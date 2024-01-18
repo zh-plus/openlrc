@@ -127,15 +127,20 @@ class LRCer:
             # xxx_transcribed_optimized_translated.json
             translated_path = extend_filename(transcribed_opt_sub.filename, '_translated')
 
-            final_subtitle = transcribed_opt_sub
-            final_subtitle.filename = Path(translated_path.parent / f'{audio_name}.json')
-            if not skip_trans and not final_subtitle.exists():
+            final_subtitle_path = Path(translated_path.parent / f'{audio_name}.json')
+            if final_subtitle_path.exists():
+                final_subtitle = Subtitle.from_json(final_subtitle_path)
+            elif skip_trans:
+                final_subtitle = transcribed_opt_sub
+                final_subtitle.filename = final_subtitle
+            else:
                 with Timer('Translation process'):
                     try:
                         final_subtitle = self._translate(audio_name, prompter, target_lang, transcribed_opt_sub,
                                                          translated_path)
                     except Exception as e:
                         self.exception = e
+                        return
 
             # Copy preprocessed/xxx_preprocessed.lrc or preprocessed/xxx_preprocessed.srt to xxx.lrc or xxx.srt
             if audio_name in self.from_video:
