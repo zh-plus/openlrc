@@ -1,3 +1,12 @@
+## 1.0.3
+
+This update fix minor issues.
+
+#### Other Changes:
+
+- Remove water mark in srt and lrc.
+- Improve logging.
+
 ## 1.0.2
 
 This update add minor features.
