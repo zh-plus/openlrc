@@ -171,25 +171,47 @@ class Subtitle:
 
     @classmethod
     def from_srt(cls, filename):
+        """
+        SRT Specifications from http://www.textfiles.com/uploads/kds-srt.txt
+         ______________________________________
+        | subtitle number                      |
+        |--------------------------------------|
+        | start time --> end time              |
+        |--------------------------------------|
+        | subtitle text (one or more lines)    |
+        |--------------------------------------|
+        | blank line                           |
+        |______________________________________|
+        :param filename:
+        :return:
+        """
         filename = Path(filename)
         with open(filename, encoding='utf-8') as f:
             lines = f.readlines()
 
-        # Remove comments
-        lines = [line for line in lines if not line.startswith('#')]
+        # # Remove comments
+        # lines = [line for line in lines if not line.startswith('#')]
 
         segments = []
-        for i in range(0, len(lines), 4):
+        i = 0
+        while i < len(lines):
             line = lines[i]
-            # get time stamp
             if line.strip().isdigit():
                 start_str, end_str = re.search(r'(\d+:\d+:\d+,\d+) --> (\d+:\d+:\d+,\d+)', lines[i + 1]).group(1, 2)
                 start = parse_timestamp(start_str, fmt='srt')
                 end = parse_timestamp(end_str, fmt='srt')
+                i += 2
 
-                text = lines[i + 2].strip()
+                # Multi-line subtitle
+                text = []
+                while lines[i].strip():
+                    text.append(lines[i].strip())
+                    i += 1
 
+                text = '\n'.join(text)
                 segments.append({'start': start, 'end': end, 'text': text})
+
+                i += 1
             else:
                 raise ValueError(f'Invalid srt file {filename}')
 
