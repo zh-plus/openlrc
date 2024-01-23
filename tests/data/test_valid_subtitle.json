@@ -1,6 +1,5 @@
 {
   "language": "zh",
-  "generator": "test",
   "segments": [
     {
       "start": 0.0,
@@ -20,7 +19,7 @@
     {
       "start": 10.0,
       "end": 10.1,
-      "text": ""
+      "text": "test"
     },
     {
       "start": 12,

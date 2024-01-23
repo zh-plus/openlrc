@@ -1,6 +1,6 @@
-#  Copyright (C) 2023. Hao Zheng
+#  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
-
+import shutil
 import unittest
 from pathlib import Path
 from unittest.mock import patch, Mock
@@ -11,6 +11,10 @@ from openlrc.preprocess import Preprocessor
 
 
 class TestPreprocessor(unittest.TestCase):
+    def tearDown(self) -> None:
+        preprocessed_path = Path('data/preprocessed')
+        shutil.rmtree(preprocessed_path, ignore_errors=True)
+
     @patch('openlrc.preprocess.enhance')
     @patch('openlrc.preprocess.init_df')
     @patch('openlrc.preprocess.load_audio')
@@ -35,7 +39,7 @@ class TestPreprocessor(unittest.TestCase):
     @patch('openlrc.preprocess.FFmpegNormalize')
     def test_loudness_normalization_returns_path_objects(self, mock_norm):
         mock_norm.return_value.run_normalization.return_value = None
-        preprocessor = Preprocessor('audio.wav')
+        preprocessor = Preprocessor('data/test_audio.wav')
         ln_paths = preprocessor.loudness_normalization(preprocessor.audio_paths)
         self.assertIsInstance(ln_paths, list)
         self.assertIsInstance(ln_paths[0], Path)

@@ -1,4 +1,4 @@
-#  Copyright (C) 2023. Hao Zheng
+#  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
 import json
@@ -53,6 +53,7 @@ class TestSubtitleOptimizer(unittest.TestCase):
 
     def test_remove_empty(self):
         subtitle = self.subtitle
+        subtitle.segments[0].text = ''
         original_len = len(subtitle)
         optimizer = SubtitleOptimizer(subtitle)
         optimizer.remove_empty()
@@ -68,7 +69,6 @@ class TestSubtitleOptimizer(unittest.TestCase):
             optimized_subtitle = json.load(f)
 
         assert optimized_subtitle['language'] == 'zh'
-        assert optimized_subtitle['generator'] == 'test'
         assert len(optimized_subtitle['segments']) == 6
 
         os.remove('data/test_subtitle_optimized.json')

@@ -1,4 +1,4 @@
-#  Copyright (C) 2023. Hao Zheng
+#  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
 import unittest
@@ -38,7 +38,7 @@ class TestSubtitle(unittest.TestCase):
         subtitle = self.subtitle
         subtitle.to_lrc()
         loaded_subtitle = Subtitle.from_file(subtitle.filename.with_suffix('.lrc'))
-        self.check_content(loaded_subtitle, length=7)
+        self.check_content(loaded_subtitle, length=8)
         loaded_subtitle.filename.unlink()
 
     def test_save_to_srt(self):
@@ -54,7 +54,7 @@ class TestSubtitle(unittest.TestCase):
 
     def test_get_texts(self):
         subtitle = self.subtitle
-        self.assertEqual(subtitle.texts, ['你好', '你好', '好好好好好好好好好好好好好好好好好好好好好好好好', '',
+        self.assertEqual(subtitle.texts, ['你好', '你好', '好好好好好好好好好好好好好好好好好好好好好好好好', 'test',
                                           '这太长打发螺丝扣搭街坊拉克斯酱豆腐垃圾啊阿里山扩大飞机拉克斯基的flak涉及到了反馈啊螺丝扣搭街坊拉啊手动阀手动阀阿斯顿发射点发射点发生发射点发射点发萨看见对方这太长打发螺丝扣搭街坊拉克斯酱豆腐垃圾啊阿里山扩大飞机拉克斯基的flak涉及到了反馈啊螺丝扣搭街坊拉啊手动阀手动阀阿斯顿发射点发射点发生发射点发射点发萨看见对方这太长打发螺丝扣搭街坊拉克斯酱豆腐垃圾啊阿里山扩大飞机拉克斯基的flak涉及到了反馈啊螺丝扣搭街坊拉啊手动阀手动阀阿斯顿发射点发射点发生发射点发射点发萨看见对方',
                                           '繁體的字', '<unk>unk<unk>', '123'])
 
