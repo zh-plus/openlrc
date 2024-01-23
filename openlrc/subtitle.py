@@ -38,9 +38,8 @@ class Subtitle:
     Save a sequence of Element, and meta data.
     """
 
-    def __init__(self, language: str, generator: str, segments: List[Dict], filename: Union[str, Path]):
+    def __init__(self, language: str, segments: List[Dict], filename: Union[str, Path]):
         self.lang = language
-        self.generator = generator
         self.segments: List[Element] = [Element(**seg) for seg in segments]
         self.filename = Path(filename)
 
@@ -81,7 +80,6 @@ class Subtitle:
     def save(self, filename, update_name=False):
         results = {
             'language': self.lang,
-            'generator': self.generator,
             'segments': [seg.to_json() for seg in self.segments]
         }
 
@@ -169,7 +167,7 @@ class Subtitle:
 
         lang = detect_lang(' '.join(segment['text'] for segment in segments[:10]))
 
-        return cls(language=lang, generator='', segments=segments, filename=filename)
+        return cls(language=lang, segments=segments, filename=filename)
 
     @classmethod
     def from_srt(cls, filename):
@@ -197,7 +195,7 @@ class Subtitle:
 
         lang = detect_lang(' '.join(segment['text'] for segment in segments[:10]))
 
-        return cls(language=lang, generator='', segments=segments, filename=filename)
+        return cls(language=lang, segments=segments, filename=filename)
 
 
 @dataclass
