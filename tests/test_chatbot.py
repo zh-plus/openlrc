@@ -1,4 +1,4 @@
-#  Copyright (C) 2023. Hao Zheng
+#  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
 import unittest
@@ -48,7 +48,7 @@ class TestChatBot(unittest.TestCase):
 
         assert bot.api_fees == [0.0005, 0.001, 0.0015]
 
-    def test_message(self):
+    def test_message_async(self):
         bot = self.bot
         messages_list = [
             [
@@ -60,3 +60,13 @@ class TestChatBot(unittest.TestCase):
         ]
         results = bot.message(messages_list)
         assert all(['hello' in r.choices[0].message.content.lower() for r in results])
+
+    def test_message_seq(self):
+        bot = self.bot
+        messages_list = [
+            [
+                {'role': 'user', 'content': 'Echo hello:'}
+            ]
+        ]
+        results = bot.message(messages_list)
+        assert 'hello' in results[0].choices[0].message.content.lower()

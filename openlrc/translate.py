@@ -143,7 +143,7 @@ class GPTTranslator(Translator):
 
             translations.extend(translated)
             summaries.append(summary)
-            logger.info(f'Translating {title}: {i}/{len(chunks)}')
+            logger.info(f'Translated {title}: {i}/{len(chunks)}')
             logger.info(f'summary: {summary}')
             logger.info(f'scene: {scene}')
 
