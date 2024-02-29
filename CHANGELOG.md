@@ -1,3 +1,13 @@
+## 1.1.0
+
+This update improve the translation quality.
+
+#### Other Changes:
+
+- Update faster-whisper version to 1.0.0.
+- Set hallucination_silence_threshold to 2, which alleviates the hallucination issue.
+- Add proxy argument.
+
 ## 1.0.3
 
 This update fix minor issues.
