@@ -7,55 +7,26 @@ import random
 import time
 from typing import List, Union, Dict, Callable
 
+import httpx
 import openai
-from openai import AsyncClient, Client
+from openai import AsyncClient
 
 from openlrc.exceptions import ChatBotException, LengthExceedException
 from openlrc.logger import logger
 from openlrc.utils import get_messages_token_number, get_text_token_number
 
 
-# def retry_on_openai_failure(retry_num):
-#     """
-#     Exception handling wrapper.
-#     :param retry_num:
-#     """
-#
-#     def decorate(f):
-#         def applicator(*args, **kwargs):
-#             try:
-#                 return f(*args, **kwargs)
-#             except openai.RateLimitError:
-#                 sleep_time = random.randint(30, 60)
-#                 logger.warning(f'Rate limit exceeded. Wait {sleep_time}s before retry. Retry num: {retry_num + 1}.')
-#                 time.sleep(sleep_time)
-#             except openai.APITimeoutError:
-#                 logger.warning(f'Timeout. Wait 3 before retry. Retry num: {retry_num + 1}.')
-#                 time.sleep(3)
-#             except openai.APIConnectionError:
-#                 logger.warning(f'API connection error. Wait 15s before retry. Retry num: {retry_num + 1}.')
-#                 time.sleep(15)
-#             except openai.APIError:
-#                 logger.warning(f'API error. Wait 15s before retry. Retry num: {retry_num + 1}.')
-#                 time.sleep(15)
-#
-#             return OpenaiFailureException()
-#
-#         return applicator
-#
-#     return decorate
-
-
 class GPTBot:
-    def __init__(self, model='gpt-3.5-turbo-1106', temperature=1, top_p=1, retry=8, max_async=16, json_mode=False,
-                 fee_limit=0.05):
-        self.async_client = AsyncClient(api_key=os.environ['OPENAI_API_KEY'])
-        self.seq_client = Client(api_key=os.environ['OPENAI_API_KEY'])
+    def __init__(self, model='gpt-3.5-turbo-0125', temperature=1, top_p=1, retry=8, max_async=16, json_mode=False,
+                 fee_limit=0.05, proxy=None):
+        self.async_client = AsyncClient(api_key=os.environ['OPENAI_API_KEY'], http_client=httpx.AsyncClient(
+            proxies=proxy,
+        ))
 
         # Pricing for 1k tokens, info from https://openai.com/pricing
         self.pricing = {
-            'gpt-3.5-turbo-1106': (0.001, 0.002),
-            'gpt-4-1106-preview': (0.01, 0.03)
+            'gpt-3.5-turbo-0125': (0.0005, 0.0015),
+            'gpt-4-0125-preview': (0.01, 0.03)
         }
 
         self.model = model
@@ -106,56 +77,6 @@ class GPTBot:
         completion_tokens = response.usage.completion_tokens
 
         self.api_fees[-1] += (prompt_tokens * prompt_price + completion_tokens * completion_price) / 1000
-
-    def _create_chat(self, messages: List[Dict], output_checker: Callable = lambda *args, **kw: True):
-        logger.debug(f'Raw content: {messages}')
-
-        # @retry_on_openai_failure
-        # def create_chat():
-        #     return self.seq_client.chat.completions.create(
-        #         model=self.model,
-        #         messages=messages,
-        #         temperature=self.temperature,
-        #         top_p=self.top_p,
-        #         response_format={'type': 'json_object' if self.json_mode else 'text'}
-        #     )
-
-        response = None
-        for i in range(self.retry):
-            try:
-                response = self.seq_client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    temperature=self.temperature,
-                    top_p=self.top_p,
-                    response_format={'type': 'json_object' if self.json_mode else 'text'}
-                )
-                self.update_fee(response)
-                if response.choices[0].finish_reason == 'length':
-                    raise LengthExceedException(response)
-                if not output_checker(messages, response.choices[0].message.content):
-                    logger.warning(f'Invalid response format. Retry num: {i + 1}.')
-                    continue
-
-                break
-            except openai.RateLimitError:
-                sleep_time = random.randint(30, 60)
-                logger.warning(f'Rate limit exceeded. Wait {sleep_time}s before retry. Retry num: {i + 1}.')
-                time.sleep(sleep_time)
-            except openai.APITimeoutError:
-                logger.warning(f'Timeout. Wait 3 before retry. Retry num: {i + 1}.')
-                time.sleep(3)
-            except openai.APIConnectionError:
-                logger.warning(f'API connection error. Wait 15s before retry. Retry num: {i + 1}.')
-                time.sleep(15)
-            except openai.APIError:
-                logger.warning(f'API error. Wait 15s before retry. Retry num: {i + 1}.')
-                time.sleep(15)
-
-        if response is None:
-            raise ChatBotException('Failed to create a chat.')
-
-        return response
 
     async def _create_achat(self, messages: List[Dict], output_checker: Callable = lambda *args, **kw: True):
         logger.debug(f'Raw content: {messages}')
@@ -232,10 +153,7 @@ class GPTBot:
                                    f'exceeds the limit: {self.fee_limit}$.')
 
         try:
-            if len(messages_list) == 1:
-                results = [self._create_chat(messages_list[0], output_checker=output_checker)]
-            else:
-                results = asyncio.run(self._amessage(messages_list, output_checker=output_checker))
+            results = asyncio.run(self._amessage(messages_list, output_checker=output_checker))
         except ChatBotException as e:
             logger.error(f'Failed to message with GPT. Error: {e}')
             raise e
