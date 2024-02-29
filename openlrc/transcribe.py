@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from openlrc.defaults import default_asr_options, default_vad_options
 from openlrc.logger import logger
-from openlrc.utils import Timer, get_audio_duration, spacy_load
+from openlrc.utils import Timer, get_audio_duration, spacy_load, format_timestamp
 
 
 class TranscriptionInfo(NamedTuple):
@@ -52,7 +52,7 @@ class Transcriber:
             if timestamps < info.duration:  # silence at the end of the audio
                 pbar.update(info.duration - timestamps)
 
-        assert segments, 'No voice found!'
+        assert segments, f'No voice found for {audio_path}'
 
         with Timer('Sentence Segmentation'):
             result = self.sentence_split(segments, info.language)
@@ -62,7 +62,8 @@ class Transcriber:
 
         if info.vad_ratio > 0.5:
             logger.warning(f'VAD ratio is too high, check your audio quality. '
-                           f'VAD ratio: {info.vad_ratio}, duration: {info.duration}, duration_after_vad: {info.duration_after_vad}. '
+                           f'VAD ratio: {info.vad_ratio}, duration: {format_timestamp(info.duration, fmt="srt")}, '
+                           f'duration_after_vad: {format_timestamp(info.duration_after_vad, fmt="srt")}. '
                            f'Try to decrease the threshold in vad_options.')
 
         return result, info

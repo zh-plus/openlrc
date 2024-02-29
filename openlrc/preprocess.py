@@ -82,7 +82,6 @@ class Preprocessor:
                 save_audio(ns_path, enhanced, sr=df_state.sr())
 
             ns_audio_paths.append(ns_path)
-            logger.debug(f'Noise suppressed audio saved to {ns_path}')
 
         release_memory(model)
 
