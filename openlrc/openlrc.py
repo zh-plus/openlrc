@@ -37,14 +37,16 @@ class LRCer:
     :param consumer_thread: To prevent exceeding the RPM and TPM limits set by OpenAI, the default is TPM/MAX_TOKEN.
     :param asr_options: Parameters for whisper model.
     :param vad_options: Parameters for VAD model.
+    :param proxy: Proxy for openai requests. e.g. 'http://127.0.0.1:7890'
     """
 
     def __init__(self, model_name='large-v3', compute_type='float16', fee_limit=0.1, consumer_thread=11,
-                 asr_options=None, vad_options=None, preprocess_options=None):
+                 asr_options=None, vad_options=None, preprocess_options=None, proxy=None):
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
         self.from_video = set()
         self.context: Context = Context()
+        self.proxy = proxy
 
         self._lock = Lock()
         self.exception = None
@@ -159,7 +161,7 @@ class LRCer:
         compare_path = Path(translated_path.parent, f'{audio_name}_compare.json')
         if not translated_path.exists():
             # Translate the transcribed json
-            translator = GPTTranslator(prompter=prompter, fee_limit=self.fee_limit)
+            translator = GPTTranslator(prompter=prompter, fee_limit=self.fee_limit, proxy=self.proxy)
             context = self.context
 
             target_texts = translator.translate(

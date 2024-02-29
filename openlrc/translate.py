@@ -25,7 +25,7 @@ class Translator(ABC):
 
 
 class GPTTranslator(Translator):
-    def __init__(self, prompter: str = 'base_trans', fee_limit=0.1, chunk_size=30, intercept_line=None):
+    def __init__(self, prompter: str = 'base_trans', fee_limit=0.1, chunk_size=30, intercept_line=None, proxy=None):
         """
         :param prompter: Translate prompter, choices can be found in `prompter_map` from prompter.py.
         :param fee_limit: Fee limit (USD) for OpenAI API.
@@ -41,6 +41,7 @@ class GPTTranslator(Translator):
         self.chunk_size = chunk_size
         self.api_fee = 0
         self.intercept_line = intercept_line
+        self.proxy = proxy
 
     @staticmethod
     def make_chunks(texts, chunk_size=30):
@@ -84,8 +85,12 @@ class GPTTranslator(Translator):
             if any([re.search(r'(<.*?>|</.*?>)', t) for t in translation]):
                 logger.warning(f'The extracted translation from response contains tags: {content}, tags removed')
                 translation = [
-                    re.sub(r'(</summary>|<summary>|</translation>|<translation>|</p>|</div>).*', '', t, flags=re.DOTALL)
-                    for t in translation]
+                    re.sub(
+                        r'(<.*?>|</.*?>).*',
+                        '', t, flags=re.DOTALL
+                    )
+                    for t in translation
+                ]
 
             return summary.strip(), scene.strip(), [t.strip() for t in translation]
 
@@ -100,7 +105,7 @@ class GPTTranslator(Translator):
 
         prompter: BaseTranslatePrompter = prompter_map[self.prompter](
             src_lang, target_lang, audio_type, title=title, background=background, description=description)
-        translate_bot = GPTBot(fee_limit=self.fee_limit)
+        translate_bot = GPTBot(fee_limit=self.fee_limit, proxy=self.proxy)
         translate_bot.update(temperature=0.7)
 
         chunks = self.make_chunks(texts, chunk_size=self.chunk_size)
@@ -114,6 +119,8 @@ class GPTTranslator(Translator):
         start_chunk = 0
 
         if compare_path.exists():
+            # TODO: Check if the chunk_size is consistent
+
             logger.info(f'Resume from {compare_path}')
             with open(compare_path, 'r', encoding='utf-8') as f:
                 compare_results = json.load(f)
@@ -162,7 +169,7 @@ class GPTTranslator(Translator):
         return translations
 
     def atomic_translate(self, texts, src_lang, target_lang):
-        translate_bot = GPTBot(fee_limit=self.fee_limit)
+        translate_bot = GPTBot(fee_limit=self.fee_limit, proxy=self.proxy)
         translate_bot.update(temperature=0.7)
 
         prompter = AtomicTranslatePrompter(src_lang, target_lang)
