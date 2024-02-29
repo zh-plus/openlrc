@@ -30,7 +30,7 @@ class TestChatBot(unittest.TestCase):
             {'role': 'user', 'content': 'Hello'},
         ]
         fee = bot.estimate_fee(messages)
-        assert isclose(fee, 1e-05)
+        assert isclose(fee, 6e-06)
 
     def test_update_fee(self):
         bot = self.bot
@@ -46,7 +46,7 @@ class TestChatBot(unittest.TestCase):
         response3 = OpenAIResponse(usage=CompletionUsage(prompt_tokens=300, completion_tokens=600, total_tokens=900))
         bot.update_fee(response3)
 
-        assert bot.api_fees == [0.0005, 0.001, 0.0015]
+        assert bot.api_fees == [0.00035, 0.0007, 0.0010500000000000002]
 
     def test_message_async(self):
         bot = self.bot
