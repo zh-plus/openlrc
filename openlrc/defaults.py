@@ -1,8 +1,8 @@
-#  Copyright (C) 2023. Hao Zheng
+#  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 from lingua import Language
 
-# Check https://github.com/guillaumekln/faster-whisper/blob/3b4a6aa1c22d293ddde9f08bdd31fc842086a6ea/faster_whisper/transcribe.py#L153 for details
+# Check https://github.com/SYSTRAN/faster-whisper/blob/master/faster_whisper/transcribe.py#L184 for details
 default_asr_options = {
     "beam_size": 3,
     "best_of": 5,
@@ -28,6 +28,7 @@ default_asr_options = {
     "word_timestamps": True,
     "prepend_punctuations": "\"'“¿([{-",
     "append_punctuations": "\"'.。,，!！?？:：”)]}、",
+    "hallucination_silence_threshold": 2,
 }
 
 # Check https://github.com/guillaumekln/faster-whisper/blob/3b4a6aa1c22d293ddde9f08bdd31fc842086a6ea/faster_whisper/vad.py#L14 for details
