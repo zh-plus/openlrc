@@ -179,8 +179,12 @@ Please translate these subtitles for {self.audio_type}{f" named {self.title}" if
                 translation_chunks[-2].extend(translation_chunks[-1])
                 translation_chunks.pop()
 
-            translated_langs = [self.lan_detector.detect_language_of(' '.join(chunk)).name.lower()
-                                for chunk in translation_chunks]
+            translated_langs = [self.lan_detector.detect_language_of(' '.join(chunk)) for chunk in translation_chunks]
+            translated_langs = [lang.name.lower() for lang in translated_langs if lang]
+
+            if not translated_langs:
+                # Cant detect language
+                return True
 
             # get the most common language
             translated_lang = max(set(translated_langs), key=translated_langs.count)
