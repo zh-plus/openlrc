@@ -129,12 +129,13 @@ class LRCer:
             # xxx_transcribed_optimized_translated.json
             translated_path = extend_filename(transcribed_opt_sub.filename, '_translated')
 
-            final_subtitle_path = Path(translated_path.parent / f'{audio_name}.json')
-            if final_subtitle_path.exists():
-                final_subtitle = Subtitle.from_json(final_subtitle_path)
+            final_json_path = Path(translated_path.parent / f'{audio_name}.json')
+            if final_json_path.exists():
+                final_subtitle = Subtitle.from_json(final_json_path)
             elif skip_trans:
+                shutil.copy(transcribed_opt_sub.filename, final_json_path)
                 final_subtitle = transcribed_opt_sub
-                final_subtitle.filename = final_subtitle
+                final_subtitle.filename = final_json_path
             else:
                 with Timer('Translation process'):
                     try:
