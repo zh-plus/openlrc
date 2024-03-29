@@ -44,7 +44,7 @@ class SubtitleOptimizer:
 
         self.subtitle.segments = new_elements
 
-    def merge_short(self, threshold=1.5):
+    def merge_short(self, threshold=1.2):
         """
         Merge the short duration subtitle.
         """
@@ -54,9 +54,9 @@ class SubtitleOptimizer:
         for i, element, in enumerate(self.subtitle.segments):
             if i == 0 or element.duration >= threshold:
                 if merged_element:
-                    if merged_element.duration < 1:
-                        # If the merged elements is still too small, find the smaller element nearby and merge it
-                        if new_elements[-1].duration > element.duration:
+                    if merged_element.duration < 1.5:
+                        # If the merged elements is still too small, find the closer element nearby and merge it
+                        if element.start - merged_element.end < merged_element.start - new_elements[-1].end:
                             # merge to the next
                             element.text = merged_element.text + element.text
                             element.start = merged_element.start
