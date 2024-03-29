@@ -45,6 +45,12 @@ class TestSubtitleOptimizer(unittest.TestCase):
         optimizer.traditional2mandarin()
         assert optimizer.subtitle.segments[5].text == '繁体的字'
 
+    def test_punctuation_optimization(self):
+        subtitle = self.subtitle
+        optimizer = SubtitleOptimizer(subtitle)
+        optimizer.punctuation_optimization()
+        assert optimizer.subtitle.segments[0].text == '你好，你好...你好！你好。'
+
     def test_remove_unk(self):
         subtitle = self.subtitle
         optimizer = SubtitleOptimizer(subtitle)
@@ -69,6 +75,6 @@ class TestSubtitleOptimizer(unittest.TestCase):
             optimized_subtitle = json.load(f)
 
         assert optimized_subtitle['language'] == 'zh'
-        assert len(optimized_subtitle['segments']) == 6
+        assert len(optimized_subtitle['segments']) == 7
 
         os.remove('data/test_subtitle_optimized.json')
