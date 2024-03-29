@@ -130,7 +130,7 @@ description_map: {
 }
 ```
 
-## Pricing
+## Pricing 💰
 
 *pricing data from [OpenAI](https://openai.com/pricing)
 and [Anthropic](https://docs.anthropic.com/claude/docs/models-overview#model-comparison)*

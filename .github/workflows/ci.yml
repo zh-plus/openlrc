@@ -38,6 +38,8 @@ jobs:
         id: setup-ffmpeg
       - name: Add OpenAI key to environment variables
         run: echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> $GITHUB_ENV
+      - name: Add ANTHROPIC API Key to environment variables
+        run: echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> $GITHUB_ENV
       - name: Test with unittest
         working-directory: ./tests
         run: |
