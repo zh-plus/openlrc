@@ -7,25 +7,41 @@
 
 Open-Lyrics is a Python library that transcribes voice files using
 [faster-whisper](https://github.com/guillaumekln/faster-whisper), and translates/polishes the resulting text
-into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/openai/openai-python).
+into `.lrc` files in the desired language using LLM,
+e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](https://github.com/anthropics/anthropic-sdk-python).
 
-## Installation
+## New 🚨
 
-1. Please install CUDA 11.x and [cuDNN 8 for CUDA 11](https://developer.nvidia.com/cudnn) first according to https://opennmt.net/CTranslate2/installation.html to enable `faster-whisper`.   
-  
+- 2024.3.29: Claude models are now available for translation. According to the testing, Claude 3 Sonnet performs way
+  better than GPT-3.5 Turbo. We recommend using Claude 3 Sonnet for non-english audio (source language) translation (For
+  now, the default model
+  are still GPT-3.5 Turbo):
+    ```python
+    lrcer = LRCer(chatbot_model='claude-3-sonnet-20240229')
+    ```
+
+## Installation ⚙️
+
+1. Please install CUDA 11.x and [cuDNN 8 for CUDA 11](https://developer.nvidia.com/cudnn) first according
+   to https://opennmt.net/CTranslate2/installation.html to enable `faster-whisper`.
+
    `faster-whisper` also needs [cuBLAS for CUDA 11](https://developer.nvidia.com/cublas) installed.
    <details>
    <summary>For Windows Users (click to expand)</summary> 
-   
+
    (For Windows Users only) Windows user can Download the libraries from Purfview's repository:
 
-   Purfview's [whisper-standalone-win](https://github.com/Purfview/whisper-standalone-win) provides the required NVIDIA libraries for Windows in a [single archive](https://github.com/Purfview/whisper-standalone-win/releases/tag/libs). Decompress the archive and place the libraries in a directory included in the `PATH`.
+   Purfview's [whisper-standalone-win](https://github.com/Purfview/whisper-standalone-win) provides the required NVIDIA
+   libraries for Windows in a [single archive](https://github.com/Purfview/whisper-standalone-win/releases/tag/libs).
+   Decompress the archive and place the libraries in a directory included in the `PATH`.
 
    </details>
 
-  
 
-2. Add your [OpenAI API key](https://platform.openai.com/account/api-keys) to environment variable `OPENAI_API_KEY`.
+2. Add LLM API keys, you can either:
+    - Add your [OpenAI API key](https://platform.openai.com/account/api-keys) to environment variable `OPENAI_API_KEY`.
+    - Add your [Anthropic API key](https://console.anthropic.com/settings/keys) to environment
+      variable `ANTHROPIC_API_KEY`.
 
 3. Install [PyTorch](https://pytorch.org/get-started/locally/):
    ```shell
@@ -52,7 +68,7 @@ into `.lrc` files in the desired language using [OpenAI-GPT](https://github.com/
     pip install git+https://github.com/zh-plus/Open-Lyrics
     ```
 
-## Usage
+## Usage 🐍
 
 ```python
 from openlrc import LRCer
@@ -85,6 +101,10 @@ if __name__ == '__main__':
 
     # Enhance the audio using noise suppression (consume more time).
     lrcer.run('./data/test.mp3', target_lang='zh-cn', noise_suppress=True)
+
+    # Change the LLM model for translation
+    lrcer = LRCer(chatbot_model='claude-3-sonnet-20240229')
+    lrcer.run('./data/test.mp3', target_lang='zh-cn')
 ```
 
 Check more details in [Documentation](https://zh-plus.github.io/openlrc/#/).
@@ -110,6 +130,30 @@ description_map: {
 }
 ```
 
+## Pricing
+
+*pricing data from [OpenAI](https://openai.com/pricing)
+and [Anthropic](https://docs.anthropic.com/claude/docs/models-overview#model-comparison)*
+
+| Model Name                 | Pricing for 1M Tokens <br/>(Input/Output) (USD) | Cost for 1 Hour Audio <br/>(USD) |
+|----------------------------|-------------------------------------------------|----------------------------------|
+| `gpt-3.5-turbo-0125`       | 0.5, 1.5                                        | 0.01                             |
+| `gpt-3.5-turbo`            | 0.5, 1.5                                        | 0.01                             |
+| `gpt-4-0125-preview`       | 10, 30                                          | 0.1                              |
+| `gpt-4-turbo-preview`      | 10, 30                                          | 0.1                              |
+| `claude-3-haiku-20240307`  | 0.25, 1.25                                      | 0.015                            |
+| `claude-3-sonnet-20240229` | 3, 15                                           | 0.2                              |
+| `claude-3-opus-20240229`   | 15, 75                                          | 1                                |
+
+**Note the cost is estimated based on the token count of the input and output text.
+The actual cost may vary due to the language and audio speed.**
+
+### Recommended translation model
+
+For english audio, we recommend using `gpt-3.5-turbo`.
+
+For non-english audio, we recommend using `claude-3-sonnet-20240229`.
+
 ## Todo
 
 - [x] [Efficiency] Batched translate/polish for GPT request (enable contextual ability).
@@ -130,7 +174,7 @@ description_map: {
 - [ ] [Efficiency] Add Azure OpenAI Service support.
 - [ ] [Quality] Use [claude](https://www.anthropic.com/index/introducing-claude) for translation.
 - [ ] [Feature] Add local LLM support.
-- [ ] [Feature] Multiple translate engine (Microsoft, DeepL, Google, etc.) support.
+- [X] [Feature] Multiple translate engine (Anthropic, Microsoft, DeepL, Google, etc.) support.
 - [ ] [**Feature**] Build
   a [electron + fastapi](https://ivanyu2021.hashnode.dev/electron-django-desktop-app-integrate-javascript-and-python)
   GUI for cross-platform application.
