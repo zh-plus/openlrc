@@ -50,7 +50,7 @@ class TestSubtitle(unittest.TestCase):
 
     def test_get_length(self):
         subtitle = self.subtitle
-        self.assertEqual(len(subtitle), 8)
+        self.assertEqual(len(subtitle), 9)
 
     def test_get_texts(self):
         subtitle = self.subtitle
@@ -66,7 +66,7 @@ class TestSubtitle(unittest.TestCase):
 
     def test_set_texts_edge_case_2(self):
         subtitle = self.subtitle
-        subtitle.set_texts([''] * 8, lang='en')
+        subtitle.set_texts([''] * 9, lang='en')
         self.assertEqual(subtitle.lang, 'en')
         self.assertEqual(subtitle.segments[0].text, '')
         self.assertEqual(subtitle.segments[1].text, '')
