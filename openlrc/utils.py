@@ -73,6 +73,7 @@ def get_audio_duration(path: Union[str, Path]) -> float:
 
 
 def release_memory(model: torch.nn.Module) -> None:
+    # gc.collect()
     torch.cuda.empty_cache()
     del model
 
