@@ -1,3 +1,7 @@
+## 1.2.0
+
+This update add Claude Models support for translation.
+
 ## 1.1.0
 
 This update improve the translation quality.

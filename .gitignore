@@ -1,5 +1,6 @@
 # Project exclude paths
 .idea
+.env
 run.py
 /data/
 /dist/
