@@ -10,19 +10,23 @@ from pydantic import BaseModel
 from openlrc.chatbot import GPTBot, ClaudeBot
 
 
-class OpenAIUsage(BaseModel):
+class Usage(BaseModel):
+    pass
+
+
+class OpenAIUsage(Usage):
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
 
 
-class AnthropicUsage(BaseModel):
+class AnthropicUsage(Usage):
     input_tokens: int
     output_tokens: int
 
 
 class OpenAIResponse(BaseModel):
-    usage: Union[OpenAIUsage | AnthropicUsage]
+    usage: Union[Usage]
 
 
 class TestGPTBot(unittest.TestCase):
