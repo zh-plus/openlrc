@@ -155,7 +155,11 @@ Please translate these subtitles for {self.audio_type}{f" named {self.title}" if
     def check_format(self, messages, content):
         summary = re.search(r'<summary>(.*)</summary>', content)
         scene = re.search(r'<scene>(.*)</scene>', content)
-        original = re.findall(r'Original>\n(.*?)\nTranslation>', messages[1]['content'], re.DOTALL)
+
+        # If message is for claude, use messages[0]
+        user_input = messages[1]['content'] if len(messages) == 2 else messages[0]['content']
+
+        original = re.findall(r'Original>\n(.*?)\nTranslation>', user_input, re.DOTALL)
         translation = re.findall(r'Translation>\n*(.*?)(?:#\d+|<summary>|\n*$)', content, re.DOTALL)
 
         if not original or not translation:

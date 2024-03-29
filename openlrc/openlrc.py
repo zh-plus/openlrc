@@ -19,20 +19,26 @@ from openlrc.opt import SubtitleOptimizer
 from openlrc.preprocess import Preprocessor
 from openlrc.subtitle import Subtitle
 from openlrc.transcribe import Transcriber
-from openlrc.translate import GPTTranslator
+from openlrc.translate import LLMTranslator
 from openlrc.utils import Timer, extend_filename, get_audio_duration, format_timestamp, extract_audio, \
     get_file_type
 
 
 class LRCer:
     """
-     :param model_name: Name of whisper model (tiny, tiny.en, base, base.en, small, small.en, medium,
-                    medium.en, large-v1, large-v2, large-v3) When a size is configured, the converted model is downloaded
-                    from the Hugging Face Hub.
+     :param whisper_model: Name of whisper model (tiny, tiny.en, base, base.en, small, small.en, medium,
+                    medium.en, large-v1, large-v2, large-v3, distill-large-v3) When a size is configured,
+                    the converted model is downloaded from the Hugging Face Hub.
                     Default: ``large-v3``
     :param compute_type: The type of computation to use. Can be ``int8``, ``int8_float16``, ``int16``,
                     ``float16`` or ``float32``.
                     Default: ``float16``
+    :param chatbot_model: The chatbot model to use, currently we support gptbot from , claudebot from Anthropic.
+                        OpenAI:
+                            gpt-4-0125-preview, gpt-4-turbo-preview, gpt-3.5-turbo-0125, gpt-3.5-turbo
+                        Anthropic:
+                            claude-3-opus-20240229, claude-3-sonnet-20240229, claude-3-haiku-20240307
+                    Default: ``gpt-3.5-turbo``
     :param fee_limit: The maximum fee you are willing to pay for one translation call. Default: ``0.1``
     :param consumer_thread: To prevent exceeding the RPM and TPM limits set by OpenAI, the default is TPM/MAX_TOKEN.
     :param asr_options: Parameters for whisper model.
@@ -40,8 +46,10 @@ class LRCer:
     :param proxy: Proxy for openai requests. e.g. 'http://127.0.0.1:7890'
     """
 
-    def __init__(self, model_name='large-v3', compute_type='float16', fee_limit=0.1, consumer_thread=11,
-                 asr_options=None, vad_options=None, preprocess_options=None, proxy=None):
+    def __init__(self, whisper_model='large-v3', compute_type='float16', chatbot_model: str = 'gpt-3.5-turbo',
+                 fee_limit=0.1, consumer_thread=4, asr_options=None, vad_options=None, preprocess_options=None,
+                 proxy=None):
+        self.chatbot_model = chatbot_model
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
         self.from_video = set()
@@ -69,7 +77,7 @@ class LRCer:
         if preprocess_options:
             self.preprocess_options.update(preprocess_options)
 
-        self.transcriber = Transcriber(model_name=model_name, compute_type=compute_type,
+        self.transcriber = Transcriber(model_name=whisper_model, compute_type=compute_type,
                                        asr_options=self.asr_options, vad_options=self.vad_options)
 
     def transcription_producer(self, transcription_queue, audio_paths, src_lang):
@@ -162,7 +170,8 @@ class LRCer:
         compare_path = Path(translated_path.parent, f'{audio_name}_compare.json')
         if not translated_path.exists():
             # Translate the transcribed json
-            translator = GPTTranslator(prompter=prompter, fee_limit=self.fee_limit, proxy=self.proxy)
+            translator = LLMTranslator(chatbot_model=self.chatbot_model, prompter=prompter, fee_limit=self.fee_limit,
+                                       proxy=self.proxy)
             context = self.context
 
             target_texts = translator.translate(
