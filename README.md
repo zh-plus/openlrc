@@ -76,7 +76,7 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
 openlrc gui
 ```
 
-![](https://github.com/zh-plus/openlrc/blob/main/resources/streamlit_app.jpg)
+![](https://github.com/zh-plus/openlrc/blob/master/resources/streamlit_app.jpg?raw=true)
 
 ### Python code
 ```python
