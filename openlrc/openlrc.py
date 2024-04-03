@@ -79,6 +79,7 @@ class LRCer:
 
         self.transcriber = Transcriber(model_name=whisper_model, compute_type=compute_type,
                                        asr_options=self.asr_options, vad_options=self.vad_options)
+        self.transcribed_paths = []
 
     def transcription_producer(self, transcription_queue, audio_paths, src_lang):
         """
@@ -160,10 +161,13 @@ class LRCer:
                 subtitle_path = final_subtitle.to_lrc()
 
             suffix = subtitle_path.suffix
-            shutil.copy(subtitle_path,
-                        subtitle_path.parents[1] / subtitle_path.name.replace(f'_preprocessed{suffix}', suffix))
+            result_path = subtitle_path.parents[1] / subtitle_path.name.replace(f'_preprocessed{suffix}',
+                                                                                suffix)
+            shutil.copy(subtitle_path, result_path)
 
             logger.info(f'Translation fee til now: {self.api_fee:.4f} USD')
+
+            self.transcribed_paths.append(result_path)
 
     def _translate(self, audio_name, prompter, target_lang, transcribed_opt_sub, translated_path):
         json_filename = Path(translated_path.parent / (audio_name + '.json'))
@@ -201,7 +205,7 @@ class LRCer:
         return final_subtitle
 
     def run(self, paths, src_lang=None, target_lang='zh-cn', prompter='base_trans', context_path=None,
-            skip_trans=False, noise_suppress=False, bilingual_sub=False):
+            skip_trans=False, noise_suppress=False, bilingual_sub=False) -> List[str]:
         """
         Split the translation into 2 phases: transcription and translation. They're running in parallel.
         Firstly, transcribe the audios one-by-one. At the same time, translation threads are created and waiting for
@@ -217,9 +221,11 @@ class LRCer:
         :param noise_suppress: Whether to suppress the noise in the audio. (Default to False)
         :param bilingual_sub: Whether to generate bilingual subtitles. (Default to False)
         """
+        self.transcribed_paths = []
+
         if not paths:
             logger.warning('No audio/video file given. Skip LRCer.run()')
-            return
+            return []
 
         if isinstance(paths, str) or isinstance(paths, Path):
             paths = [paths]
@@ -261,6 +267,8 @@ class LRCer:
                 raise self.exception
 
         logger.info(f'Totally used API fee: {self.api_fee:.4f} USD')
+
+        return self.transcribed_paths
 
     @staticmethod
     def to_json(segments: List[Segment], name, lang):

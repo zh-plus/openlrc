@@ -34,7 +34,7 @@ include = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = ">=3.8,<3.9.7 || >3.9.7,<4.0"
 openai = "^1.1.1"
 anthropic = "^0.18.1"
 tiktoken = "^0.6.0"
@@ -57,6 +57,7 @@ soundfile = "^0.12.1"
 ffmpeg-normalize = "^1.27.5"
 deepfilternet = "^0.5.6"
 aiohttp = "^3.8.5"
+streamlit = "^1.32.2"
 torch = ">=2.0.0, !=2.0.1"
 torchaudio = "^2.0.0"
 torchvision = "^0.17.1"
@@ -76,3 +77,6 @@ priority = "primary"
 
 [tool.poetry.urls]
 "Bug Tracker" = "https://github.com/zh-plus/Open-Lyrics/issues"
+
+[tool.poetry.scripts]
+openlrc = "openlrc.cli:main"
