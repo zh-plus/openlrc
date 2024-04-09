@@ -19,8 +19,9 @@ def loudness_norm_single(audio_path: Path, ln_path: Path):
     """
     Normalize the loudness of a single audio file using FFmpegNormalize.
 
-    :param audio_path: The path to the input audio file.
-    :param ln_path: The path to save the normalized audio file.
+    Args:
+        audio_path (Path): The path to the input audio file.
+        ln_path (Path): The path to save the normalized audio file.
     """
     normalizer = FFmpegNormalize(output_format='wav', sample_rate=48000, progress=logger.level <= logging.DEBUG,
                                  keep_lra_above_loudness_range_target=True)
@@ -116,8 +117,12 @@ class Preprocessor:
 
     def run(self, noise_suppress=False):
         """
-        :param noise_suppress: a boolean flag indicating whether to perform noise suppression. Default is False.
-        :return: a list of Path objects representing the final processed audio paths.
+        Args:
+            noise_suppress (bool, optional): A boolean flag indicating whether to perform noise suppression.
+                Defaults to False.
+
+        Returns:
+            list of Path: A list of Path objects representing the final processed audio paths.
         """
         # Check if the preprocessed audio already exists.
         need_process = []

@@ -172,18 +172,24 @@ class Subtitle:
     @classmethod
     def from_srt(cls, filename):
         """
-        SRT Specifications from http://www.textfiles.com/uploads/kds-srt.txt
-         ______________________________________
-        | subtitle number                      |
-        |--------------------------------------|
-        | start time --> end time              |
-        |--------------------------------------|
-        | subtitle text (one or more lines)    |
-        |--------------------------------------|
-        | blank line                           |
-        |______________________________________|
-        :param filename:
-        :return:
+        Processes an SRT (SubRip Subtitle) file according to the SRT specifications outlined
+        at http://www.textfiles.com/uploads/kds-srt.txt.
+
+        The SRT format consists of:
+            - A sequential subtitle number.
+            - The start time and end time of the subtitle display, separated by '-->'.
+            - The subtitle text, which can span one or more lines.
+            - A blank line indicating the end of a subtitle entry.
+
+        This function is designed to read or manipulate an SRT file based on the provided filename.
+
+        Args:
+            filename (str): The path to the SRT file to be processed.
+
+        Returns:
+            The return value is not specified in the provided docstring. Depending on the implementation,
+            this function could return a data structure representing the parsed SRT file, a success status,
+            or possibly nothing.
         """
         filename = Path(filename)
         with open(filename, encoding='utf-8') as f:

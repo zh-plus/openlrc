@@ -19,6 +19,16 @@ cut_long_threshold = {
 
 
 class SubtitleOptimizer:
+    """
+    SubtitleOptimizer class is used to optimize subtitles by performing various operations. For example, merging same
+    text, merging short duration subtitles, merging repeated patterns, cutting long texts, converting traditional
+    Chinese to Mandarin, optimizing punctuation, removing '<unk>' tags, removing empty elements, and stripping
+    whitespace.
+
+    Args:
+        subtitle (Union[Path, Subtitle]): The subtitle to be optimized.
+    """
+
     def __init__(self, subtitle: Union[Path, Subtitle]):
         if isinstance(subtitle, Path):
             subtitle = Subtitle.from_json(subtitle)

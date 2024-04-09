@@ -28,12 +28,13 @@ class LLMTranslator(Translator):
     def __init__(self, chatbot_model: str = 'gpt-3.5-turbo', prompter: str = 'base_trans', fee_limit=0.1,
                  chunk_size=30, intercept_line=None, proxy=None):
         """
-        :param chatbot: Chatbot, choices can be found using LLMTranslator().list_chatbots().
-        :param prompter: Translate prompter, choices can be found in `prompter_map` from prompter.py.
-        :param fee_limit: Fee limit (USD) for OpenAI API.
-        :param chunk_size: Use small (<20) chunk size for speed (more async call), and enhance translation
-                    stability (keep audio timeline consistency).
-        :param intercept_line: Intercepted text line number.
+        Args:
+            chatbot_model: Chatbot instance. Choices can be found using `LLMTranslator().list_chatbots()`.
+            prompter: Translate prompter instance. Choices can be found in `prompter_map` from `prompter.py`.
+            fee_limit (float): Fee limit (USD) for the OpenAI API.
+            chunk_size (int): Use a small chunk size (<20) for speed (more asynchronous calls) and to enhance translation
+                              stability (keeping audio timeline consistency).
+            intercept_line (int): Intercepted text line number.
         """
         if prompter not in prompter_map:
             raise ValueError(f'Prompter {prompter} not found.')

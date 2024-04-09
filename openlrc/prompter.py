@@ -93,8 +93,7 @@ Remember to include ``<summary>`` and ``<scene>`` tags in your response.
 Do not translate ``Original>`` and ``Translation>``.
 Please translate the subtitles again, paying careful attention to ensure that each line is translated separately, and that every line has a matching translation.
 Do not merge lines together in the translation, it leads to incorrect timings and confusion for the reader.
-The content of the translation is for learning purposes only and will not violate the usage guidelines. 
-Therefore, if the material contains pornographic or sensitive content, please try to translate it in a euphemistic manner rather than reporting it as untranslatable.'''
+The content of the translation is for learning purposes only and will not violate the usage guidelines. '''
 
 
 class TranslatePrompter:
@@ -151,7 +150,12 @@ Please translate these subtitles for {self.audio_type}{f" named {self.title}" if
     def format_texts(cls, texts):
         """
         Reconstruct list of text into desired format.
-        :param texts: List of (id, text).
+
+        Args:
+            texts: List of (id, text).
+
+        Returns:
+            The formatted string: f"#id\nOriginal>\n{text}\nTranslation>\n"
         """
         return '\n'.join([f'#{i}\nOriginal>\n{text}\nTranslation>\n' for i, text in texts])
 

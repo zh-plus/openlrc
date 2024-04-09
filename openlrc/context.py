@@ -1,4 +1,4 @@
-#  Copyright (C) 2023. Hao Zheng
+#  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 from difflib import get_close_matches
 from pathlib import Path
@@ -14,10 +14,15 @@ class Context:
         """
         Context(optional) for translation.
 
-        :param background: Providing background information for establishing context for the translation.
-        :param description_map: {"name(without extension)": "description", ...}
-        :param audio_type: Audio type, default to Anime.
-        :param config_path: Path to config file.
+        Args:
+            background (str): Providing background information for establishing context for the translation.
+            description_map (dict, optional): {"name(without extension)": "description", ...}
+            audio_type (str, optional): Audio type, default to Anime.
+            config_path (str, optional): Path to config file.
+
+        Raises:
+            FileNotFoundError: If the config file specified by config_path does not exist.
+
         """
         self.config_path = None
         self.background = background

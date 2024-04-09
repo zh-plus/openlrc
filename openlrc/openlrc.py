@@ -26,24 +26,21 @@ from openlrc.utils import Timer, extend_filename, get_audio_duration, format_tim
 
 class LRCer:
     """
-     :param whisper_model: Name of whisper model (tiny, tiny.en, base, base.en, small, small.en, medium,
-                    medium.en, large-v1, large-v2, large-v3, distill-large-v3) When a size is configured,
-                    the converted model is downloaded from the Hugging Face Hub.
-                    Default: ``large-v3``
-    :param compute_type: The type of computation to use. Can be ``int8``, ``int8_float16``, ``int16``,
-                    ``float16`` or ``float32``.
-                    Default: ``float16``
-    :param chatbot_model: The chatbot model to use, currently we support gptbot from , claudebot from Anthropic.
-                        OpenAI:
-                            gpt-4-0125-preview, gpt-4-turbo-preview, gpt-3.5-turbo-0125, gpt-3.5-turbo
-                        Anthropic:
-                            claude-3-opus-20240229, claude-3-sonnet-20240229, claude-3-haiku-20240307
-                    Default: ``gpt-3.5-turbo``
-    :param fee_limit: The maximum fee you are willing to pay for one translation call. Default: ``0.1``
-    :param consumer_thread: To prevent exceeding the RPM and TPM limits set by OpenAI, the default is TPM/MAX_TOKEN.
-    :param asr_options: Parameters for whisper model.
-    :param vad_options: Parameters for VAD model.
-    :param proxy: Proxy for openai requests. e.g. 'http://127.0.0.1:7890'
+    Args:
+        whisper_model: Name of whisper model (tiny, tiny.en, base, base.en, small, small.en, medium,
+            medium.en, large-v1, large-v2, large-v3, distill-large-v3) When a size is configured,
+            the converted model is downloaded from the Hugging Face Hub. Default: ``large-v3``
+        compute_type: The type of computation to use. Can be ``int8``, ``int8_float16``, ``int16``,
+            ``float16`` or ``float32``. Default: ``float16``
+        chatbot_model: The chatbot model to use, currently we support gptbot from , claudebot from Anthropic.
+            OpenAI: gpt-4-0125-preview, gpt-4-turbo-preview, gpt-3.5-turbo-0125, gpt-3.5-turbo
+            Anthropic: claude-3-opus-20240229, claude-3-sonnet-20240229, claude-3-haiku-20240307
+            Default: ``gpt-3.5-turbo``
+        fee_limit: The maximum fee you are willing to pay for one translation call. Default: ``0.1``
+        consumer_thread: To prevent exceeding the RPM and TPM limits set by OpenAI, the default is TPM/MAX_TOKEN.
+        asr_options: Parameters for whisper model.
+        vad_options: Parameters for VAD model.
+        proxy: Proxy for openai requests. e.g. 'http://127.0.0.1:7890'
     """
 
     def __init__(self, whisper_model='large-v3', compute_type='float16', chatbot_model: str = 'gpt-3.5-turbo',
@@ -205,21 +202,30 @@ class LRCer:
         return final_subtitle
 
     def run(self, paths, src_lang=None, target_lang='zh-cn', prompter='base_trans', context_path=None,
-            skip_trans=False, noise_suppress=False, bilingual_sub=False) -> List[str]:
+            skip_trans=False, noise_suppress=False, bilingual_sub=False, clear_temp_folder=False) -> List[str]:
         """
         Split the translation into 2 phases: transcription and translation. They're running in parallel.
         Firstly, transcribe the audios one-by-one. At the same time, translation threads are created and waiting for
         the transcription results. After all the transcriptions are done, the translation threads will start to
         translate the transcribed texts.
 
-        :param paths: Audio/Video paths, can be a list or a single path.
-        :param src_lang: Language of the audio, default to auto-detect.
-        :param target_lang: Target language, default to Mandarin Chinese.
-        :param prompter: Currently, only `base_trans` is supported.
-        :param context_path: path to context config file. (Default to use `context.yaml` in the first audio's directory)
-        :param skip_trans: Whether to skip the translation process. (Default to False)
-        :param noise_suppress: Whether to suppress the noise in the audio. (Default to False)
-        :param bilingual_sub: Whether to generate bilingual subtitles. (Default to False)
+        Args:
+            paths (Union[str, Path, List[Union[str, Path]]]): Audio/Video paths, can be a list or a single path.
+            src_lang (str): Language of the audio, default to auto-detect.
+            target_lang (str): Target language, default to Mandarin Chinese.
+            prompter (str): Currently, only `base_trans` is supported.
+            context_path (str): path to context config file. (Default to use `context.yaml` in the first audio's directory)
+            skip_trans (bool): Whether to skip the translation process. (Default to False)
+            noise_suppress (bool): Whether to suppress the noise in the audio. (Default to False)
+            bilingual_sub (bool): Whether to generate bilingual subtitles. (Default to False)
+            clear_temp_folder (bool): Whether to clear the temporary folder.
+                Note, set this back to False to see more intermediate results if error encountered. (Default to False)
+
+        Returns:
+            List[str]: List of paths to the transcribed files.
+
+        Raises:
+            Exception: If an exception occurs during the transcription or translation process.
         """
         self.transcribed_paths = []
 
