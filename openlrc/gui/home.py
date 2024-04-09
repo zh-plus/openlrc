@@ -6,14 +6,30 @@ import tempfile
 from pathlib import Path
 
 import streamlit as st
+from st_pages import Page, show_pages
+from streamlit_extras.bottom_container import bottom
+from streamlit_extras.mention import mention
 
 from openlrc import LRCer
 from openlrc.gui.utils import get_asr_options, get_vad_options, get_preprocess_options, zip_files
+
+show_pages([
+    Page("home.py", "Home", "🏠"),
+])
+
+with bottom():
+    pass
 
 # UI Title
 "# openlrc 🎙📄"
 
 '*Transcribe and translate voice into LRC file using Whisper and LLMs (GPT, Claude, et,al).*'
+
+mention(
+    label="zh-plus/openlrc",
+    icon="github",  # GitHub is also featured!
+    url="https://github.com/zh-plus/openlrc",
+)
 
 # Sidebar - Normal Configuration
 st.sidebar.header('Configuration')
@@ -45,8 +61,9 @@ else:
                                          index=0,
                                          help="Model for translation. Check [pricing](/pricing) for more details.")
 
-fee_limit = st.sidebar.number_input('Fee Limit', min_value=0.0, value=0.1, step=0.01)
-consumer_thread = st.sidebar.number_input('Consumer Thread', min_value=1, value=4, step=1)
+# fee_limit = st.sidebar.number_input('Fee Limit', min_value=0.0, value=0.1, step=0.01)
+fee_limit = st.sidebar.slider('Fee Limit (USD)', min_value=0.0, max_value=1.0, value=0.1, step=0.01)
+consumer_thread = st.sidebar.slider('Consumer Thread', min_value=1, max_value=12, value=4, step=1)
 proxy = st.sidebar.text_input('Proxy', help='e.g.: http://127.0.0.1:7890')
 
 # Sidebar: Advanced Configuration
@@ -72,7 +89,7 @@ with st.sidebar.expander("Advanced Configuration", expanded=False):
     no_speech_threshold = st.number_input("No Speech Threshold", value=None, min_value=0.0,
                                           help="Threshold for no speech.")
     condition_on_previous_text = st.checkbox("Condition on Previous Text", value=False,
-                                             help="Condition on previous text.")
+                                             help="The previous output of the model will be provided as a prompt for the next window. (May enhance model hallucinations)")
     initial_prompt = st.text_input("Initial Prompt", value=None, help="Initial prompt for the ASR.")
     prefix = st.text_input("Prefix", value=None, help="Prefix for the ASR.")
     suppress_blank = st.checkbox("Suppress Blank", value=True, help="Whether to suppress blank tokens in the output.")

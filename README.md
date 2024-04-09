@@ -19,6 +19,7 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
     ```python
     lrcer = LRCer(chatbot_model='claude-3-sonnet-20240229')
     ```
+- 2024.4.4: Add basic streamlit GUI support. Try `openlrc gui` to start the GUI.
 
 ## Installation ⚙️
 
@@ -79,6 +80,7 @@ openlrc gui
 ![](https://github.com/zh-plus/openlrc/blob/master/resources/streamlit_app.jpg?raw=true)
 
 ### Python code
+
 ```python
 from openlrc import LRCer
 
@@ -187,6 +189,7 @@ For non-english audio, we recommend using `claude-3-sonnet-20240229`.
 - [ ] [**Feature**] Build
   a [electron + fastapi](https://ivanyu2021.hashnode.dev/electron-django-desktop-app-integrate-javascript-and-python)
   GUI for cross-platform application.
+- [x] [Feature] Web-based [streamlit](https://streamlit.io/) GUI.
 - [ ] Add [fine-tuned whisper-large-v2](https://huggingface.co/models?search=whisper-large-v2) models for common
   languages.
 - [ ] [Others] Add transcribed examples.
@@ -202,6 +205,7 @@ For non-english audio, we recommend using `claude-3-sonnet-20240229`.
 - https://github.com/openai/whisper
 - https://github.com/machinewrapped/gpt-subtrans
 - https://github.com/MicrosoftTranslator/Text-Translation-API-V3-Python
+- https://github.com/streamlit/streamlit
 
 ## Star History
 
