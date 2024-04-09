@@ -116,6 +116,9 @@ if __name__ == '__main__':
     # Change the LLM model for translation
     lrcer = LRCer(chatbot_model='claude-3-sonnet-20240229')
     lrcer.run('./data/test.mp3', target_lang='zh-cn')
+
+    # Clear temp folder after processing done
+    lrcer.run('./data/test.mp3', target_lang='zh-cn', clear_temp_folder=True)
 ```
 
 Check more details in [Documentation](https://zh-plus.github.io/openlrc/#/).
