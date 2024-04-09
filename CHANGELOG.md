@@ -1,3 +1,11 @@
+## 1.3.0
+
+Add basic GUI support via streamlit.
+
+#### Other Changes:
+
+- Add clear_temp_folder args.
+
 ## 1.2.0
 
 This update add Claude Models support for translation.
