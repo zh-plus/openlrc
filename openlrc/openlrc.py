@@ -268,7 +268,23 @@ class LRCer:
 
         logger.info(f'Totally used API fee: {self.api_fee:.4f} USD')
 
+        if clear_temp_folder:
+            logger.info('Clearing temporary folder...')
+            self.clear_temp_files(audio_paths)
+
         return self.transcribed_paths
+
+    @staticmethod
+    def clear_temp_files(paths):
+        """
+        Clear the temporary files generated during the transcription and translation process.
+        """
+        temp_folders = set([path.parent for path in paths])
+        for folder in temp_folders:
+            assert folder.name == 'preprocessed', f'Not a temporary folder: {folder}'
+
+            shutil.rmtree(folder)
+            logger.debug(f'Removed {folder}')
 
     @staticmethod
     def to_json(segments: List[Segment], name, lang):

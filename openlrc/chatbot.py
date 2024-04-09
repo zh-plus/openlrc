@@ -157,6 +157,9 @@ class GPTBot(ChatBot):
         self.json_mode = json_mode
         self.fee_limit = fee_limit
 
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.async_client.close()
+
     def update_fee(self, response: ChatCompletion):
         prompt_price, completion_price = self.pricing[self.model]
 
