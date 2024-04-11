@@ -66,7 +66,7 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
    or install directly from GitHub:
 
     ```shell
-    pip install git+https://github.com/zh-plus/Open-Lyrics
+    pip install git+https://github.com/zh-plus/openlrc
     ```
 
 ## Usage 🐍
