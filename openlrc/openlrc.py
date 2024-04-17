@@ -17,7 +17,7 @@ from openlrc.defaults import default_asr_options, default_vad_options, default_p
 from openlrc.logger import logger
 from openlrc.opt import SubtitleOptimizer
 from openlrc.preprocess import Preprocessor
-from openlrc.subtitle import Subtitle
+from openlrc.subtitle import Subtitle, BilingualSubtitle
 from openlrc.transcribe import Transcriber
 from openlrc.translate import LLMTranslator
 from openlrc.utils import Timer, extend_filename, get_audio_duration, format_timestamp, extract_audio, \
@@ -161,6 +161,14 @@ class LRCer:
             result_path = subtitle_path.parents[1] / subtitle_path.name.replace(f'_preprocessed{suffix}',
                                                                                 suffix)
             shutil.copy(subtitle_path, result_path)
+
+            # Bilingual
+            if bilingual_sub:
+                bilingual_subtitle = BilingualSubtitle.from_preprocessed(transcribed_path.parent,
+                                                                         audio_name.replace('_preprocessed', ''))
+                bilingual_subtitle.to_lrc()
+                bilingual_lrc_path = bilingual_subtitle.filename.with_suffix(bilingual_subtitle.suffix)
+                shutil.copy(bilingual_lrc_path, result_path.parent / bilingual_lrc_path.name)
 
             logger.info(f'Translation fee til now: {self.api_fee:.4f} USD')
 

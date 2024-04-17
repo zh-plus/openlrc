@@ -170,6 +170,8 @@ Please translate these subtitles for {self.audio_type}{f" named {self.title}" if
         translation = re.findall(r'Translation>\n*(.*?)(?:#\d+|<summary>|\n*$)', content, re.DOTALL)
 
         if not original or not translation:
+            # TODO: Try to change chatbot_model if always fail
+
             logger.warning(f'Fail to extract original or translation.')
             logger.debug(f'Content: {content}')
             return False

@@ -1,3 +1,7 @@
+## 1.3.1
+
+Fix dep issues from ctranslate2 and streamlit-related packages.
+
 ## 1.3.0
 
 Add basic GUI support via streamlit.

@@ -10,6 +10,12 @@ Open-Lyrics is a Python library that transcribes voice files using
 into `.lrc` files in the desired language using LLM,
 e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](https://github.com/anthropics/anthropic-sdk-python).
 
+#### Key Features:
+
+- Well preprocessed audio to reduce hallucination (Loudness Norm & optional Noise Suppression).
+- Context-aware translation to improve translation quality.
+  Check [prompt](https://github.com/zh-plus/openlrc/blob/master/openlrc/prompter.py) for details.
+
 ## New 🚨
 
 - 2024.3.29: Claude models are now available for translation. According to the testing, Claude 3 Sonnet performs way
@@ -72,6 +78,9 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
 ## Usage 🐍
 
 ### GUI
+
+> [!NOTE]
+> We are migrating the GUI from streamlit to Gradio. The GUI is still under development.
 
 ```shell
 openlrc gui

@@ -8,7 +8,7 @@ in-project = true
 
 [tool.poetry]
 name = "openlrc"
-version = "1.3.0"
+version = "1.3.1"
 description = "Transcribe (whisper) and translate (gpt) voice into LRC file."
 license = "MIT"
 authors = [
@@ -57,10 +57,9 @@ soundfile = "^0.12.1"
 ffmpeg-normalize = "^1.27.5"
 deepfilternet = "^0.5.6"
 aiohttp = "^3.8.5"
-streamlit = "^1.32.2"
-st_pages = "^0.4.5"
-streamlit-extras = "^0.4.2"
 ctranslate2 = "4.1.0"
+gradio = "^4.26.0"
+
 #torch = ">=2.0.0, !=2.0.1"
 #torchaudio = "^2.0.0"
 #torchvision = "^0.17.1"
