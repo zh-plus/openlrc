@@ -77,7 +77,7 @@ class Subtitle:
         if lang:
             self.lang = lang
 
-    def save(self, filename: Union[str | Path], update_name=False):
+    def save(self, filename: Union[str, Path], update_name=False):
         results = {
             'language': self.lang,
             'segments': [seg.to_json() for seg in self.segments]
