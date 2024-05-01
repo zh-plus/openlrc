@@ -13,7 +13,7 @@ runs:
   using: 'composite'
   steps:
     - name: Set up Python ${{ inputs.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ inputs.python-version }}
       id: setup_python
@@ -31,14 +31,14 @@ runs:
       run: poetry --version
       shell: bash
     - name: Cache Poetry cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cache/pypoetry
           .venv
         key: poetry-cache-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ inputs.poetry-version }}
     - name: Cache Packages
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ~/.local
         key: poetry-local-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}-${{ hashFiles('.github/workflows/*.yml') }}
