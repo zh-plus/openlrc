@@ -152,7 +152,7 @@ class Transcriber:
                 entry = seg_from_words(segment, id_cnt, split_words,
                                        segment.tokens[word_start: word_start + len(split_words)])
 
-                if len(split) < (50 if lang in self.non_word_boundary else 150):
+                if len(split) < (50 if lang in self.non_word_boundary else 100):
                     sentences.append(entry)
                     id_cnt += 1
                 else:
