@@ -41,17 +41,21 @@ class LRCer:
         asr_options: Parameters for whisper model.
         vad_options: Parameters for VAD model.
         proxy: Proxy for openai requests. e.g. 'http://127.0.0.1:7890'
+        base_url_config: Base URL dict for OpenAI & Anthropic.
+            e.g. {'openai': 'https://openai.justsong.cn/', 'anthropic': 'https://api.g4f.icu'}
+            Default: ``None``
     """
 
     def __init__(self, whisper_model='large-v3', compute_type='float16', chatbot_model: str = 'gpt-3.5-turbo',
                  fee_limit=0.1, consumer_thread=4, asr_options=None, vad_options=None, preprocess_options=None,
-                 proxy=None):
+                 proxy=None, base_url_config=None):
         self.chatbot_model = chatbot_model
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
         self.from_video = set()
         self.context: Context = Context()
         self.proxy = proxy
+        self.base_url_config = base_url_config
 
         self._lock = Lock()
         self.exception = None
@@ -180,7 +184,7 @@ class LRCer:
         if not translated_path.exists():
             # Translate the transcribed json
             translator = LLMTranslator(chatbot_model=self.chatbot_model, prompter=prompter, fee_limit=self.fee_limit,
-                                       proxy=self.proxy)
+                                       proxy=self.proxy, base_url_config=self.base_url_config)
             context = self.context
 
             target_texts = translator.translate(

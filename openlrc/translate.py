@@ -26,7 +26,7 @@ class Translator(ABC):
 
 class LLMTranslator(Translator):
     def __init__(self, chatbot_model: str = 'gpt-3.5-turbo', prompter: str = 'base_trans', fee_limit=0.1,
-                 chunk_size=30, intercept_line=None, proxy=None):
+                 chunk_size=30, intercept_line=None, proxy=None, base_url_config=None):
         """
         Args:
             chatbot_model: Chatbot instance. Choices can be found using `LLMTranslator().list_chatbots()`.
@@ -35,6 +35,8 @@ class LLMTranslator(Translator):
             chunk_size (int): Use a small chunk size (<20) for speed (more asynchronous calls) and to enhance translation
                               stability (keeping audio timeline consistency).
             intercept_line (int): Intercepted text line number.
+            proxy (str): Proxy server. e.g. http://127.0.0.1:7890
+            base_url_config (dict): Base URL configuration for the chatbot API.
         """
         if prompter not in prompter_map:
             raise ValueError(f'Prompter {prompter} not found.')
@@ -43,7 +45,8 @@ class LLMTranslator(Translator):
             raise ValueError(f'Chatbot {chatbot_model} not supported.')
 
         chatbot_category = chatbot_map[model2chatbot[chatbot_model]]
-        self.chatbot = chatbot_category(model=chatbot_model, fee_limit=fee_limit, proxy=proxy, temperature=0.7)
+        self.chatbot = chatbot_category(model=chatbot_model, fee_limit=fee_limit, proxy=proxy, temperature=0.7,
+                                        base_url_config=base_url_config)
 
         self.prompter = prompter
         self.fee_limit = fee_limit

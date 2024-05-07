@@ -134,7 +134,7 @@ class ChatBot:
 @_register_chatbot
 class GPTBot(ChatBot):
     def __init__(self, model='gpt-3.5-turbo-0125', temperature=1, top_p=1, retry=8, max_async=16, json_mode=False,
-                 fee_limit=0.05, proxy=None):
+                 fee_limit=0.05, proxy=None, base_url_config=None):
         # Pricing for 1M tokens, info from https://openai.com/pricing
         pricing = {
             'gpt-3.5-turbo-0125': (0.5, 1.5),
@@ -145,9 +145,11 @@ class GPTBot(ChatBot):
 
         super().__init__(pricing, temperature, top_p, retry, max_async, fee_limit)
 
-        self.async_client = AsyncGPTClient(api_key=os.environ['OPENAI_API_KEY'], http_client=httpx.AsyncClient(
-            proxies=proxy,
-        ))
+        self.async_client = AsyncGPTClient(
+            api_key=os.environ['OPENAI_API_KEY'],
+            http_client=httpx.AsyncClient(proxies=proxy),
+            base_url=base_url_config['openai'] if base_url_config else None
+        )
 
         self.model = model
         self.temperature = temperature
@@ -215,7 +217,7 @@ class GPTBot(ChatBot):
 @_register_chatbot
 class ClaudeBot(ChatBot):
     def __init__(self, model='claude-3-sonnet-20240229', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.2,
-                 proxy=None):
+                 proxy=None, base_url_config=None):
         # Pricing for 1M tokens, info from https://docs.anthropic.com/claude/docs/models-overview#model-comparison
         pricing = {
             'claude-3-opus-20240229': (15, 75),
@@ -225,9 +227,13 @@ class ClaudeBot(ChatBot):
 
         super().__init__(pricing, temperature, top_p, retry, max_async, fee_limit)
 
-        self.async_client = AsyncAnthropic(api_key=os.environ['ANTHROPIC_API_KEY'], http_client=httpx.AsyncClient(
-            proxies=proxy,
-        ))
+        self.async_client = AsyncAnthropic(
+            api_key=os.environ['ANTHROPIC_API_KEY'],
+            http_client=httpx.AsyncClient(
+                proxies=proxy
+            ),
+            base_url=base_url_config['anthropic'] if base_url_config else None
+        )
 
         self.model = model
         self.retry = retry
