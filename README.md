@@ -26,6 +26,16 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
     lrcer = LRCer(chatbot_model='claude-3-sonnet-20240229')
     ```
 - 2024.4.4: Add basic streamlit GUI support. Try `openlrc gui` to start the GUI.
+- 2024.5.7:
+    - Add custom endpoint (base_url) support for OpenAI & Anthropic:
+        ```python
+        lrcer = LRCer(base_url_config={'openai': 'https://api.chatanywhere.tech',
+                                       'anthropic': 'https://api.g4f.icu'})
+        ```
+    - Generating bilingual subtitles
+        ```python
+        lrcer.run('./data/test.mp3', target_lang='zh-cn', bilingual_sub=True)
+        ``` 
 
 ## Installation ⚙️
 
@@ -128,6 +138,13 @@ if __name__ == '__main__':
 
     # Clear temp folder after processing done
     lrcer.run('./data/test.mp3', target_lang='zh-cn', clear_temp_folder=True)
+
+    # Change base_url
+    lrcer = LRCer(base_url_config={'openai': 'https://api.chatanywhere.tech',
+                                   'anthropic': 'https://api.g4f.icu'})
+
+    # Bilingual subtitle
+    lrcer.run('./data/test.mp3', target_lang='zh-cn', bilingual_sub=True)
 ```
 
 Check more details in [Documentation](https://zh-plus.github.io/openlrc/#/).
@@ -204,6 +221,8 @@ For non-english audio, we recommend using `claude-3-sonnet-20240229`.
 - [x] [Feature] Web-based [streamlit](https://streamlit.io/) GUI.
 - [ ] Add [fine-tuned whisper-large-v2](https://huggingface.co/models?search=whisper-large-v2) models for common
   languages.
+- [x] [Feature] Add custom OpenAI & Anthropic endpoint support.
+- [ ] [Feature] Add local translation model support (e.g. [SakuraLLM](https://github.com/SakuraLLM/Sakura-13B-Galgame)).
 - [ ] [Others] Add transcribed examples.
     - [ ] Song
     - [ ] Podcast

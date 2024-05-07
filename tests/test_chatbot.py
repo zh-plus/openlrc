@@ -1,6 +1,5 @@
 #  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
-
 import unittest
 from math import isclose
 from typing import Union

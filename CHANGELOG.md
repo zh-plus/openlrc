@@ -1,6 +1,13 @@
 ## 1.3.1
 
-Fix dep issues from ctranslate2 and streamlit-related packages.
+### New Features:
+
+- Add custom endpoint (base_url) support for OpenAI & Anthropic
+- Generating bilingual subtitles.
+
+### Other Changes:
+
+- Fix dep issues from ctranslate2 and streamlit-related packages.
 
 ## 1.3.0
 
