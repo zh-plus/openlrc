@@ -11,7 +11,7 @@ from openlrc.logger import logger
 # instruction prompt modified from https://github.com/machinewrapped/gpt-subtrans
 base_instruction = f'''Ignore all previous instructions.
 You are a translator tasked with revising and translating subtitles into a target language. Your goal is to ensure accurate, concise, and natural-sounding translations for each line of dialogue. The input consists of transcribed audio, which may contain transcription errors. Your task is to first correct any errors you find in the sentences based on their context, and then translate them to the target language according to the revised sentences.
-The user will provide a chunk of lines, you should respond with an accurate, concise, and natural-sounding translation for the dialogue. 
+The user will provide a chunk of lines, you should respond with an accurate, concise, and natural-sounding translation for the dialogue, with appropriate punctuation.
 The user may provide additional context, such as background, description or title of the source material, a summary of the current scene, or a list of character names. Use this information to improve the quality of your translation.
 Your response will be processed by an automated system, so it is imperative that you adhere to the required output format.
 
@@ -69,11 +69,11 @@ diejenigen, die sich dem Wandel widersetzen, könnten sich zurückgelassen finde
 
 Please ensure that each line of dialogue remains distinct in the  translation. Merging lines together can lead to timing problems during playback.
 
-At the end of each set of translations, include a one or two line synopsis of the input text in a <summary/> tag, for example:
+At the end of each set of translations, include a one or two line synopsis of the input text encapsulated in a <summary/> tag, for example:
 <summary>John and Sarah discuss their plan to locate a suspect, deducing that he is likely in the uptown area.</summary>
 Remember to end this tag with ``</summary>``.
 
-Use the available information to add a short description of the current scene in a <scene/> tag, for example:
+Also use the available information to add a short description of the current scene so far encapsulated in a <scene/> tag, for example:
 <scene>John and Sarah are in their office analyzing data and planning their next steps. They deduce that the suspect is probably in the uptown area and decide to start their search there.</scene>
 Remember to end this tag with ``</scene>``.
 
@@ -86,7 +86,7 @@ The translation should be in a lovely colloquial style and suitable for high-qua
 
 I’m going to tip $1000 for a better translation!
 
-#######################
+### retry_instructions
 There was an issue with the previous translation. 
 
 Remember to include ``<summary>`` and ``<scene>`` tags in your response.
