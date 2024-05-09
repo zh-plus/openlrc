@@ -25,7 +25,7 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
     ```python
     lrcer = LRCer(chatbot_model='claude-3-sonnet-20240229')
     ```
-- 2024.4.4: Add basic streamlit GUI support. Try `openlrc gui` to start the GUI.
+- 2024.4.4: ~~Add basic streamlit GUI support. Try `openlrc gui` to start the GUI.~~
 - 2024.5.7:
     - Add custom endpoint (base_url) support for OpenAI & Anthropic:
         ```python
