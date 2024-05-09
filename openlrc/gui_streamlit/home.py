@@ -11,7 +11,7 @@ from streamlit_extras.bottom_container import bottom
 from streamlit_extras.mention import mention
 
 from openlrc import LRCer
-from openlrc.gui.utils import get_asr_options, get_vad_options, get_preprocess_options, zip_files
+from openlrc.gui_streamlit.utils import get_asr_options, get_vad_options, get_preprocess_options, zip_files
 
 show_pages([
     Page("home.py", "Home", "🏠"),
@@ -35,36 +35,43 @@ mention(
 st.sidebar.header('Configuration')
 
 with st.sidebar.popover("API Keys"):
-    openai_api_key = st.text_input("OpenAI API Key", value=os.environ.get('OPENAI_API_KEY'))
-    anthropic_api_key = st.text_input("Anthropic API Key", value=os.environ.get('ANTHROPIC_API_KEY'))
+    openai_api_key = st.text_input("OpenAI API Key", value=os.environ.get('OPENAI_API_KEY'), key='openai_api')
+    anthropic_api_key = st.text_input("Anthropic API Key", value=os.environ.get('ANTHROPIC_API_KEY'),
+                                      key='anthropic_api')
 
 whisper_model = st.sidebar.selectbox('Whisper Model',
                                      ['large-v3', 'medium', 'medium.en', 'small', 'small.en', 'base', 'base.en', 'tiny',
-                                      'tiny.en'], index=0)
-compute_type = st.sidebar.selectbox('Compute Type', ['int8', 'int8_float16', 'int16', 'float16', 'float32'], index=3)
+                                      'tiny.en'], index=0, key='whisper_model')
+compute_type = st.sidebar.selectbox('Compute Type', ['int8', 'int8_float16', 'int16', 'float16', 'float32'], index=3
+                                    , key='compute_type')
 
 if not openai_api_key and not anthropic_api_key:
-    chatbot_model = st.sidebar.selectbox('Chatbot Model', [], disabled=True, help="Please provide an API key first.")
+    chatbot_model = st.sidebar.selectbox('Chatbot Model', [], disabled=True, help="Please provide an API key first.",
+                                         key='chatbot_model')
 elif openai_api_key and not anthropic_api_key:
     chatbot_model = st.sidebar.selectbox('Chatbot Model',
                                          ['gpt-3.5-turbo', 'gpt-4-0125-preview', 'gpt-4-turbo-preview'], index=0,
-                                         help="Model for translation. Check [pricing](/pricing) for more details.")
+                                         help="Model for translation. Check [pricing](/pricing) for more details.",
+                                         key='chatbot_model')
 elif not openai_api_key and anthropic_api_key:
     chatbot_model = st.sidebar.selectbox('Chatbot Model', ['claude-3-haiku-20240307', 'claude-3-sonnet-20240229',
                                                            'claude-3-opus-20240229'], index=0,
-                                         help="Model for translation. Check [pricing](/pricing) for more details.")
+                                         help="Model for translation. Check [pricing](/pricing) for more details.",
+                                         key='chatbot_model')
 else:
     chatbot_model = st.sidebar.selectbox('Chatbot Model',
                                          ['gpt-3.5-turbo', 'gpt-4-0125-preview', 'gpt-4-turbo-preview',
                                           'claude-3-haiku-20240307', 'claude-3-sonnet-20240229',
                                           'claude-3-opus-20240229'],
                                          index=0,
-                                         help="Model for translation. Check [pricing](/pricing) for more details.")
+                                         help="Model for translation. Check [pricing](/pricing) for more details.",
+                                         key='chatbot_model')
 
 # fee_limit = st.sidebar.number_input('Fee Limit', min_value=0.0, value=0.1, step=0.01)
-fee_limit = st.sidebar.slider('Fee Limit (USD)', min_value=0.0, max_value=1.0, value=0.1, step=0.01)
-consumer_thread = st.sidebar.slider('Consumer Thread', min_value=1, max_value=12, value=4, step=1)
-proxy = st.sidebar.text_input('Proxy', help='e.g.: http://127.0.0.1:7890')
+fee_limit = st.sidebar.slider('Fee Limit (USD)', min_value=0.0, max_value=1.0, value=0.1, step=0.01, key='fee_limit')
+consumer_thread = st.sidebar.slider('Consumer Thread', min_value=1, max_value=12, value=4, step=1,
+                                    key='consumer_thread')
+proxy = st.sidebar.text_input('Proxy', help='e.g.: http://127.0.0.1:7890', key='proxy')
 
 # Sidebar: Advanced Configuration
 with st.sidebar.expander("Advanced Configuration", expanded=False):
@@ -148,9 +155,7 @@ with st.form("transcribe_translate_form"):
                             format_func=lambda x: 'Auto Detect' if x == 'Auto Detect' else x.upper(),
                             help='Currently bottleneck-ed by Spacy')
     target_lang = st.text_input("Target Language", value='zh-cn', help='Language code for translation target')
-    prompter = st.selectbox("Prompter", options=['base_trans'],
-                            format_func=lambda x: 'Base' if x == 'base_trans' else 'Advanced', disabled=True,
-                            help='Currently, only `base_trans` is supported.')
+    prompter = st.selectbox("Prompter", options=['base'], disabled=True, help='Currently, only `base` is supported.')
     context_path = st.text_input("Context Path",
                                  help='Additional context to aid translation. Check [context](/context) for more details. ')
 
