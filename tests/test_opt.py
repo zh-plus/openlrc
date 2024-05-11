@@ -18,44 +18,44 @@ class TestSubtitleOptimizer(unittest.TestCase):
         original_len = len(subtitle)
         optimizer = SubtitleOptimizer(subtitle)
         optimizer.merge_same()
-        assert len(optimizer.subtitle.segments) == original_len - 1
+        self.assertEqual(len(optimizer.subtitle.segments), original_len - 1)
 
     def test_merge_short(self):
         subtitle = self.subtitle
         original_len = len(subtitle)
         optimizer = SubtitleOptimizer(subtitle)
         optimizer.merge_short()
-        assert len(optimizer.subtitle.segments) == original_len - 1
+        self.assertEqual(len(optimizer.subtitle.segments), original_len - 1)
 
     def test_merge_repeat(self):
         subtitle = self.subtitle
         optimizer = SubtitleOptimizer(subtitle)
         optimizer.merge_repeat()
-        assert optimizer.subtitle.segments[2].text == '好好...'
+        self.assertEqual(optimizer.subtitle.segments[2].text, '好好...')
 
     def test_cut_long(self):
         subtitle = self.subtitle
         optimizer = SubtitleOptimizer(subtitle)
         optimizer.cut_long(keep=2)
-        assert optimizer.subtitle.segments[4].text == '这太'
+        self.assertEqual(optimizer.subtitle.segments[4].text, '这太')
 
     def test_traditional2mandarin(self):
         subtitle = self.subtitle
         optimizer = SubtitleOptimizer(subtitle)
         optimizer.traditional2mandarin()
-        assert optimizer.subtitle.segments[5].text == '繁体的字'
+        self.assertEqual(optimizer.subtitle.segments[5].text, '繁体的字')
 
     def test_punctuation_optimization(self):
         subtitle = self.subtitle
         optimizer = SubtitleOptimizer(subtitle)
         optimizer.punctuation_optimization()
-        assert optimizer.subtitle.segments[0].text == '你好，你好...你好！你好。'
+        self.assertEqual(optimizer.subtitle.segments[0].text, '你好，你好...你好！你好。')
 
     def test_remove_unk(self):
         subtitle = self.subtitle
         optimizer = SubtitleOptimizer(subtitle)
         optimizer.remove_unk()
-        assert optimizer.subtitle.segments[6].text == 'unk'
+        self.assertEqual(optimizer.subtitle.segments[6].text, 'unk')
 
     def test_remove_empty(self):
         subtitle = self.subtitle
@@ -63,7 +63,7 @@ class TestSubtitleOptimizer(unittest.TestCase):
         original_len = len(subtitle)
         optimizer = SubtitleOptimizer(subtitle)
         optimizer.remove_empty()
-        assert len(optimizer.subtitle.segments) == original_len - 1
+        self.assertEqual(len(optimizer.subtitle.segments), original_len - 1)
 
     def test_save(self):
         subtitle = self.subtitle
@@ -74,7 +74,7 @@ class TestSubtitleOptimizer(unittest.TestCase):
         with open('data/test_subtitle_optimized.json', 'r', encoding='utf-8') as f:
             optimized_subtitle = json.load(f)
 
-        assert optimized_subtitle['language'] == 'zh'
-        assert len(optimized_subtitle['segments']) == 7
+        self.assertEqual(optimized_subtitle['language'], 'zh')
+        self.assertEqual(len(optimized_subtitle['segments']), 7)
 
         os.remove('data/test_subtitle_optimized.json')

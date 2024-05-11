@@ -40,7 +40,7 @@ class TestGPTBot(unittest.TestCase):
             {'role': 'user', 'content': 'Hello'},
         ]
         fee = bot.estimate_fee(messages)
-        assert isclose(fee, 6e-06)
+        self.assertTrue(isclose(fee, 6e-06))
 
     def test_gpt_update_fee(self):
         bot = self.gpt_bot
@@ -55,8 +55,7 @@ class TestGPTBot(unittest.TestCase):
         bot.api_fees += [0]
         response3 = OpenAIResponse(usage=OpenAIUsage(prompt_tokens=300, completion_tokens=600, total_tokens=900))
         bot.update_fee(response3)
-
-        assert bot.api_fees == [0.00035, 0.0007, 0.00105]
+        self.assertListEqual(bot.api_fees, [0.00035, 0.0007, 0.00105])
 
     def test_claude_update_fee(self):
         bot = self.claude_bot
@@ -72,7 +71,7 @@ class TestGPTBot(unittest.TestCase):
         response3 = OpenAIResponse(usage=AnthropicUsage(input_tokens=300, output_tokens=600))
         bot.update_fee(response3)
 
-        assert bot.api_fees == [0.0033, 0.0066, 0.0099]
+        self.assertListEqual(bot.api_fees, [0.0033, 0.0066, 0.0099])
 
     def test_gpt_message_async(self):
         bot = self.gpt_bot
@@ -85,7 +84,8 @@ class TestGPTBot(unittest.TestCase):
             ],
         ]
         results = bot.message(messages_list)
-        assert all(['hello' in bot.get_content(r).lower() for r in results])
+
+        self.assertTrue(all(['hello' in bot.get_content(r).lower() for r in results]))
 
     def test_claude_message_async(self):
         bot = self.claude_bot
@@ -98,7 +98,8 @@ class TestGPTBot(unittest.TestCase):
             ],
         ]
         results = bot.message(messages_list)
-        assert all(['hello' in bot.get_content(r).lower() for r in results])
+
+        self.assertTrue(all(['hello' in bot.get_content(r).lower() for r in results]))
 
     def test_gpt_message_seq(self):
         bot = self.gpt_bot
@@ -108,7 +109,8 @@ class TestGPTBot(unittest.TestCase):
             ]
         ]
         results = bot.message(messages_list)
-        assert 'hello' in bot.get_content(results[0]).lower()
+
+        self.assertIn('hello', bot.get_content(results[0]).lower())
 
     def test_claude_message_seq(self):
         bot = self.claude_bot
@@ -119,3 +121,5 @@ class TestGPTBot(unittest.TestCase):
         ]
         results = bot.message(messages_list)
         assert 'hello' in bot.get_content(results[0]).lower()
+
+        self.assertIn('hello', bot.get_content(results[0]).lower())

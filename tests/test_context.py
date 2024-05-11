@@ -1,4 +1,4 @@
-#  Copyright (C) 2023. Hao Zheng
+#  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
 import tempfile
@@ -15,10 +15,10 @@ class TestContext(unittest.TestCase):
 
     def test_init(self):
         context = self.context
-        assert context.background == 'test background'
-        assert context.audio_type == 'test audio type'
-        assert context.description_map == {'test audio name': 'description'}
-        assert context.config_path is None
+        self.assertEqual(context.background, 'test background')
+        self.assertEqual(context.audio_type, 'test audio type')
+        self.assertEqual(context.description_map, {'test audio name': 'description'})
+        self.assertIsNone(context.config_path)
 
     def test_init_with_config_file(self):
         with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
@@ -28,10 +28,10 @@ class TestContext(unittest.TestCase):
 
         context = Context(config_path=config_path)
 
-        assert context.background == 'config background'
-        assert context.audio_type == 'config audio type'
-        assert context.description_map == {'config': 'config description'}
-        assert context.config_path == config_path
+        self.assertEqual(context.background, 'config background')
+        self.assertEqual(context.audio_type, 'config audio type')
+        self.assertEqual(context.description_map, {'config': 'config description'})
+        self.assertEqual(context.config_path, config_path)
 
         config_path.unlink()
 
@@ -48,10 +48,10 @@ class TestContext(unittest.TestCase):
 
         context.load_config(config_path)
 
-        assert context.background == 'config background'
-        assert context.audio_type == 'config audio type'
-        assert context.description_map == {'config': 'config description'}
-        assert context.config_path == config_path
+        self.assertEqual(context.background, 'config background')
+        self.assertEqual(context.audio_type, 'config audio type')
+        self.assertEqual(context.description_map, {'config': 'config description'})
+        self.assertEqual(context.config_path, config_path)
 
         config_path.unlink()
 
@@ -66,17 +66,17 @@ class TestContext(unittest.TestCase):
         with open(config_path, 'r') as file:
             config = file.read()
 
-        assert 'background: test background' in config
-        assert 'audio_type: test audio type' in config
-        assert 'description_map:\n  test audio name: description' in config
+        self.assertIn('background: test background', config)
+        self.assertIn('audio_type: test audio type', config)
+        self.assertIn('description_map:\n  test audio name: description', config)
 
         config_path.unlink()
 
     def test_get_description(self):
         context = self.context
-        assert context.get_description('test audio name') == 'description'
-        assert context.get_description('audio name without description') == ''
+        self.assertEqual(context.get_description('test audio name'), 'description')
+        self.assertEqual(context.get_description('audio name without description'), '')
 
     def test_str(self):
-        assert str(self.context) == \
-               'Context(background=test background, audio_type=test audio type, description_map={\'test audio name\': \'description\'})'
+        self.assertEqual(str(self.context),
+                         'Context(background=test background, audio_type=test audio type, description_map={\'test audio name\': \'description\'})')

@@ -1,4 +1,4 @@
-#  Copyright (C) 2023. Hao Zheng
+#  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
 import unittest
@@ -46,14 +46,16 @@ Translation>
 Original>
 生き残る秘訣は、進化し続けることです。
 Translation>'''
-        assert self.prompter.user(1, user_input, ['test chunk1 summary', 'test chunk2 summary'],
-                                  'test scene content') == self.formatted_user_input
+        self.assertEqual(
+            self.prompter.user(1, user_input, ['test chunk1 summary', 'test chunk2 summary'], 'test scene content'),
+            self.formatted_user_input
+        )
 
     def test_format_texts(self):
         texts = [(1, '変わりゆく時代において、'), (2, '生き残る秘訣は、進化し続けることです。')]
         expected_output = '#1\nOriginal>\n変わりゆく時代において、\nTranslation>\n\n#2\nOriginal>\n' \
                           '生き残る秘訣は、進化し続けることです。\nTranslation>\n'
-        assert BaseTranslatePrompter.format_texts(texts) == expected_output
+        self.assertEqual(BaseTranslatePrompter.format_texts(texts), expected_output)
 
     def test_check_format(self):
         messages = [{'role': 'system', 'content': 'system content'},
@@ -82,4 +84,4 @@ Translation>
 <summary>Summary</summary>
 <scene>Scene</scene>
 '''
-        assert self.prompter.check_format(messages, content) is True
+        self.assertTrue(self.prompter.check_format(messages, content))

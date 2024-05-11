@@ -25,17 +25,15 @@ class TestLLMTranslator(unittest.TestCase):
             translator = LLMTranslator(chatbot_model)
             translation = translator.translate(text, 'en', 'es')[0]
 
-            assert get_similarity(translation, 'Hola, ¿cómo estás?') > 0.618
-            self.tearDown()
+            self.assertGreater(get_similarity(translation, 'Hola, ¿cómo estás?'), 0.618)
 
     def test_multiple_chunk_translation(self):
         for chatbot_model in test_models:
             texts = ['Hello, how are you?', 'I am fine, thank you.']
             translator = LLMTranslator(chatbot_model)
             translations = translator.translate(texts, 'en', 'es')
-            assert get_similarity(translations[0], 'Hola, ¿cómo estás?') > 0.618
-            assert get_similarity(translations[1], 'Estoy bien, gracias.') > 0.618
-            self.tearDown()
+            self.assertGreater(get_similarity(translations[0], 'Hola, ¿cómo estás?'), 0.618)
+            self.assertGreater(get_similarity(translations[1], 'Estoy bien, gracias.'), 0.618)
 
     def test_different_language_translation(self):
         for chatbot_model in test_models:
@@ -43,28 +41,27 @@ class TestLLMTranslator(unittest.TestCase):
             translator = LLMTranslator(chatbot_model)
             try:
                 translation = translator.translate(text, 'en', 'ja')[0]
-                assert (get_similarity(translation, 'こんにちは、お元気ですか？') > 0.618 or
-                        get_similarity(translation, 'こんにちは、調子はどうですか?') > 0.618)
+                self.assertTrue(
+                    get_similarity(translation, 'こんにちは、お元気ですか？') > 0.618 or
+                    get_similarity(translation, 'こんにちは、調子はどうですか?') > 0.618
+                )
             except (openai.OpenAIError, anthropic.APIError):
                 pass
-            self.tearDown()
 
     def test_empty_text_list_translation(self):
         for chatbot_model in test_models:
             texts = []
             translator = LLMTranslator(chatbot_model)
             translations = translator.translate(texts, 'en', 'es')
-            assert translations == []
-            self.tearDown()
+            self.assertEqual(translations, [])
 
     def test_atomic_translate(self):
         for chatbot_model in test_models:
             texts = ['Hello, how are you?', 'I am fine, thank you.']
             translator = LLMTranslator(chatbot_model)
             translations = translator.atomic_translate(texts, 'en', 'zh')
-            assert get_similarity(translations[0], '你好，你好吗？') > 0.618
-            assert get_similarity(translations[1], '我很好，谢谢。') > 0.618
-            self.tearDown()
+            self.assertGreater(get_similarity(translations[0], '你好，你好吗？'), 0.618)
+            self.assertGreater(get_similarity(translations[1], '我很好，谢谢。'), 0.618)
 
 # Not integrated by the openlrc main function because of performance
 #
