@@ -2,7 +2,7 @@
 
 ### New Features:
 
-- Add custom endpoint (base_url) support for OpenAI & Anthropic
+- Add custom endpoint (base_url) support for OpenAI & Anthropic.
 - Generating bilingual subtitles.
 
 ### Other Changes:

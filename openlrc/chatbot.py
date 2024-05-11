@@ -25,6 +25,8 @@ model2chatbot = {
     'gpt-4-turbo-preview': 'gptbot',
     'gpt-3.5-turbo-0125': 'gptbot',
     'gpt-3.5-turbo': 'gptbot',
+    'gpt-4-turbo': 'gptbot',
+    'gpt-4-turbo-2024-04-09': 'gptbot',
 
     'claude-3-opus-20240229': 'claudebot',
     'claude-3-sonnet-20240229': 'claudebot',
@@ -35,12 +37,16 @@ chatbot_map = {}
 
 
 def _register_chatbot(cls):
-    chatbot_map[cls.__name__.lower()] = cls
+    chat_bot_type = cls.__name__.lower()
+
+    chatbot_map[chat_bot_type] = cls
+    pricing = cls().pricing
+
     return cls
 
 
 class ChatBot:
-    def __init__(self, pricing, temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.05):
+    def __init__(self, pricing, temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.2):
         self.pricing = pricing
         self._model = None
 
@@ -140,7 +146,9 @@ class GPTBot(ChatBot):
             'gpt-3.5-turbo-0125': (0.5, 1.5),
             'gpt-3.5-turbo': (0.5, 1.5),
             'gpt-4-0125-preview': (10, 30),
-            'gpt-4-turbo-preview': (10, 30)
+            'gpt-4-turbo-preview': (10, 30),
+            'gpt-4-turbo': (10, 30),
+            'gpt-4-turbo-2024-04-09': (10, 30),
         }
 
         super().__init__(pricing, temperature, top_p, retry, max_async, fee_limit)

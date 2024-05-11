@@ -36,6 +36,8 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
         ```python
         lrcer.run('./data/test.mp3', target_lang='zh-cn', bilingual_sub=True)
         ``` 
+- 2024.5.11: Add glossary into prompt, which is confirmed to improve domain specific translation.
+  Check [here](#glossary) for details.
 
 ## Installation ⚙️
 
@@ -121,6 +123,9 @@ if __name__ == '__main__':
     # Use context.yaml to improve translation
     lrcer.run('./data/test.mp3', target_lang='zh-cn', context_path='./data/context.yaml')
 
+    # Use glossary to improve translation
+    lrcer = LRCer(glossary='./data/aoe4-glossary.yaml')
+
     # To skip translation process
     lrcer.run('./data/test.mp3', target_lang='en', skip_trans=True)
 
@@ -168,6 +173,32 @@ description_map: {
   is a multi-line description for movie2.",
   movie_name3 (without extension): "This is a single-line description for movie 3.",
 }
+```
+
+### Glossary
+
+Add glossary to improve domain specific translation. For example `aoe4-glossary.yaml`:
+
+```json
+{
+  "aoe4": "帝国时代4",
+  "feudal": "封建时代",
+  "2TC": "双TC",
+  "English": "英格兰文明",
+  "scout": "侦察兵"
+}
+```
+
+```python
+lrcer = LRCer(glossary='./data/aoe4-glossary.yaml')
+lrcer.run('./data/test.mp3', target_lang='zh-cn')
+```
+
+or directly use dictionary to add glossary:
+
+```python
+lrcer = LRCer(glossary={"aoe4": "帝国时代4", "feudal": "封建时代"})
+lrcer.run('./data/test.mp3', target_lang='zh-cn')
 ```
 
 ## Pricing 💰

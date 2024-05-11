@@ -25,7 +25,7 @@ class Translator(ABC):
 
 
 class LLMTranslator(Translator):
-    def __init__(self, chatbot_model: str = 'gpt-3.5-turbo', prompter: str = 'base_trans', fee_limit=0.1,
+    def __init__(self, chatbot_model: str = 'gpt-3.5-turbo', prompter: str = 'base_trans', fee_limit=0.2,
                  chunk_size=30, intercept_line=None, proxy=None, base_url_config=None):
         """
         Args:
@@ -45,7 +45,7 @@ class LLMTranslator(Translator):
             raise ValueError(f'Chatbot {chatbot_model} not supported.')
 
         chatbot_category = chatbot_map[model2chatbot[chatbot_model]]
-        self.chatbot = chatbot_category(model=chatbot_model, fee_limit=fee_limit, proxy=proxy, temperature=0.7,
+        self.chatbot = chatbot_category(model=chatbot_model, fee_limit=fee_limit, proxy=proxy, temperature=0.9,
                                         base_url_config=base_url_config)
 
         self.prompter = prompter
@@ -80,7 +80,7 @@ class LLMTranslator(Translator):
 
         return chunks
 
-    def parse_responses(self, response):
+    def parse_responses(self, response, potential_prefix_combo):
         """
         Parse response from OpenAI API.
         :return: summary, scene, translations
@@ -95,7 +95,12 @@ class LLMTranslator(Translator):
             summary = summary.group(1) if summary else ''
             scene = scene.group(1) if scene else ''
 
-            translation = re.findall(r'Translation>\n*(.*?)(?:#\d+|<summary>|\n*$)', content, re.DOTALL)
+            for _, trans_prefix in potential_prefix_combo:
+                translation = re.findall(f'{trans_prefix}\n*(.*?)(?:#\d+|<summary>|\n*$)', content, re.DOTALL)
+                if translation:
+                    break
+            else:
+                return summary.strip(), scene.strip(), []
 
             # Remove "</summary>\nxxx</scene>" tags (or some wierd tags like </p> ❓) from translation
             if any([re.search(r'(<.*?>|</.*?>)', t) for t in translation]):
@@ -115,12 +120,15 @@ class LLMTranslator(Translator):
             raise e
 
     def translate(self, texts: Union[str, List[str]], src_lang, target_lang, audio_type='Anime', title='',
-                  background='', description='', compare_path: Path = Path('translate_intermediate.json')):
+                  background='', description='', compare_path: Path = Path('translate_intermediate.json'),
+                  glossary: dict = None):
         if not isinstance(texts, list):
             texts = [texts]
 
         prompter: BaseTranslatePrompter = prompter_map[self.prompter](
-            src_lang, target_lang, audio_type, title=title, background=background, description=description)
+            src_lang, target_lang, audio_type, title=title, background=background, description=description,
+            glossary=glossary
+        )
 
         chunks = self.make_chunks(texts, chunk_size=self.chunk_size)
         logger.info(f'Translating {title}: {len(chunks)} chunks, {len(texts)} lines in total.')
@@ -146,13 +154,14 @@ class LLMTranslator(Translator):
             logger.info(f'Resume translation from chunk {start_chunk}')
 
         for i, chunk in list(enumerate(chunks, start=1))[start_chunk:]:
+            atomic = False
             user_input = prompter.format_texts(chunk)
             messages_list = [
                 {'role': 'system', 'content': prompter.system()},
-                {'role': 'user', 'content': prompter.user(i, user_input, summaries, scene)}
+                {'role': 'user', 'content': prompter.user(i, user_input, summaries, scene)},
             ]
             response = self.chatbot.message(messages_list, output_checker=prompter.check_format)[0]
-            summary, scene, translated = self.parse_responses(response)
+            summary, scene, translated = self.parse_responses(response, prompter.potential_prefix_combo)
             # TODO: Check translation consistency (1-to-1 correspondence)
 
             # fail to ensure length consistent after retries, use atomic translation instead
@@ -161,6 +170,7 @@ class LLMTranslator(Translator):
                                f'Trying to use atomic translation instead.')
                 chunk_texts = [item[1] for item in chunk]
                 translated = self.atomic_translate(chunk_texts, src_lang, target_lang)
+                atomic = True
 
             translations.extend(translated)
             summaries.append(summary)
@@ -170,6 +180,7 @@ class LLMTranslator(Translator):
 
             compare_list.extend([{'chunk': i,
                                   'idx': item[0] if item else 'N\\A',
+                                  'method': 'atomic' if atomic else 'chunked',
                                   'input': item[1] if item else 'N\\A',
                                   'output': trans if trans else 'N\\A'}
                                  for (item, trans) in zip_longest(chunk, translated)])

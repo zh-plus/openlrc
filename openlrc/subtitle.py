@@ -42,6 +42,7 @@ class Subtitle:
         self.lang = language
         self.segments: List[Element] = [Element(**seg) for seg in segments]
         self.filename = Path(filename)
+        self.suffix = '.lrc'
 
     @staticmethod
     def from_json(filename):
@@ -134,6 +135,7 @@ class Subtitle:
                       f'{segment.text}\n', file=f, flush=True)
 
         logger.info(f'File saved to {srt_path}')
+        self.suffix = '.srt'
 
         return srt_path
 

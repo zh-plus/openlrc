@@ -29,6 +29,7 @@ default_asr_options = {
     "prepend_punctuations": "\"'“¿([{-",
     "append_punctuations": "\"'.。,，!！?？:：”)]}、",
     "hallucination_silence_threshold": 2,
+    "hotwords": None,
 }
 
 # Check https://github.com/guillaumekln/faster-whisper/blob/3b4a6aa1c22d293ddde9f08bdd31fc842086a6ea/faster_whisper/vad.py#L14 for details

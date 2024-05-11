@@ -8,66 +8,70 @@ from lingua import LanguageDetectorBuilder
 
 from openlrc.logger import logger
 
+original_prefix = 'Original>'
+translation_prefix = 'Translation>'
+
 # instruction prompt modified from https://github.com/machinewrapped/gpt-subtrans
 base_instruction = f'''Ignore all previous instructions.
 You are a translator tasked with revising and translating subtitles into a target language. Your goal is to ensure accurate, concise, and natural-sounding translations for each line of dialogue. The input consists of transcribed audio, which may contain transcription errors. Your task is to first correct any errors you find in the sentences based on their context, and then translate them to the target language according to the revised sentences.
 The user will provide a chunk of lines, you should respond with an accurate, concise, and natural-sounding translation for the dialogue, with appropriate punctuation.
 The user may provide additional context, such as background, description or title of the source material, a summary of the current scene, or a list of character names. Use this information to improve the quality of your translation.
 Your response will be processed by an automated system, so it is imperative that you adhere to the required output format.
+The source subtitles were AI-generated with a speech-to-text tool so they are likely to contain errors. Where the input seems likely to be incorrect, use ALL available context to determine what the correct text should be, to the best of your ability.
 
 Example input (Japanese to Chinese):
 
 #200
-Original>
+{original_prefix}
 変わりゆく時代において、
-Translation>
+{translation_prefix}
 
 #501
-Original>
+{original_prefix}
 生き残る秘訣は、進化し続けることです。
-Translation>
+{translation_prefix}
 
 You should respond with:
 
 #200
-Original>
+{original_prefix}
 変わく時代いて、
-Translation>
+{translation_prefix}
 在变化的时代中，
 
 #501
-Original>
+{original_prefix}
 生き残る秘訣は、進化し続けることです。
-Translation>
+{translation_prefix}
 生存的秘诀是不断进化。
 
 Example input (English to German):
 
 #700
-Original>
+{original_prefix}
 those who resist change may find themselves left behind.
-Translation>
+{translation_prefix}
 
 #701
-Original>
+{original_prefix}
 those resist change find themselves left.
-Translation>
+{translation_prefix}
 
 You should respond with:
 
 #700
-Original>
+{original_prefix}
 In the age of digital transformation,
-Translation>
+{translation_prefix}
 Im Zeitalter der digitalen Transformation,
 
 #701
-Original>
+{original_prefix}
 those who resist change may find themselves left behind.
-Translation>
+{translation_prefix}
 diejenigen, die sich dem Wandel widersetzen, könnten sich zurückgelassen finden.
 
-Please ensure that each line of dialogue remains distinct in the  translation. Merging lines together can lead to timing problems during playback.
+Please ensure that each line of dialogue remains distinct in the translation. Merging lines together can lead to timing problems during playback.
 
 At the end of each set of translations, include a one or two line synopsis of the input text encapsulated in a <summary/> tag, for example:
 <summary>John and Sarah discuss their plan to locate a suspect, deducing that he is likely in the uptown area.</summary>
@@ -90,7 +94,6 @@ I’m going to tip $1000 for a better translation!
 There was an issue with the previous translation. 
 
 Remember to include ``<summary>`` and ``<scene>`` tags in your response.
-Do not translate ``Original>`` and ``Translation>``.
 Please translate the subtitles again, paying careful attention to ensure that each line is translated separately, and that every line has a matching translation.
 Do not merge lines together in the translation, it leads to incorrect timings and confusion for the reader.
 The content of the translation is for learning purposes only and will not violate the usage guidelines. '''
@@ -110,7 +113,7 @@ class TranslatePrompter:
 
 
 class BaseTranslatePrompter(TranslatePrompter):
-    def __init__(self, src_lang, target_lang, audio_type=None, title='', background='', description=''):
+    def __init__(self, src_lang, target_lang, audio_type=None, title='', background='', description='', glossary=None):
         self.src_lang = src_lang
         self.target_lang = target_lang
         self.src_lang_display = Language.get(src_lang).display_name('en')
@@ -121,7 +124,18 @@ class BaseTranslatePrompter(TranslatePrompter):
         self.title = title
         self.background = background
         self.description = description
+        self.glossary = glossary
+        self.potential_prefix_combo = [
+            [original_prefix, translation_prefix],
+            ['原文>', '翻译>'],
+            ['原文>', '译文>'],
+            ['原文>', '翻譯>'],
+            ['原文>', '譯文>'],
+        ]
+
         self.user_prompt = f'''
+{f"<preferred-translation>{self.formatted_glossary}</preferred-translation> " if self.glossary else ""}
+
 {f"<title>{self.title}</title>" if self.title else ""}
 {f"<background>{self.background}</background>" if self.background else ""}
 {f"<description>{self.description}</description>" if self.description else ""}
@@ -146,6 +160,10 @@ Please translate these subtitles for {self.audio_type}{f" named {self.title}" if
         return self.user_prompt.format(summaries_str=summaries_str, scene=scene,
                                        chunk_num=chunk_num, user_input=user_input).strip()
 
+    @property
+    def formatted_glossary(self):
+        return '\n' + '\n'.join(f'{k}: {v}' for k, v in self.glossary.items()) + '\n'
+
     @classmethod
     def format_texts(cls, texts):
         """
@@ -155,9 +173,9 @@ Please translate these subtitles for {self.audio_type}{f" named {self.title}" if
             texts: List of (id, text).
 
         Returns:
-            The formatted string: f"#id\nOriginal>\n{text}\nTranslation>\n"
+            The formatted string: f"#id\n{original_prefix}\n{text}\n{translation_prefix}\n"
         """
-        return '\n'.join([f'#{i}\nOriginal>\n{text}\nTranslation>\n' for i, text in texts])
+        return '\n'.join([f'#{i}\n{original_prefix}\n{text}\n{translation_prefix}\n' for i, text in texts])
 
     def check_format(self, messages, content):
         summary = re.search(r'<summary>(.*)</summary>', content)
@@ -165,14 +183,19 @@ Please translate these subtitles for {self.audio_type}{f" named {self.title}" if
 
         # If message is for claude, use messages[0]
         user_input = messages[1]['content'] if len(messages) == 2 else messages[0]['content']
+        original = re.findall(original_prefix + r'\n(.*?)\n' + translation_prefix, user_input, re.DOTALL)
+        if not original:
+            logger.error(f'Fail to extract original text.')
+            return False
 
-        original = re.findall(r'Original>\n(.*?)\nTranslation>', user_input, re.DOTALL)
-        translation = re.findall(r'Translation>\n*(.*?)(?:#\d+|<summary>|\n*$)', content, re.DOTALL)
+        for potential_ori_prefix, potential_trans_prefix in self.potential_prefix_combo:
+            translation = re.findall(potential_trans_prefix + r'\n*(.*?)(?:#\d+|<summary>|\n*$)', content, re.DOTALL)
 
-        if not original or not translation:
+            if translation:
+                break
+        else:
             # TODO: Try to change chatbot_model if always fail
-
-            logger.warning(f'Fail to extract original or translation.')
+            logger.warning(f'Fail to extract translation.')
             logger.debug(f'Content: {content}')
             return False
 

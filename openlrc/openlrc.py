@@ -8,7 +8,7 @@ from pathlib import Path
 from pprint import pformat
 from queue import Queue
 from threading import Lock
-from typing import List
+from typing import List, Union
 
 from faster_whisper.transcribe import Segment
 
@@ -44,11 +44,14 @@ class LRCer:
         base_url_config: Base URL dict for OpenAI & Anthropic.
             e.g. {'openai': 'https://openai.justsong.cn/', 'anthropic': 'https://api.g4f.icu'}
             Default: ``None``
+        glossary: A dictionary mapping specific source words to their desired translations. This is used to enforce
+            custom translations that override the default behavior of the translation model. Each key-value pair in the
+            dictionary specifies a source word and its corresponding translation. Default: None.
     """
 
     def __init__(self, whisper_model='large-v3', compute_type='float16', chatbot_model: str = 'gpt-3.5-turbo',
-                 fee_limit=0.1, consumer_thread=4, asr_options=None, vad_options=None, preprocess_options=None,
-                 proxy=None, base_url_config=None):
+                 fee_limit=0.2, consumer_thread=4, asr_options=None, vad_options=None, preprocess_options=None,
+                 proxy=None, base_url_config=None, glossary: Union[dict, str, Path] = None):
         self.chatbot_model = chatbot_model
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
@@ -56,6 +59,7 @@ class LRCer:
         self.context: Context = Context()
         self.proxy = proxy
         self.base_url_config = base_url_config
+        self.glossary = self.parse_glossary(glossary)
 
         self._lock = Lock()
         self.exception = None
@@ -81,6 +85,24 @@ class LRCer:
         self.transcriber = Transcriber(model_name=whisper_model, compute_type=compute_type,
                                        asr_options=self.asr_options, vad_options=self.vad_options)
         self.transcribed_paths = []
+
+    @staticmethod
+    def parse_glossary(glossary: Union[dict, str, Path]):
+        if not glossary:
+            return None
+
+        if isinstance(glossary, dict):
+            return glossary
+
+        glossary_path = Path(glossary)
+        if not glossary_path.exists():
+            logger.warning('Glossary file not found.')
+            return None
+
+        with open(glossary_path, 'r', encoding='utf-8') as f:
+            glossary = json.load(f)
+
+        return glossary
 
     def transcription_producer(self, transcription_queue, audio_paths, src_lang):
         """
@@ -135,6 +157,7 @@ class LRCer:
             transcribed_sub = Subtitle.from_json(transcribed_path)
             transcribed_opt_sub = self.post_process(transcribed_sub, update_name=True)
             audio_name = transcribed_path.stem.replace('_transcribed', '')
+            # TODO: consider the edge case (audio file name contains _transcribed)
 
             # xxx_transcribed_optimized_translated.json
             translated_path = extend_filename(transcribed_opt_sub.filename, '_translated')
@@ -156,27 +179,56 @@ class LRCer:
                         return
 
             # Copy preprocessed/xxx_preprocessed.lrc or preprocessed/xxx_preprocessed.srt to xxx.lrc or xxx.srt
-            if audio_name in self.from_video:
-                subtitle_path = final_subtitle.to_srt()
-            else:
-                subtitle_path = final_subtitle.to_lrc()
-
-            suffix = subtitle_path.suffix
-            result_path = subtitle_path.parents[1] / subtitle_path.name.replace(f'_preprocessed{suffix}',
-                                                                                suffix)
+            subtitle_format = 'srt' if audio_name in self.from_video else 'lrc'
+            subtitle_path = getattr(final_subtitle, f'to_{subtitle_format}')()
+            result_path = subtitle_path.parents[1] / subtitle_path.name.replace(f'_preprocessed.{subtitle_format}',
+                                                                                f'.{subtitle_format}')
             shutil.copy(subtitle_path, result_path)
 
-            # Bilingual
-            if bilingual_sub:
-                bilingual_subtitle = BilingualSubtitle.from_preprocessed(transcribed_path.parent,
-                                                                         audio_name.replace('_preprocessed', ''))
-                bilingual_subtitle.to_lrc()
+            if not skip_trans and bilingual_sub:
+                bilingual_subtitle = BilingualSubtitle.from_preprocessed(
+                    transcribed_path.parent, audio_name.replace('_preprocessed', '')
+                )
+                # TODO: consider the edge case (audio file name contains _preprocessed)
+                getattr(bilingual_subtitle, f'to_{subtitle_format}')()
                 bilingual_lrc_path = bilingual_subtitle.filename.with_suffix(bilingual_subtitle.suffix)
                 shutil.copy(bilingual_lrc_path, result_path.parent / bilingual_lrc_path.name)
 
-            logger.info(f'Translation fee til now: {self.api_fee:.4f} USD')
+                non_translated_subtitle = transcribed_opt_sub
+                getattr(non_translated_subtitle, f'to_{subtitle_format}')()
+                non_translated_lrc_path = non_translated_subtitle.filename.with_suffix(non_translated_subtitle.suffix)
+                shutil.copy(
+                    non_translated_lrc_path,
+                    result_path.parent / subtitle_path.name.replace(
+                        f'_preprocessed.{subtitle_format}',
+                        f'_nontrans.{subtitle_format}'
+                    )
+                )
 
-            self.transcribed_paths.append(result_path)
+                # if audio_name in self.from_video:
+                #     subtitle_path = final_subtitle.to_srt()
+                # else:
+                #     subtitle_path = final_subtitle.to_lrc()
+                #
+                # suffix = subtitle_path.suffix
+                # result_path = subtitle_path.parents[1] / subtitle_path.name.replace(f'_preprocessed{suffix}',
+                #                                                                     suffix)
+                # shutil.copy(subtitle_path, result_path)
+                #
+                # # Bilingual
+                # if bilingual_sub:
+                #     bilingual_subtitle = BilingualSubtitle.from_preprocessed(transcribed_path.parent,
+                #                                                              audio_name.replace('_preprocessed', ''))
+                #     if audio_name in self.from_video:
+                #         bilingual_subtitle.to_srt()
+                #     else:
+                #         bilingual_subtitle.to_lrc()
+                #     bilingual_lrc_path = bilingual_subtitle.filename.with_suffix(bilingual_subtitle.suffix)
+                #     shutil.copy(bilingual_lrc_path, result_path.parent / bilingual_lrc_path.name)
+
+                logger.info(f'Translation fee til now: {self.api_fee:.4f} USD')
+
+                self.transcribed_paths.append(result_path)
 
     def _translate(self, audio_name, prompter, target_lang, transcribed_opt_sub, translated_path):
         json_filename = Path(translated_path.parent / (audio_name + '.json'))
@@ -195,7 +247,8 @@ class LRCer:
                 audio_type=context.audio_type,
                 background=context.background,
                 description=context.get_description(audio_name),
-                compare_path=compare_path
+                compare_path=compare_path,
+                glossary=self.glossary
             )
 
             with self._lock:

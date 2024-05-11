@@ -152,7 +152,9 @@ class Transcriber:
                 entry = seg_from_words(segment, id_cnt, split_words,
                                        segment.tokens[word_start: word_start + len(split_words)])
 
-                if len(split) < (50 if lang in self.non_word_boundary else 100):
+                # Check if the sentence is too long in words
+                if len(split) < (45 if lang in self.non_word_boundary else 90) or len(entry.words) == 1:
+                    # TODO: Split if the sentence is too long in duration
                     sentences.append(entry)
                     id_cnt += 1
                 else:
