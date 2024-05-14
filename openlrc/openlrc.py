@@ -47,11 +47,12 @@ class LRCer:
         glossary: A dictionary mapping specific source words to their desired translations. This is used to enforce
             custom translations that override the default behavior of the translation model. Each key-value pair in the
             dictionary specifies a source word and its corresponding translation. Default: None.
+        retry_model: The model to use when retrying the translation. Default: None
     """
 
     def __init__(self, whisper_model='large-v3', compute_type='float16', chatbot_model: str = 'gpt-3.5-turbo',
                  fee_limit=0.2, consumer_thread=4, asr_options=None, vad_options=None, preprocess_options=None,
-                 proxy=None, base_url_config=None, glossary: Union[dict, str, Path] = None):
+                 proxy=None, base_url_config=None, glossary: Union[dict, str, Path] = None, retry_model=None):
         self.chatbot_model = chatbot_model
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
@@ -60,6 +61,7 @@ class LRCer:
         self.proxy = proxy
         self.base_url_config = base_url_config
         self.glossary = self.parse_glossary(glossary)
+        self.retry_model = retry_model
 
         self._lock = Lock()
         self.exception = None
@@ -205,27 +207,6 @@ class LRCer:
                     )
                 )
 
-                # if audio_name in self.from_video:
-                #     subtitle_path = final_subtitle.to_srt()
-                # else:
-                #     subtitle_path = final_subtitle.to_lrc()
-                #
-                # suffix = subtitle_path.suffix
-                # result_path = subtitle_path.parents[1] / subtitle_path.name.replace(f'_preprocessed{suffix}',
-                #                                                                     suffix)
-                # shutil.copy(subtitle_path, result_path)
-                #
-                # # Bilingual
-                # if bilingual_sub:
-                #     bilingual_subtitle = BilingualSubtitle.from_preprocessed(transcribed_path.parent,
-                #                                                              audio_name.replace('_preprocessed', ''))
-                #     if audio_name in self.from_video:
-                #         bilingual_subtitle.to_srt()
-                #     else:
-                #         bilingual_subtitle.to_lrc()
-                #     bilingual_lrc_path = bilingual_subtitle.filename.with_suffix(bilingual_subtitle.suffix)
-                #     shutil.copy(bilingual_lrc_path, result_path.parent / bilingual_lrc_path.name)
-
                 logger.info(f'Translation fee til now: {self.api_fee:.4f} USD')
 
                 self.transcribed_paths.append(result_path)
@@ -236,7 +217,8 @@ class LRCer:
         if not translated_path.exists():
             # Translate the transcribed json
             translator = LLMTranslator(chatbot_model=self.chatbot_model, prompter=prompter, fee_limit=self.fee_limit,
-                                       proxy=self.proxy, base_url_config=self.base_url_config)
+                                       proxy=self.proxy, base_url_config=self.base_url_config,
+                                       retry_model=self.retry_model)
             context = self.context
 
             target_texts = translator.translate(
@@ -262,7 +244,8 @@ class LRCer:
             logger.info(f'Found translated json file: {translated_path}')
         translated_sub = Subtitle.from_json(translated_path)
 
-        final_subtitle = self.post_process(translated_sub, output_name=json_filename, update_name=True)  # xxx.json
+        final_subtitle = self.post_process(translated_sub, output_name=json_filename, update_name=True,
+                                           extend_time=True)  # xxx.json
 
         return final_subtitle
 
@@ -399,9 +382,9 @@ class LRCer:
 
     @staticmethod
     def post_process(transcribed_sub: Path, output_name: Path = None, remove_files: List[Path] = None,
-                     update_name=False):
+                     update_name=False, extend_time=False):
         optimizer = SubtitleOptimizer(transcribed_sub)
-        optimizer.perform_all()
+        optimizer.perform_all(extend_time)
         optimizer.save(output_name, update_name=update_name)
 
         # Remove intermediate files

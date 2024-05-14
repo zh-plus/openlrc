@@ -12,7 +12,7 @@ from typing import Union, List
 
 import requests
 
-from openlrc.chatbot import chatbot_map, model2chatbot
+from openlrc.chatbot import model2chatbot
 from openlrc.logger import logger
 from openlrc.prompter import prompter_map, BaseTranslatePrompter, AtomicTranslatePrompter
 
@@ -26,7 +26,7 @@ class Translator(ABC):
 
 class LLMTranslator(Translator):
     def __init__(self, chatbot_model: str = 'gpt-3.5-turbo', prompter: str = 'base_trans', fee_limit=0.2,
-                 chunk_size=30, intercept_line=None, proxy=None, base_url_config=None):
+                 chunk_size=30, intercept_line=None, proxy=None, base_url_config=None, retry_model=None):
         """
         Args:
             chatbot_model: Chatbot instance. Choices can be found using `LLMTranslator().list_chatbots()`.
@@ -37,6 +37,7 @@ class LLMTranslator(Translator):
             intercept_line (int): Intercepted text line number.
             proxy (str): Proxy server. e.g. http://127.0.0.1:7890
             base_url_config (dict): Base URL configuration for the chatbot API.
+            retry_model (str): Retry chatbot model if the translation fails.
         """
         if prompter not in prompter_map:
             raise ValueError(f'Prompter {prompter} not found.')
@@ -44,20 +45,28 @@ class LLMTranslator(Translator):
         if chatbot_model not in model2chatbot.keys():
             raise ValueError(f'Chatbot {chatbot_model} not supported.')
 
-        chatbot_category = chatbot_map[model2chatbot[chatbot_model]]
-        self.chatbot = chatbot_category(model=chatbot_model, fee_limit=fee_limit, proxy=proxy, temperature=0.9,
-                                        base_url_config=base_url_config)
+        self.temperature = 0.9
+
+        chatbot_category = model2chatbot[chatbot_model]
+        self.chatbot = chatbot_category(model=chatbot_model, fee_limit=fee_limit, proxy=proxy, retry=3,
+                                        temperature=self.temperature, base_url_config=base_url_config)
+        self.retry_chatbot = model2chatbot[retry_model](
+            model=retry_model, fee_limit=fee_limit,
+            proxy=proxy, retry=3,
+            temperature=self.temperature,
+            base_url_config=base_url_config
+        ) if retry_model else None
 
         self.prompter = prompter
         self.fee_limit = fee_limit
         self.chunk_size = chunk_size
         self.api_fee = 0
         self.intercept_line = intercept_line
-        self.proxy = proxy
+        self.retry_model = retry_model
 
     @staticmethod
     def list_chatbots():
-        return list(chatbot_map.keys())
+        return list(model2chatbot.keys())
 
     @staticmethod
     def make_chunks(texts, chunk_size=30):
@@ -80,12 +89,12 @@ class LLMTranslator(Translator):
 
         return chunks
 
-    def parse_responses(self, response, potential_prefix_combo):
+    def parse_responses(self, response, potential_prefix_combo, changed_chatbot=None):
         """
         Parse response from OpenAI API.
         :return: summary, scene, translations
         """
-        content = self.chatbot.get_content(response)
+        content = changed_chatbot.get_content(response) if changed_chatbot else self.chatbot.get_content(response)
 
         try:
             # Extract summary tag
@@ -156,15 +165,46 @@ class LLMTranslator(Translator):
         for i, chunk in list(enumerate(chunks, start=1))[start_chunk:]:
             atomic = False
             user_input = prompter.format_texts(chunk)
+            glossary_user_prompt = prompter.user(i, user_input, summaries, scene)
             messages_list = [
                 {'role': 'system', 'content': prompter.system()},
-                {'role': 'user', 'content': prompter.user(i, user_input, summaries, scene)},
+                {'role': 'user', 'content': glossary_user_prompt},
             ]
-            response = self.chatbot.message(messages_list, output_checker=prompter.check_format)[0]
+            response = self.chatbot.message(messages_list.copy(), output_checker=prompter.check_format)[0]
             summary, scene, translated = self.parse_responses(response, prompter.potential_prefix_combo)
             # TODO: Check translation consistency (1-to-1 correspondence)
 
-            # fail to ensure length consistent after retries, use atomic translation instead
+            non_glossary_user_prompt = prompter_map[self.prompter](
+                src_lang, target_lang, audio_type, title=title, background=background, description=description
+            ).user(i, user_input, summaries, scene)
+            # glossary in the prompt can be unstable, try to remove glossary to keep going.
+            if len(translated) != len(chunk):
+                logger.warning(f'Cant translate chunk {i} with glossary, trying to remove glossary.')
+                messages_list[1]['content'] = non_glossary_user_prompt
+                default_retry = self.chatbot.retry
+                self.chatbot.retry = 3  # only retry 3 times
+                response = self.chatbot.message(messages_list.copy(), output_checker=prompter.check_format)[0]
+                summary, scene, translated = self.parse_responses(response, prompter.potential_prefix_combo)
+                self.chatbot.retry = default_retry
+
+            # Try to change chatbot if the other chatbot is accessible
+            if self.retry_chatbot and len(translated) != len(chunk):
+                logger.warning(
+                    f'Trying to change chatbot to keep performing chunked translation. Retry chatbot: {self.retry_model}'
+                )
+                messages_list[1]['content'] = glossary_user_prompt
+                response = self.retry_chatbot.message(messages_list.copy(), output_checker=prompter.check_format)[0]
+                summary, scene, translated = self.parse_responses(response, prompter.potential_prefix_combo,
+                                                                  changed_chatbot=self.retry_chatbot)
+
+                if len(translated) != len(chunk):
+                    logger.warning(f'New bot: Trying to remove glossary to keep performing chunked translation.')
+                    messages_list[1]['content'] = non_glossary_user_prompt
+                    response = self.retry_chatbot.message(messages_list.copy(), output_checker=prompter.check_format)[0]
+                    summary, scene, translated = self.parse_responses(response, prompter.potential_prefix_combo,
+                                                                      changed_chatbot=self.retry_chatbot)
+
+            # Finally, use atomic translation
             if len(translated) != len(chunk):
                 logger.warning(f'Chunk {i} translation length inconsistent: {len(translated)} vs {len(chunk)},'
                                f'Trying to use atomic translation instead.')
@@ -238,32 +278,3 @@ class MSTranslator(Translator):
         response = request.json()
 
         return json.dumps(response, sort_keys=True, ensure_ascii=False, indent=4, separators=(',', ': '))
-
-# Not integrated by the openlrc main function because of performance
-#
-# class DeepLTranslator(Translator):
-#     def __init__(self):
-#         self.key = os.environ['DEEPL_KEY']
-#         self.translator = deepl.Translator(self.key)
-#
-#     def _check_limit(self, texts: List[str]):
-#         usage = self.translator.get_usage()
-#         char_num = sum([len(text) for text in texts])
-#
-#         if usage.character.count + char_num > usage.character.limit:
-#             raise RuntimeError(f'This translate call would exceed DeepL character limit: {usage.character.limit}')
-#
-#     def translate(self, texts: Union[str, List[str]], src_lang, target_lang):
-#         if not isinstance(texts, list):
-#             texts = [texts]
-#
-#         self._check_limit(texts)
-#
-#         translations = self.translator.translate_text(texts, target_lang=target_lang)
-#
-#         if not isinstance(translations, list):
-#             translations = [translations]
-#
-#         translations = [translation.text for translation in translations]
-#
-#         return translations

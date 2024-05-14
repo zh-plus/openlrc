@@ -31,7 +31,7 @@ class Transcriber:
         self.compute_type = compute_type
         self.device = device
         # self.no_need_align = ['en', 'ja', 'zh']  # Languages that is accurate enough without sentence alignment
-        self.non_word_boundary = ['ja', 'zh']
+        self.continuous_scripted = ['ja', 'zh', 'zh-cn', 'th', 'vi', 'lo', 'km', 'my', 'bo']
         self.asr_options = asr_options
         self.vad_options = vad_options
 
@@ -90,14 +90,24 @@ class Transcriber:
             def is_punct(char):
                 return doc.vocab[char].is_punct
 
-            half = len(text) // 2
+            splittable = int(len(text) / 3)
 
             former_words, former_len = [], 0
 
             for j, word in enumerate(seg_entry.words):
                 former_words.append(word)
                 former_len += len(word.word)
-                if former_len >= half and is_punct(word.word[-1]):
+
+                # For non continuous_scripted languages, Whisper may use ' '(space) to split 2 sentence
+                if lang in self.continuous_scripted and former_len >= splittable:
+                    if word.word.startswith(' '):
+                        break
+                    elif word.word.endswith(' '):
+                        former_words.append(word)
+                        former_len += len(word.word)
+                        break
+
+                if former_len >= splittable and is_punct(word.word[-1]):
                     break
 
             latter_words = seg_entry.words[len(former_words):]
@@ -153,14 +163,17 @@ class Transcriber:
                                        segment.tokens[word_start: word_start + len(split_words)])
 
                 # Check if the sentence is too long in words
-                if len(split) < (45 if lang in self.non_word_boundary else 90) or len(entry.words) == 1:
-                    # TODO: Split if the sentence is too long in duration
-                    sentences.append(entry)
-                    id_cnt += 1
+                if len(split) < (45 if lang in self.continuous_scripted else 90) or len(entry.words) == 1:
+                    # split if duration > 10s
+                    if entry.end - entry.start > 10:
+                        segmented_entries = mid_split(entry)
+                    else:
+                        segmented_entries = [entry]
                 else:
                     # Split them in the middle
-                    origin_len = len(sentences)
-                    sentences.extend(mid_split(entry))
-                    id_cnt += (len(sentences) - origin_len)
+                    segmented_entries = mid_split(entry)
+
+                sentences.extend(segmented_entries)
+                id_cnt += len(segmented_entries)
 
         return sentences
