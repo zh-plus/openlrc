@@ -15,6 +15,7 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
 - Well preprocessed audio to reduce hallucination (Loudness Norm & optional Noise Suppression).
 - Context-aware translation to improve translation quality.
   Check [prompt](https://github.com/zh-plus/openlrc/blob/master/openlrc/prompter.py) for details.
+- Check [here](#how-it-works) for an overview of the architecture.
 
 ## New 🚨
 
@@ -224,6 +225,12 @@ The actual cost may vary due to the language and audio speed.**
 For english audio, we recommend using `gpt-3.5-turbo`.
 
 For non-english audio, we recommend using `claude-3-sonnet-20240229`.
+
+## How it works
+
+![](https://github.com/zh-plus/openlrc/blob/master/resources/how-it-works.png?raw=true)
+
+To maintain context between translation segments, the process is sequential for each audio file.
 
 ## Todo
 
