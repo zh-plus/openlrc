@@ -20,32 +20,19 @@ from openlrc.exceptions import ChatBotException, LengthExceedException
 from openlrc.logger import logger
 from openlrc.utils import get_messages_token_number, get_text_token_number
 
-model2chatbot = {
-    'gpt-4-0125-preview': 'gptbot',
-    'gpt-4-turbo-preview': 'gptbot',
-    'gpt-3.5-turbo-0125': 'gptbot',
-    'gpt-3.5-turbo': 'gptbot',
-    'gpt-4-turbo': 'gptbot',
-    'gpt-4-turbo-2024-04-09': 'gptbot',
-
-    'claude-3-opus-20240229': 'claudebot',
-    'claude-3-sonnet-20240229': 'claudebot',
-    'claude-3-haiku-20240307': 'claudebot'
-}
-
-chatbot_map = {}
+model2chatbot = {}
 
 
 def _register_chatbot(cls):
-    chat_bot_type = cls.__name__.lower()
-
-    chatbot_map[chat_bot_type] = cls
-    pricing = cls().pricing
+    for model in cls.pricing:
+        model2chatbot[model] = cls
 
     return cls
 
 
 class ChatBot:
+    pricing = None
+
     def __init__(self, pricing, temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.2):
         self.pricing = pricing
         self._model = None
@@ -139,24 +126,27 @@ class ChatBot:
 
 @_register_chatbot
 class GPTBot(ChatBot):
+    # Pricing for 1M tokens, info from https://openai.com/pricing
+    pricing = {
+        'gpt-3.5-turbo-0125': (0.5, 1.5),
+        'gpt-3.5-turbo': (0.5, 1.5),
+        'gpt-4-0125-preview': (10, 30),
+        'gpt-4-turbo-preview': (10, 30),
+        'gpt-4-turbo': (10, 30),
+        'gpt-4-turbo-2024-04-09': (10, 30),
+        'gpt-4o': (5, 15),
+        'deepseek-chat': (0.14, 0.28)
+    }
+
     def __init__(self, model='gpt-3.5-turbo-0125', temperature=1, top_p=1, retry=8, max_async=16, json_mode=False,
                  fee_limit=0.05, proxy=None, base_url_config=None):
-        # Pricing for 1M tokens, info from https://openai.com/pricing
-        pricing = {
-            'gpt-3.5-turbo-0125': (0.5, 1.5),
-            'gpt-3.5-turbo': (0.5, 1.5),
-            'gpt-4-0125-preview': (10, 30),
-            'gpt-4-turbo-preview': (10, 30),
-            'gpt-4-turbo': (10, 30),
-            'gpt-4-turbo-2024-04-09': (10, 30),
-        }
 
-        super().__init__(pricing, temperature, top_p, retry, max_async, fee_limit)
+        super().__init__(self.pricing, temperature, top_p, retry, max_async, fee_limit)
 
         self.async_client = AsyncGPTClient(
             api_key=os.environ['OPENAI_API_KEY'],
             http_client=httpx.AsyncClient(proxies=proxy),
-            base_url=base_url_config['openai'] if base_url_config else None
+            base_url=base_url_config['openai'] if base_url_config and base_url_config['openai'] else None
         )
 
         self.model = model
@@ -224,23 +214,24 @@ class GPTBot(ChatBot):
 
 @_register_chatbot
 class ClaudeBot(ChatBot):
+    # Pricing for 1M tokens, info from https://docs.anthropic.com/claude/docs/models-overview#model-comparison
+    pricing = {
+        'claude-3-opus-20240229': (15, 75),
+        'claude-3-sonnet-20240229': (3, 15),
+        'claude-3-haiku-20240307': (0.25, 1.25)
+    }
+
     def __init__(self, model='claude-3-sonnet-20240229', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.2,
                  proxy=None, base_url_config=None):
-        # Pricing for 1M tokens, info from https://docs.anthropic.com/claude/docs/models-overview#model-comparison
-        pricing = {
-            'claude-3-opus-20240229': (15, 75),
-            'claude-3-sonnet-20240229': (3, 15),
-            'claude-3-haiku-20240307': (0.25, 1.25)
-        }
 
-        super().__init__(pricing, temperature, top_p, retry, max_async, fee_limit)
+        super().__init__(self.pricing, temperature, top_p, retry, max_async, fee_limit)
 
         self.async_client = AsyncAnthropic(
             api_key=os.environ['ANTHROPIC_API_KEY'],
             http_client=httpx.AsyncClient(
                 proxies=proxy
             ),
-            base_url=base_url_config['anthropic'] if base_url_config else None
+            base_url=base_url_config['anthropic'] if base_url_config and base_url_config['anthropic'] else None
         )
 
         self.model = model

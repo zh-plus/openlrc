@@ -186,7 +186,21 @@ class SubtitleOptimizer:
 
         self.subtitle.segments = new_elements
 
-    def perform_all(self):
+    def extend_time(self):
+        """
+        Extend the subtitle time for each element to 0.5s.
+        :return:
+        """
+        new_elements = self.subtitle.segments
+
+        num_elements = len(new_elements)
+        for i, element in enumerate(new_elements):
+            if i == num_elements - 1 or new_elements[i + 1].start - element.end > 0.5:
+                new_elements[i].end += 0.5
+
+        self.subtitle.segments = new_elements
+
+    def perform_all(self, extend_time=False):
         for _ in range(2):
             self.merge_same()
             self.merge_short()
@@ -200,6 +214,9 @@ class SubtitleOptimizer:
                 self.traditional2mandarin()
             if self.subtitle.lang.lower() in ['zh-cn', 'zh', 'zh-tw']:
                 self.punctuation_optimization()
+
+        if extend_time:
+            self.extend_time()
 
     def save(self, output_name=None, update_name=False):
         optimized_name = extend_filename(self.filename, '_optimized') if not output_name else output_name
