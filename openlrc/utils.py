@@ -217,7 +217,7 @@ def format_timestamp(seconds: float, fmt: str = 'lrc') -> str:
 
 def detect_lang(text):
     detector = LanguageDetectorBuilder.from_languages(*supported_languages_lingua).build()
-    name = detector.detect_language_of(' '.join(text)).name.lower()
+    name = detector.detect_language_of(text).name.lower()
     lang_code = langcodes.Language.find(name).language
     return lang_code
 
