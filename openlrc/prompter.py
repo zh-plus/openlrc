@@ -132,7 +132,7 @@ class BaseTranslatePrompter(TranslatePrompter):
             ['原文>', '翻譯>'],
             ['原文>', '譯文>'],
         ]
-
+        # TODO: Should move glossary into system prompt, avoiding repeating
         self.user_prompt = f'''
 {f"<preferred-translation>{self.formatted_glossary}</preferred-translation> " if self.glossary else ""}
 

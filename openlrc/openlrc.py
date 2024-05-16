@@ -197,6 +197,8 @@ class LRCer:
                 shutil.copy(bilingual_lrc_path, result_path.parent / bilingual_lrc_path.name)
 
                 non_translated_subtitle = transcribed_opt_sub
+                optimizer = SubtitleOptimizer(non_translated_subtitle)
+                optimizer.extend_time()  # Extend 0.5s like what translated do
                 getattr(non_translated_subtitle, f'to_{subtitle_format}')()
                 non_translated_lrc_path = non_translated_subtitle.filename.with_suffix(non_translated_subtitle.suffix)
                 shutil.copy(
