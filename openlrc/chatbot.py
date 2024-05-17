@@ -4,6 +4,7 @@
 import asyncio
 import os
 import random
+import re
 import time
 from typing import List, Union, Dict, Callable
 
@@ -21,13 +22,44 @@ from openlrc.logger import logger
 from openlrc.utils import get_messages_token_number, get_text_token_number
 
 model2chatbot = {}
+all_pricing = {
+    # Third-party provider models from https://api.g4f.icu/pricing
+    'mixtral-8x7b-32768': (0.25, 1),
+    'llama2-70b-4096': (0.25, 1.25),
+
+    # https://platform.deepseek.com/api-docs/pricing/
+    'deepseek-chat': (0.14, 0.28)
+}
 
 
 def _register_chatbot(cls):
+    all_pricing.update(cls.pricing)
+
     for model in cls.pricing:
         model2chatbot[model] = cls
 
     return cls
+
+
+def route_chatbot(model):
+    if ':' in model:
+        chatbot_type, chatbot_model = re.match(r'(.+):(.+)', model).groups()
+        chatbot_type, chatbot_model = chatbot_type.strip().lower(), chatbot_model.strip()
+
+        if chatbot_model not in all_pricing:
+            raise ValueError(f'Invalid model {chatbot_model}.')
+
+        if chatbot_type == 'openai':
+            return GPTBot, chatbot_model
+        elif chatbot_type == 'anthropic':
+            return ClaudeBot, chatbot_model
+        else:
+            raise ValueError(f'Invalid chatbot type {chatbot_type}.')
+
+    if model not in model2chatbot:
+        raise ValueError(f'Invalid model {model}.')
+
+    return model2chatbot[model], model
 
 
 class ChatBot:
@@ -51,7 +83,7 @@ class ChatBot:
 
     @model.setter
     def model(self, model):
-        if model not in self.pricing:
+        if model not in all_pricing:
             raise ValueError(f'Invalid model {model}.')
         self._model = model
 
@@ -63,7 +95,7 @@ class ChatBot:
         for message in messages:
             token_map[message['role']] += get_text_token_number(message['content'])
 
-        prompt_price, completion_price = self.pricing[self.model]
+        prompt_price, completion_price = all_pricing[self.model]
 
         total_price = (sum(token_map.values()) * prompt_price + token_map['user'] * completion_price * 2) / 1000000
 
@@ -135,7 +167,6 @@ class GPTBot(ChatBot):
         'gpt-4-turbo': (10, 30),
         'gpt-4-turbo-2024-04-09': (10, 30),
         'gpt-4o': (5, 15),
-        'deepseek-chat': (0.14, 0.28)
     }
 
     def __init__(self, model='gpt-3.5-turbo-0125', temperature=1, top_p=1, retry=8, max_async=16, json_mode=False,
@@ -161,7 +192,7 @@ class GPTBot(ChatBot):
         self.async_client.close()
 
     def update_fee(self, response: ChatCompletion):
-        prompt_price, completion_price = self.pricing[self.model]
+        prompt_price, completion_price = all_pricing[self.model]
 
         prompt_tokens = response.usage.prompt_tokens
         completion_tokens = response.usage.completion_tokens
@@ -240,7 +271,7 @@ class ClaudeBot(ChatBot):
         self.fee_limit = fee_limit
 
     def update_fee(self, response: Message):
-        prompt_price, completion_price = self.pricing[self.model]
+        prompt_price, completion_price = all_pricing[self.model]
 
         prompt_tokens = response.usage.input_tokens
         completion_tokens = response.usage.output_tokens

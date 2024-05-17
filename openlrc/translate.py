@@ -12,7 +12,7 @@ from typing import Union, List
 
 import requests
 
-from openlrc.chatbot import model2chatbot
+from openlrc.chatbot import route_chatbot, all_pricing
 from openlrc.logger import logger
 from openlrc.prompter import prompter_map, BaseTranslatePrompter, AtomicTranslatePrompter
 
@@ -43,20 +43,19 @@ class LLMTranslator(Translator):
         if prompter not in prompter_map:
             raise ValueError(f'Prompter {prompter} not found.')
 
-        if chatbot_model not in model2chatbot.keys():
-            raise ValueError(f'Chatbot {chatbot_model} not supported.')
-
         self.temperature = 0.9
 
-        chatbot_category = model2chatbot[chatbot_model]
-        self.chatbot = chatbot_category(model=chatbot_model, fee_limit=fee_limit, proxy=proxy, retry=3,
-                                        temperature=self.temperature, base_url_config=base_url_config)
-        self.retry_chatbot = model2chatbot[retry_model](
-            model=retry_model, fee_limit=fee_limit,
-            proxy=proxy, retry=3,
-            temperature=self.temperature,
-            base_url_config=base_url_config
-        ) if retry_model else None
+        chatbot_cls, model_name = route_chatbot(chatbot_model)
+        self.chatbot = chatbot_cls(model=model_name, fee_limit=fee_limit, proxy=proxy, retry=3,
+                                   temperature=self.temperature, base_url_config=base_url_config)
+
+        self.retry_chatbot = None
+        if retry_model:
+            retry_chatbot_cls, retry_model_name = route_chatbot(retry_model)
+            self.retry_chatbot = retry_chatbot_cls[retry_model](
+                model=retry_model_name, fee_limit=fee_limit, proxy=proxy, retry=3, temperature=self.temperature,
+                base_url_config=base_url_config
+            )
 
         self.prompter = prompter
         self.fee_limit = fee_limit
@@ -73,7 +72,7 @@ class LLMTranslator(Translator):
         Returns:
             List[str]: List of available chatbot models.
         """
-        return list(model2chatbot.keys())
+        return list(all_pricing.keys())
 
     @staticmethod
     def make_chunks(texts, chunk_size=30):

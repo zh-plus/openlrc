@@ -6,7 +6,7 @@ from typing import Union
 
 from pydantic import BaseModel
 
-from openlrc.chatbot import GPTBot, ClaudeBot
+from openlrc.chatbot import GPTBot, ClaudeBot, route_chatbot
 
 
 class Usage(BaseModel):
@@ -123,3 +123,25 @@ class TestGPTBot(unittest.TestCase):
         assert 'hello' in bot.get_content(results[0]).lower()
 
         self.assertIn('hello', bot.get_content(results[0]).lower())
+
+    def test_route_chatbot(self):
+        chatbot_model1 = 'openai: claude-3-haiku-20240307'
+        chabot_cls1, model_name1 = route_chatbot(chatbot_model1)
+        self.assertEqual(chabot_cls1, GPTBot)
+        try:
+            _ = chabot_cls1(model=model_name1, temperature=1, top_p=1, retry=8, max_async=16)
+        except Exception as e:
+            self.fail(f"Failed to create chatbot model {chatbot_model1}: {e}")
+
+        chatbot_model2 = 'anthropic: gpt-3.5-turbo'
+        chabot_cls2, model_name2 = route_chatbot(chatbot_model2)
+        self.assertEqual(chabot_cls2, ClaudeBot)
+        try:
+            _ = chabot_cls2(model=model_name2, temperature=1, top_p=1, retry=8, max_async=16)
+        except Exception as e:
+            self.fail(f"Failed to create chatbot model {chatbot_model1}: {e}")
+
+    def test_route_chatbot_error(self):
+        chatbot_model = 'openai: invalid_model_name'
+        with self.assertRaises(ValueError):
+            route_chatbot(chatbot_model + 'error')
