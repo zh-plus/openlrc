@@ -31,7 +31,7 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
     - Add custom endpoint (base_url) support for OpenAI & Anthropic:
         ```python
         lrcer = LRCer(base_url_config={'openai': 'https://api.chatanywhere.tech',
-                                       'anthropic': 'https://api.g4f.icu'})
+                                       'anthropic': 'https://example/api'})
         ```
     - Generating bilingual subtitles
         ```python
@@ -39,6 +39,12 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
         ``` 
 - 2024.5.11: Add glossary into prompt, which is confirmed to improve domain specific translation.
   Check [here](#glossary) for details.
+- 2024.5.17: You can route model to arbitrary Chatbot SDK (either OpenAI or Anthropic) by setting `chatbot_model` to
+  `provider: model_name` together with base_url_config:
+    ```python
+    lrcer = LRCer(chatbot_model='openai: claude-3-haiku-20240307',
+                  base_url_config={'openai': 'https://api.g4f.icu/v1/'})
+    ```
 
 ## Installation ⚙️
 
@@ -146,8 +152,12 @@ if __name__ == '__main__':
     lrcer.run('./data/test.mp3', target_lang='zh-cn', clear_temp_folder=True)
 
     # Change base_url
-    lrcer = LRCer(base_url_config={'openai': 'https://api.chatanywhere.tech',
-                                   'anthropic': 'https://api.g4f.icu'})
+    lrcer = LRCer(base_url_config={'openai': 'https://api.g4f.icu/v1',
+                                   'anthropic': 'https://example/api'})
+
+    # Route model to arbitrary Chatbot SDK
+    lrcer = LRCer(chatbot_model='openai: claude-3-sonnet-20240229',
+                  base_url_config={'openai': 'https://api.g4f.icu/v1/'})
 
     # Bilingual subtitle
     lrcer.run('./data/test.mp3', target_lang='zh-cn', bilingual_sub=True)
