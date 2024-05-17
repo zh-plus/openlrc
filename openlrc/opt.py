@@ -3,7 +3,7 @@
 
 import re
 from pathlib import Path
-from typing import Union
+from typing import Union, Optional, List
 
 import zhconv
 
@@ -11,22 +11,35 @@ from openlrc.logger import logger
 from openlrc.subtitle import Subtitle
 from openlrc.utils import extend_filename
 
-# Different language may need different threshold
-cut_long_threshold = {
-    350: 'en',
-    125: 'cn, ja'
+# Thresholds for different languages
+CUT_LONG_THRESHOLD = {
+    'en': 350,
+    'cn': 125,
+    'ja': 125
+}
+
+# Punctuation mapping
+PUNCTUATION_MAPPING = {
+    ',': '，',
+    '.': '。',
+    '?': '？',
+    '!': '！',
+    ':': '：',
+    ';': '；',
+    '"': '”',
+    "'": '’',
+    '(': '（',
+    ')': '）',
+    '[': '【',
+    ']': '】',
+    '{': '｛',
+    '}': '｝'
 }
 
 
 class SubtitleOptimizer:
     """
-    SubtitleOptimizer class is used to optimize subtitles by performing various operations. For example, merging same
-    text, merging short duration subtitles, merging repeated patterns, cutting long texts, converting traditional
-    Chinese to Mandarin, optimizing punctuation, removing '<unk>' tags, removing empty elements, and stripping
-    whitespace.
-
-    Args:
-        subtitle (Union[Path, Subtitle]): The subtitle to be optimized.
+    SubtitleOptimizer class is used to optimize subtitles by performing various operations.
     """
 
     def __init__(self, subtitle: Union[Path, Subtitle]):
@@ -42,7 +55,7 @@ class SubtitleOptimizer:
 
     def merge_same(self):
         """
-        Merge the same text.
+        Merge consecutive segments with the same text.
         """
         new_elements = []
 
@@ -56,169 +69,141 @@ class SubtitleOptimizer:
 
     def merge_short(self, threshold=1.2):
         """
-        Merge the short duration subtitle.
+        Merge short duration subtitles.
         """
         new_elements = []
-
         merged_element = None
-        for i, element, in enumerate(self.subtitle.segments):
+
+        for i, element in enumerate(self.subtitle.segments):
             if i == 0 or element.duration >= threshold:
                 if merged_element:
-                    if merged_element.duration < 1.5:
-                        # If the merged elements is still too small, find the closer element nearby and merge it
-                        if element.start - merged_element.end < merged_element.start - new_elements[-1].end:
-                            # merge to the next
-                            element.text = merged_element.text + element.text
-                            element.start = merged_element.start
-                        else:
-                            # merge to the last
-                            new_elements[-1].text += merged_element.text
-                            new_elements[-1].end = merged_element.end
-                    else:
-                        new_elements.append(merged_element)
-                    new_elements.append(element)
+                    self._finalize_merge(new_elements, merged_element, element)
                     merged_element = None
-                else:
-                    new_elements.append(element)
+                new_elements.append(element)
             else:
-                if not merged_element:
-                    merged_element = element
-                else:
-                    merged_element.text += element.text
-                    merged_element.end = element.end
+                merged_element = self._merge_elements(merged_element, element)
 
         self.subtitle.segments = new_elements
+
+    def _finalize_merge(self, new_elements, merged_element, element):
+        if merged_element.duration < 1.5:
+            if element.start - merged_element.end < merged_element.start - new_elements[-1].end:
+                element.text = merged_element.text + element.text
+                element.start = merged_element.start
+            else:
+                new_elements[-1].text += merged_element.text
+                new_elements[-1].end = merged_element.end
+        else:
+            new_elements.append(merged_element)
+
+    def _merge_elements(self, merged_element, element):
+        if not merged_element:
+            return element
+        merged_element.text += element.text
+        merged_element.end = element.end
+        return merged_element
 
     def merge_repeat(self):
         """
-        Merge the same pattern in one lyric.
-        :return:
+        Merge repeated patterns in the text.
         """
-        new_elements = self.subtitle.segments
+        for element in self.subtitle.segments:
+            element.text = re.sub(r'(.)\1{4,}', r'\1\1...', element.text)
+            element.text = re.sub(r'(.+)\1{4,}', r'\1\1...', element.text)
 
-        for i, element in enumerate(new_elements):
-            text = element.text
-            text = re.sub(r'(.)\1{4,}', r'\1\1...', text)
-            text = re.sub(r'(.+)\1{4,}', r'\1\1...', text)
-            new_elements[i].text = text
+    def cut_long(self, max_length=20):
+        """
+        Cut long texts based on language-specific thresholds.
+        """
+        threshold = CUT_LONG_THRESHOLD.get(self.lang.lower(), 150)
 
-        self.subtitle.segments = new_elements
-
-    def cut_long(self, keep=20):
-        threshold = 150
-        for threshold, lang in cut_long_threshold.items():
-            if self.lang.lower() in lang:
-                threshold = threshold
-                break
-
-        new_elements = self.subtitle.segments
-
-        for i, element in enumerate(new_elements):
+        for element in self.subtitle.segments:
             if len(element.text) > threshold and len(element.text) / len(set(element.text)) > 3.0:
-                # text length larger than threshold and text density is larger than 3.0
-                logger.warning(f'Cut long text: {element.text}\nInto: {element.text[:keep]}...')
-                new_elements[i].text = element.text[:keep]
-
-        self.subtitle.segments = new_elements
+                logger.warning(f'Cut long text: {element.text}\nInto: {element.text[:max_length]}...')
+                element.text = element.text[:max_length]
 
     def traditional2mandarin(self):
-        new_elements = self.subtitle.segments
-
-        for i, element in enumerate(new_elements):
-            new_elements[i].text = zhconv.convert(element.text, locale='zh-cn')
-
-        self.subtitle.segments = new_elements
+        """
+        Convert traditional Chinese characters to simplified Chinese.
+        """
+        for element in self.subtitle.segments:
+            element.text = zhconv.convert(element.text, locale='zh-cn')
 
     def punctuation_optimization(self):
-        def replace_punctuation_with_chinese(text):
-            # Mapping of English punctuation to Chinese punctuation
-            punctuation_mapping = {
-                ',': '，',
-                '.': '。',
-                '?': '？',
-                '!': '！',
-                ':': '：',
-                ';': '；',
-                '"': '”',
-                "'": '’',
-                '(': '（',
-                ')': '）',
-                '[': '【',
-                ']': '】',
-                '{': '｛',
-                '}': '｝'
-            }
+        """
+        Replace English punctuation with Chinese punctuation.
+        """
+        for element in self.subtitle.segments:
+            element.text = self._replace_punctuation_with_chinese(element.text)
 
-            # Compile a regular expression pattern for all English punctuation marks
-            pattern = re.compile("|".join(map(re.escape, punctuation_mapping.keys())))
-
-            # Replace the punctuation in the text
-            result = pattern.sub(lambda match: punctuation_mapping[match.group(0)], text)
-
-            # Replace consecutive (>3) 。 with ...
-            result = re.sub(r'(。){3,}', '...', result)
-
-            return result
-
-        new_elements = self.subtitle.segments
-
-        for i, element in enumerate(new_elements):
-            new_elements[i].text = replace_punctuation_with_chinese(element.text)
-
-        self.subtitle.segments = new_elements
+    def _replace_punctuation_with_chinese(self, text):
+        pattern = re.compile("|".join(map(re.escape, PUNCTUATION_MAPPING.keys())))
+        result = pattern.sub(lambda match: PUNCTUATION_MAPPING[match.group(0)], text)
+        return re.sub(r'(。){3,}', '...', result)
 
     def remove_unk(self):
-        new_elements = self.subtitle.segments
-
-        for i, element in enumerate(new_elements):
-            new_elements[i].text = element.text.replace('<unk>', '')
-
-        self.subtitle.segments = new_elements
+        """
+        Remove '<unk>' tags from the text.
+        """
+        for element in self.subtitle.segments:
+            element.text = element.text.replace('<unk>', '')
 
     def remove_empty(self):
+        """
+        Remove empty subtitle segments.
+        """
         self.subtitle.segments = [element for element in self.subtitle.segments if element.text]
 
     def strip(self):
-        new_elements = self.subtitle.segments
-
-        for i, element in enumerate(new_elements):
-            new_elements[i].text = element.text.strip()
-
-        self.subtitle.segments = new_elements
+        """
+        Strip whitespace from the text of each subtitle segment.
+        """
+        for element in self.subtitle.segments:
+            element.text = element.text.strip()
 
     def extend_time(self):
         """
         Extend the subtitle time for each element to 0.5s.
-        :return:
         """
-        new_elements = self.subtitle.segments
+        for i, element in enumerate(self.subtitle.segments):
+            if i == len(self.subtitle.segments) - 1 or self.subtitle.segments[i + 1].start - element.end > 0.5:
+                element.end += 0.5
 
-        num_elements = len(new_elements)
-        for i, element in enumerate(new_elements):
-            if i == num_elements - 1 or new_elements[i + 1].start - element.end > 0.5:
-                new_elements[i].end += 0.5
+    def perform_all(self, steps: Optional[List[str]] = None, extend_time=False):
+        """
+        Perform all or specified optimization operations.
 
-        self.subtitle.segments = new_elements
+        Args:
+            steps (list of str): List of method names to be executed in order.
+                                 If None, a default sequence of operations will be executed.
+            extend_time (bool): Whether to extend the subtitle time for each element.
+        """
+        # Check steps is valid
+        if steps and any(step not in dir(self) for step in steps):
+            invalid_steps = ', '.join(s for s in steps if s not in dir(self))
+            raise ValueError(f'Invalid steps: {invalid_steps}')
 
-    def perform_all(self, extend_time=False):
-        for _ in range(2):
-            self.merge_same()
-            self.merge_short()
-            self.merge_repeat()
-            self.cut_long()
-            self.remove_unk()
-            self.remove_empty()
-            self.strip()
+        if steps is None:
+            steps = [
+                'merge_same', 'merge_short', 'merge_repeat', 'cut_long', 'remove_unk', 'remove_empty', 'strip'
+            ]
+            if self.lang.lower() in ['zh-cn', 'zh']:
+                steps.append('traditional2mandarin')
+            if self.lang.lower() in ['zh-cn', 'zh', 'zh-tw']:
+                steps.append('punctuation_optimization')
 
-            if self.subtitle.lang.lower() in ['zh-cn', 'zh']:
-                self.traditional2mandarin()
-            if self.subtitle.lang.lower() in ['zh-cn', 'zh', 'zh-tw']:
-                self.punctuation_optimization()
+        for step in steps:
+            method = getattr(self, step, None)
+            if method:
+                method()
 
         if extend_time:
             self.extend_time()
 
-    def save(self, output_name=None, update_name=False):
+    def save(self, output_name: Optional[str] = None, update_name=False):
+        """
+        Save the optimized subtitle to a file.
+        """
         optimized_name = extend_filename(self.filename, '_optimized') if not output_name else output_name
         self.subtitle.save(optimized_name, update_name=update_name)
         logger.info(f'Optimized json file saved to {optimized_name}')

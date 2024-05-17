@@ -36,7 +36,7 @@ class TestSubtitleOptimizer(unittest.TestCase):
     def test_cut_long(self):
         subtitle = self.subtitle
         optimizer = SubtitleOptimizer(subtitle)
-        optimizer.cut_long(keep=2)
+        optimizer.cut_long(max_length=2)
         self.assertEqual(optimizer.subtitle.segments[4].text, '这太')
 
     def test_traditional2mandarin(self):

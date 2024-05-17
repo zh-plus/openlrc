@@ -8,7 +8,7 @@ from pathlib import Path
 from pprint import pformat
 from queue import Queue
 from threading import Lock
-from typing import List, Union
+from typing import List, Union, Optional
 
 from faster_whisper.transcribe import Segment
 
@@ -251,8 +251,10 @@ class LRCer:
 
         return final_subtitle
 
-    def run(self, paths, src_lang=None, target_lang='zh-cn', prompter='base_trans', context_path=None,
-            skip_trans=False, noise_suppress=False, bilingual_sub=False, clear_temp_folder=False) -> List[str]:
+    def run(self, paths: Union[str, Path, List[Union[str, Path]]], src_lang: Optional[str] = None, target_lang='zh-cn',
+            prompter='base_trans', context_path: Optional[Union[str, Path]] = None, skip_trans=False,
+            noise_suppress=False,
+            bilingual_sub=False, clear_temp_folder=False) -> List[str]:
         """
         Split the translation into 2 phases: transcription and translation. They're running in parallel.
         Firstly, transcribe the audios one-by-one. At the same time, translation threads are created and waiting for
@@ -386,7 +388,7 @@ class LRCer:
     def post_process(transcribed_sub: Path, output_name: Path = None, remove_files: List[Path] = None,
                      update_name=False, extend_time=False):
         optimizer = SubtitleOptimizer(transcribed_sub)
-        optimizer.perform_all(extend_time)
+        optimizer.perform_all(extend_time=extend_time)
         optimizer.save(output_name, update_name=update_name)
 
         # Remove intermediate files
