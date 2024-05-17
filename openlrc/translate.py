@@ -52,7 +52,7 @@ class LLMTranslator(Translator):
         self.retry_chatbot = None
         if retry_model:
             retry_chatbot_cls, retry_model_name = route_chatbot(retry_model)
-            self.retry_chatbot = retry_chatbot_cls[retry_model](
+            self.retry_chatbot = retry_chatbot_cls(
                 model=retry_model_name, fee_limit=fee_limit, proxy=proxy, retry=3, temperature=self.temperature,
                 base_url_config=base_url_config
             )
