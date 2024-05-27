@@ -10,7 +10,7 @@ default_asr_options = {
     "length_penalty": 1,
     "repetition_penalty": 1.0,
     "no_repeat_ngram_size": 0,
-    "temperature": 0,
+    "temperature": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
 
     # We assume the voice is valid after VAD, log_prob_threshold is not reliable, set these 3 to None to prevent
     # miss-transcription, see https://github.com/openai/whisper/discussions/29#discussioncomment-3726710 for details

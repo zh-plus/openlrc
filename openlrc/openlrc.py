@@ -4,6 +4,7 @@
 import concurrent.futures
 import json
 import shutil
+from copy import deepcopy
 from pathlib import Path
 from pprint import pformat
 from queue import Queue
@@ -238,10 +239,11 @@ class LRCer:
             with self._lock:
                 self.api_fee += translator.api_fee  # Ensure thread-safe
 
-            transcribed_opt_sub.set_texts(target_texts, lang=target_lang)
+            translated_sub = deepcopy(transcribed_opt_sub)
+            translated_sub.set_texts(target_texts, lang=target_lang)
 
             # xxx_transcribed_optimized_translated.json
-            transcribed_opt_sub.save(translated_path, update_name=True)
+            translated_sub.save(translated_path, update_name=True)
         else:
             logger.info(f'Found translated json file: {translated_path}')
         translated_sub = Subtitle.from_json(translated_path)
