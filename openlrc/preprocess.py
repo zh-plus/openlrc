@@ -59,6 +59,7 @@ class Preprocessor:
             atten_lim_db = self.options['atten_lim_db']
 
         model, df_state, _ = init_df()
+        chunk_size = 300  # 5 min
 
         ns_audio_paths = []
         for audio_path, output_path in zip(audio_paths, self.output_paths):
@@ -69,8 +70,8 @@ class Preprocessor:
                 audio, info = load_audio(audio_path, sr=df_state.sr())
 
                 # Split audio into 10 min chunks
-                audio_chunks = [audio[:, i:i + 600 * info.sample_rate]
-                                for i in range(0, audio.shape[1], 600 * info.sample_rate)]
+                audio_chunks = [audio[:, i:i + chunk_size * info.sample_rate]
+                                for i in range(0, audio.shape[1], chunk_size * info.sample_rate)]
 
                 enhanced_chunks = []
                 for ac in tqdm(audio_chunks, desc=f'Noise suppressing for {audio_name}'):
