@@ -22,7 +22,7 @@ class TestPreprocessor(unittest.TestCase):
     @patch('openlrc.preprocess.release_memory')
     def test_noise_suppression_returns_path_objects(self, mock_release_memory, mock_save_audio, mock_load_audio,
                                                     mock_init_df, mock_enhance):
-        mock_enhance.return_value = torch.zeros((2, 600 * 16000))
+        mock_enhance.return_value = torch.zeros((2, 300 * 16000))
         mock_init_df.return_value = (Mock(), Mock(), Mock())
 
         mock_info = Mock()

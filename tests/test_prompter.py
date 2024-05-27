@@ -26,7 +26,6 @@ Translation>
 Original>
 生き残る秘訣は、進化し続けることです。
 Translation>
-
 <summary></summary>
 <scene></scene>'''
 
