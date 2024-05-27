@@ -174,32 +174,29 @@ class LLMTranslator(Translator):
             return self._parse_responses(resp, prompter.potential_prefix_combo, changed_chatbot=chatbot)
 
         user_input = prompter.format_texts(chunk)
-        glossary_user_prompt = prompter.user(i, user_input, summaries, scene)
-        non_glossary_user_prompt = prompter_map[self.prompter](
-            prompter.src_lang, prompter.target_lang, prompter.audio_type, title=prompter.title,
-            background=prompter.background, description=prompter.description
-        ).user(i, user_input, summaries, scene)
+        glossary_sys_prompt = prompter.system()
+        non_glossary_sys_prompt = prompter_map[self.prompter](prompter.src_lang, prompter.target_lang).system()
         messages_list = [
-            {'role': 'system', 'content': prompter.system()},
-            {'role': 'user', 'content': glossary_user_prompt},
+            {'role': 'system', 'content': glossary_sys_prompt},
+            {'role': 'user', 'content': prompter.user(i, user_input, summaries, scene)},
         ]
         summary, scene, translated = send_and_parse(messages_list.copy(), self.chatbot)
 
         if len(translated) != len(chunk):
             logger.warning(f'Cant translate chunk {i} with glossary, trying to remove glossary.')
-            messages_list[1]['content'] = non_glossary_user_prompt
+            messages_list[0]['content'] = non_glossary_sys_prompt
             summary, scene, translated = send_and_parse(messages_list.copy(), self.chatbot)
 
         if self.retry_chatbot and len(translated) != len(chunk):
             logger.warning(
                 f'Trying to change chatbot to keep performing chunked translation. Retry chatbot: {self.retry_model}'
             )
-            messages_list[1]['content'] = glossary_user_prompt
+            messages_list[0]['content'] = glossary_sys_prompt
             summary, scene, translated = send_and_parse(messages_list.copy(), self.retry_chatbot)
 
             if len(translated) != len(chunk):
                 logger.warning(f'New bot: Trying to remove glossary to keep performing chunked translation.')
-                messages_list[1]['content'] = non_glossary_user_prompt
+                messages_list[0]['content'] = non_glossary_sys_prompt
                 summary, scene, translated = send_and_parse(messages_list.copy(), self.retry_chatbot)
 
         return summary, scene, translated

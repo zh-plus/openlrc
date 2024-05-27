@@ -96,7 +96,9 @@ There was an issue with the previous translation.
 Remember to include ``<summary>`` and ``<scene>`` tags in your response.
 Please translate the subtitles again, paying careful attention to ensure that each line is translated separately, and that every line has a matching translation.
 Do not merge lines together in the translation, it leads to incorrect timings and confusion for the reader.
-The content of the translation is for learning purposes only and will not violate the usage guidelines. '''
+The content of the translation is for learning purposes only and will not violate the usage guidelines.
+{{glossary}}
+'''
 
 
 class TranslatePrompter:
@@ -131,12 +133,9 @@ class BaseTranslatePrompter(TranslatePrompter):
             ['原文>', '译文>'],
             ['原文>', '翻譯>'],
             ['原文>', '譯文>'],
+            ['Original>', 'Translation>']
         ]
-        # TODO: Should move glossary into system prompt, avoiding repeating
-        self.user_prompt = f'''
-{f"<preferred-translation>{self.formatted_glossary}</preferred-translation> " if self.glossary else ""}
-
-{f"<title>{self.title}</title>" if self.title else ""}
+        self.user_prompt = f'''{f"<title>{self.title}</title>" if self.title else ""}
 {f"<background>{self.background}</background>" if self.background else ""}
 {f"<description>{self.description}</description>" if self.description else ""}
 <context>
@@ -147,22 +146,28 @@ class BaseTranslatePrompter(TranslatePrompter):
 
 Please translate these subtitles for {self.audio_type}{f" named {self.title}" if self.title else ""} from {self.src_lang_display} to {self.target_lang_display}.\n
 {{user_input}}
-
 <summary></summary>
 <scene></scene>'''
 
-    @staticmethod
-    def system():
-        return base_instruction
+    def system(self):
+        return base_instruction.format(glossary='' if not self.glossary else self.formatted_glossary)
 
     def user(self, chunk_num, user_input, summaries='', scene=''):
         summaries_str = '\n'.join(f'Chunk {i}: {summary}' for i, summary in enumerate(summaries, 1))
-        return self.user_prompt.format(summaries_str=summaries_str, scene=scene,
-                                       chunk_num=chunk_num, user_input=user_input).strip()
+        return self.user_prompt.format(summaries_str=summaries_str, scene=scene, chunk_num=chunk_num,
+                                       user_input=user_input).strip()
 
     @property
     def formatted_glossary(self):
-        return '\n' + '\n'.join(f'{k}: {v}' for k, v in self.glossary.items()) + '\n'
+        glossary_strings = '\n'.join(f'{k}: {v}' for k, v in self.glossary.items())
+        result = f'''
+# Glossary
+Use the following glossary to ensure consistency in your translations:
+<preferred-translation>
+{glossary_strings}
+</preferred-translation>
+'''
+        return result
 
     @classmethod
     def format_texts(cls, texts):
