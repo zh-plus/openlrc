@@ -19,14 +19,6 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
 
 ## New 🚨
 
-- 2024.3.29: Claude models are now available for translation. According to the testing, Claude 3 Sonnet performs way
-  better than GPT-3.5 Turbo. We recommend using Claude 3 Sonnet for non-english audio (source language) translation (For
-  now, the default model
-  are still GPT-3.5 Turbo):
-    ```python
-    lrcer = LRCer(chatbot_model='claude-3-sonnet-20240229')
-    ```
-- 2024.4.4: ~~Add basic streamlit GUI support. Try `openlrc gui` to start the GUI.~~
 - 2024.5.7:
     - Add custom endpoint (base_url) support for OpenAI & Anthropic:
         ```python
@@ -127,9 +119,6 @@ if __name__ == '__main__':
     lrcer.run(['./data/test_audio.mp3', './data/test_video.mp4'], target_lang='zh-cn')
     # Generate translated ./data/test_audio.lrc and ./data/test_video.srt
 
-    # Use context.yaml to improve translation
-    lrcer.run('./data/test.mp3', target_lang='zh-cn', context_path='./data/context.yaml')
-
     # Use glossary to improve translation
     lrcer = LRCer(glossary='./data/aoe4-glossary.yaml')
 
@@ -164,27 +153,6 @@ if __name__ == '__main__':
 ```
 
 Check more details in [Documentation](https://zh-plus.github.io/openlrc/#/).
-
-### Context
-
-Utilize the available context to enhance the quality of your translation.
-Save them as `context.yaml` in the same directory as your audio file.
-
-> [!NOTE]
-> The improvement of translation quality from Context is **NOT** guaranteed.
-
-```yaml
-background: "This is a multi-line background.
-This is a basic example."
-audio_type: Movie
-description_map: {
-  movie_name1 (without extension): "This
-  is a multi-line description for movie1.",
-  movie_name2 (without extension): "This
-  is a multi-line description for movie2.",
-  movie_name3 (without extension): "This is a single-line description for movie 3.",
-}
-```
 
 ### Glossary
 

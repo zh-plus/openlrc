@@ -20,7 +20,7 @@ from openlrc.prompter import prompter_map, BaseTranslatePrompter, AtomicTranslat
 class Translator(ABC):
 
     @abstractmethod
-    def translate(self, texts: Union[str, List[str]], src_lang, target_lang):
+    def translate(self, texts: Union[str, List[str]], src_lang, target_lang) -> List[str]:
         pass
 
 
@@ -202,8 +202,7 @@ class LLMTranslator(Translator):
         return summary, scene, translated
 
     def translate(self, texts: Union[str, List[str]], src_lang, target_lang, audio_type='Anime', title='',
-                  background='', description='', compare_path: Path = Path('translate_intermediate.json'),
-                  glossary: dict = None):
+                  compare_path: Path = Path('translate_intermediate.json'), glossary: dict = None) -> List[str]:
         """
         Translate a list of texts from source language to target language.
 
@@ -213,8 +212,6 @@ class LLMTranslator(Translator):
             target_lang (str): The target language.
             audio_type (str): The type of audio (e.g., 'Anime').
             title (str): The title of the content.
-            background (str): The background context.
-            description (str): The description of the content.
             compare_path (Path): The path to save intermediate translation results.
             glossary (dict): The glossary to use for translation.
 
@@ -225,8 +222,7 @@ class LLMTranslator(Translator):
             texts = [texts]
 
         prompter: BaseTranslatePrompter = prompter_map[self.prompter](
-            src_lang, target_lang, audio_type, title=title, background=background, description=description,
-            glossary=glossary
+            src_lang, target_lang, audio_type, title=title, glossary=glossary
         )
 
         chunks = self.make_chunks(texts, chunk_size=self.chunk_size)

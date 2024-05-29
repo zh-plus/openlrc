@@ -13,7 +13,6 @@ from typing import List, Union, Optional
 
 from faster_whisper.transcribe import Segment
 
-from openlrc.context import Context
 from openlrc.defaults import default_asr_options, default_vad_options, default_preprocess_options
 from openlrc.logger import logger
 from openlrc.opt import SubtitleOptimizer
@@ -58,7 +57,6 @@ class LRCer:
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
         self.from_video = set()
-        self.context: Context = Context()
         self.proxy = proxy
         self.base_url_config = base_url_config
         self.glossary = self.parse_glossary(glossary)
@@ -222,16 +220,12 @@ class LRCer:
             translator = LLMTranslator(chatbot_model=self.chatbot_model, prompter=prompter, fee_limit=self.fee_limit,
                                        proxy=self.proxy, base_url_config=self.base_url_config,
                                        retry_model=self.retry_model)
-            context = self.context
 
             target_texts = translator.translate(
                 transcribed_opt_sub.texts,
                 src_lang=transcribed_opt_sub.lang,
                 target_lang=target_lang,
                 title=audio_name,
-                audio_type=context.audio_type,
-                background=context.background,
-                description=context.get_description(audio_name),
                 compare_path=compare_path,
                 glossary=self.glossary
             )
@@ -254,7 +248,7 @@ class LRCer:
         return final_subtitle
 
     def run(self, paths: Union[str, Path, List[Union[str, Path]]], src_lang: Optional[str] = None, target_lang='zh-cn',
-            prompter='base_trans', context_path: Optional[Union[str, Path]] = None, skip_trans=False,
+            prompter='base_trans', skip_trans=False,
             noise_suppress=False,
             bilingual_sub=False, clear_temp_folder=False) -> List[str]:
         """
@@ -268,7 +262,6 @@ class LRCer:
             src_lang (str): Language of the audio, default to auto-detect.
             target_lang (str): Target language, default to Mandarin Chinese.
             prompter (str): Currently, only `base_trans` is supported.
-            context_path (str): path to context config file. (Default to use `context.yaml` in the first audio's directory)
             skip_trans (bool): Whether to skip the translation process. (Default to False)
             noise_suppress (bool): Whether to suppress the noise in the audio. (Default to False)
             bilingual_sub (bool): Whether to generate bilingual subtitles. (Default to False)
@@ -291,20 +284,6 @@ class LRCer:
             paths = [paths]
 
         paths = list(map(Path, paths))
-
-        if context_path:
-            context_path = Path(context_path)
-            self.context.load_config(context_path)
-            logger.info(f'Found context config: {context_path}')
-            logger.debug(f'Context: {self.context}')
-        else:
-            # Try to find the default `context.yaml` in the first audio's directory
-            try:
-                context_path = paths[0].parent / 'context.yaml'
-                self.context.load_config(context_path)
-                logger.info(f'Found context config file: {context_path}')
-            except FileNotFoundError:
-                logger.info(f'Default context config not found: {self.context}, using default context.')
 
         audio_paths = self.pre_process(paths, noise_suppress=noise_suppress)
 

@@ -15,7 +15,7 @@ translation_prefix = 'Translation>'
 base_instruction = f'''Ignore all previous instructions.
 You are a translator tasked with revising and translating subtitles into a target language. Your goal is to ensure accurate, concise, and natural-sounding translations for each line of dialogue. The input consists of transcribed audio, which may contain transcription errors. Your task is to first correct any errors you find in the sentences based on their context, and then translate them to the target language according to the revised sentences.
 The user will provide a chunk of lines, you should respond with an accurate, concise, and natural-sounding translation for the dialogue, with appropriate punctuation.
-The user may provide additional context, such as background, description or title of the source material, a summary of the current scene, or a list of character names. Use this information to improve the quality of your translation.
+The user may provide additional context, such as title of the source material, a summary of the current scene, or a list of character names. Use this information to improve the quality of your translation.
 Your response will be processed by an automated system, so it is imperative that you adhere to the required output format.
 The source subtitles were AI-generated with a speech-to-text tool so they are likely to contain errors. Where the input seems likely to be incorrect, use ALL available context to determine what the correct text should be, to the best of your ability.
 
@@ -115,7 +115,7 @@ class TranslatePrompter:
 
 
 class BaseTranslatePrompter(TranslatePrompter):
-    def __init__(self, src_lang, target_lang, audio_type=None, title='', background='', description='', glossary=None):
+    def __init__(self, src_lang, target_lang, audio_type=None, title='', glossary=None):
         self.src_lang = src_lang
         self.target_lang = target_lang
         self.src_lang_display = Language.get(src_lang).display_name('en')
@@ -124,8 +124,6 @@ class BaseTranslatePrompter(TranslatePrompter):
 
         self.audio_type = audio_type
         self.title = title
-        self.background = background
-        self.description = description
         self.glossary = glossary
         self.potential_prefix_combo = [
             [original_prefix, translation_prefix],
@@ -136,8 +134,6 @@ class BaseTranslatePrompter(TranslatePrompter):
             ['Original>', 'Translation>']
         ]
         self.user_prompt = f'''{f"<title>{self.title}</title>" if self.title else ""}
-{f"<background>{self.background}</background>" if self.background else ""}
-{f"<description>{self.description}</description>" if self.description else ""}
 <context>
 <scene>{{scene}}</scene>
 <chunk> {{summaries_str}} </chunk>

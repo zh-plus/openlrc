@@ -6,8 +6,6 @@ import unittest
 from openlrc.prompter import BaseTranslatePrompter
 
 formatted_user_input = '''<title>Title</title>
-<background>Background</background>
-<description>Description</description>
 <context>
 <scene>test scene content</scene>
 <chunk> Chunk 1: test chunk1 summary
@@ -32,7 +30,7 @@ Translation>
 
 class TestPrompter(unittest.TestCase):
     def setUp(self) -> None:
-        self.prompter = BaseTranslatePrompter('ja', 'zh-cn', 'movie', 'Title', 'Background', 'Description')
+        self.prompter = BaseTranslatePrompter('ja', 'zh-cn', 'movie', 'Title')
         self.formatted_user_input = formatted_user_input
 
     def test_user_prompt(self):
