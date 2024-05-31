@@ -3,69 +3,50 @@
 
 import json
 import os
-import re
 import uuid
 from abc import ABC, abstractmethod
 from itertools import zip_longest
 from pathlib import Path
-from typing import Union, List
+from typing import Union, List, Optional, Tuple
 
 import requests
 
-from openlrc.chatbot import route_chatbot, all_pricing
+from openlrc.agents import ChunkedTranslatorAgent, ContextReviewerAgent
+from openlrc.chatbot import all_pricing
+from openlrc.context import TranslationContext, TranslateInfo
 from openlrc.logger import logger
-from openlrc.prompter import prompter_map, BaseTranslatePrompter, AtomicTranslatePrompter
+from openlrc.prompter import AtomicTranslatePrompter
 
 
 class Translator(ABC):
 
     @abstractmethod
-    def translate(self, texts: Union[str, List[str]], src_lang, target_lang) -> List[str]:
+    def translate(self, texts: Union[str, List[str]], src_lang: str, target_lang: str,
+                  info: TranslateInfo) -> List[str]:
         pass
 
 
 class LLMTranslator(Translator):
-    def __init__(self, chatbot_model: str = 'gpt-3.5-turbo', prompter: str = 'base_trans', fee_limit=0.2,
-                 chunk_size=30, intercept_line=None, proxy=None, base_url_config=None, retry_model=None):
+    CHUNK_SIZE = 30
+
+    def __init__(self, chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.2, chunk_size: int = CHUNK_SIZE,
+                 intercept_line: Optional[int] = None, proxy: Optional[str] = None,
+                 base_url_config: Optional[dict] = None,
+                 retry_model: Optional[str] = None):
         """
         Initialize the LLMTranslator with given parameters.
-
-        Args:
-            chatbot_model (str): The model of the chatbot to use.
-            prompter (str): The prompter to format the texts for translation.
-            fee_limit (float): The fee limit for the API.
-            chunk_size (int): The size of text chunks for translation.
-            intercept_line (int): The line number to intercept.
-            proxy (str): The proxy server to use.
-            base_url_config (dict): The base URL configuration for the chatbot API.
-            retry_model (str): The model to use for retrying translation if the primary model fails.
         """
-        if prompter not in prompter_map:
-            raise ValueError(f'Prompter {prompter} not found.')
-
-        self.temperature = 0.9
-
-        chatbot_cls, model_name = route_chatbot(chatbot_model)
-        self.chatbot = chatbot_cls(model=model_name, fee_limit=fee_limit, proxy=proxy, retry=3,
-                                   temperature=self.temperature, base_url_config=base_url_config)
-
-        self.retry_chatbot = None
-        if retry_model:
-            retry_chatbot_cls, retry_model_name = route_chatbot(retry_model)
-            self.retry_chatbot = retry_chatbot_cls(
-                model=retry_model_name, fee_limit=fee_limit, proxy=proxy, retry=3, temperature=self.temperature,
-                base_url_config=base_url_config
-            )
-
-        self.prompter = prompter
+        self.chatbot_model = chatbot_model
         self.fee_limit = fee_limit
+        self.proxy = proxy
+        self.base_url_config = base_url_config
         self.chunk_size = chunk_size
         self.api_fee = 0
         self.intercept_line = intercept_line
         self.retry_model = retry_model
 
     @staticmethod
-    def list_chatbots():
+    def list_chatbots() -> List[str]:
         """
         List available chatbot models.
 
@@ -75,7 +56,7 @@ class LLMTranslator(Translator):
         return list(all_pricing.keys())
 
     @staticmethod
-    def make_chunks(texts, chunk_size=30):
+    def make_chunks(texts: List[str], chunk_size: int = 30) -> List[List[Tuple[int, str]]]:
         """
         Split the text into chunks of specified size.
 
@@ -99,140 +80,87 @@ class LLMTranslator(Translator):
 
         return chunks
 
-    def _parse_responses(self, resp, potential_prefix_combo, changed_chatbot=None):
-        """
-        Parse the response from the chatbot API.
-
-        Args:
-            resp (str): The response from the chatbot API.
-            potential_prefix_combo (List[Tuple[str, str]]): Potential prefix combinations for parsing.
-            changed_chatbot: The chatbot instance used for parsing if different from the primary chatbot.
-
-        Returns:
-            Tuple[str, str, List[str]]: Parsed summary, scene, and translations from the response.
-        """
-        content = changed_chatbot.get_content(resp) if changed_chatbot else self.chatbot.get_content(resp)
-
-        try:
-            summary = re.search(r'<summary>(.*)</summary>', content)
-            scene = re.search(r'<scene>(.*)</scene>', content)
-
-            summary = summary.group(1) if summary else ''
-            scene = scene.group(1) if scene else ''
-
-            for _, trans_prefix in potential_prefix_combo:
-                translation = re.findall(f'{trans_prefix}\n*(.*?)(?:#\d+|<summary>|\n*$)', content, re.DOTALL)
-                if translation:
-                    break
-            else:
-                return summary.strip(), scene.strip(), []
-
-            # Remove "</summary>\nxxx</scene>" tags (or some wierd tags like </p> ❓) from translation
-            if any([re.search(r'(<.*?>|</.*?>)', t) for t in translation]):
-                logger.warning(f'The extracted translation from response contains tags: {content}, tags removed')
-                translation = [
-                    re.sub(
-                        r'(<.*?>|</.*?>).*',
-                        '', t, flags=re.DOTALL
-                    )
-                    for t in translation
-                ]
-
-            return summary.strip(), scene.strip(), [t.strip() for t in translation]
-
-        except Exception as e:
-            logger.error(f'Failed to extract contents from response: {content}')
-            raise e
-
-    def _translate_chunk(self, chunk, prompter, summaries, scene, i):
+    def _translate_chunk(self, translator_agent: ChunkedTranslatorAgent, chunk: List[Tuple[int, str]],
+                         context: TranslationContext, chunk_id: int,
+                         retry_agent: Optional[ChunkedTranslatorAgent] = None) -> Tuple[
+        List[str], TranslationContext]:
         """
         Translate a single chunk of text.
-
-        Args:
-            chunk (List[Tuple[int, str]]): The chunk of text to be translated.
-            prompter (BaseTranslatePrompter): The prompter instance to format the text.
-            summaries (List[str]): List of summaries for context.
-            scene (str): The current scene context.
-            i (int): The chunk index.
-
-        Returns:
-            Tuple[str, str, List[str]]: The summary, scene, and translated texts for the chunk.
         """
+        translated, context = translator_agent.translate_chunk(chunk_id, chunk, context)
 
-        def send_and_parse(messages, chatbot):
-            """
-            Helper function to send messages to the chatbot and parse the response.
+        if len(translated) != len(chunk) and translator_agent.info.glossary:
+            logger.warning(f'Cannot translate chunk {chunk_id} with glossary, trying to remove glossary.')
+            translated, context = translator_agent.translate_chunk(chunk_id, chunk, context, use_glossary=False)
 
-            Args:
-                messages (List[dict]): List of messages to send.
-                chatbot: The chatbot instance to use.
-
-            Returns:
-                Tuple[str, str, List[str]]: The parsed summary, scene, and translations.
-            """
-            resp = chatbot.message(messages, output_checker=prompter.check_format)[0]
-            return self._parse_responses(resp, prompter.potential_prefix_combo, changed_chatbot=chatbot)
-
-        user_input = prompter.format_texts(chunk)
-        glossary_sys_prompt = prompter.system()
-        non_glossary_sys_prompt = prompter_map[self.prompter](prompter.src_lang, prompter.target_lang).system()
-        messages_list = [
-            {'role': 'system', 'content': glossary_sys_prompt},
-            {'role': 'user', 'content': prompter.user(i, user_input, summaries, scene)},
-        ]
-        summary, scene, translated = send_and_parse(messages_list.copy(), self.chatbot)
-
-        if len(translated) != len(chunk):
-            logger.warning(f'Cant translate chunk {i} with glossary, trying to remove glossary.')
-            messages_list[0]['content'] = non_glossary_sys_prompt
-            summary, scene, translated = send_and_parse(messages_list.copy(), self.chatbot)
-
-        if self.retry_chatbot and len(translated) != len(chunk):
+        if retry_agent and len(translated) != len(chunk):
             logger.warning(
-                f'Trying to change chatbot to keep performing chunked translation. Retry chatbot: {self.retry_model}'
-            )
-            messages_list[0]['content'] = glossary_sys_prompt
-            summary, scene, translated = send_and_parse(messages_list.copy(), self.retry_chatbot)
+                f'Trying to change chatbot to keep performing chunked translation. Retry chatbot: {retry_agent}')
+            translated, context = retry_agent.translate_chunk(chunk_id, chunk, context)
 
-            if len(translated) != len(chunk):
+            if len(translated) != len(chunk) and retry_agent.info.glossary:
                 logger.warning(f'New bot: Trying to remove glossary to keep performing chunked translation.')
-                messages_list[0]['content'] = non_glossary_sys_prompt
-                summary, scene, translated = send_and_parse(messages_list.copy(), self.retry_chatbot)
+                translated, context = retry_agent.translate_chunk(chunk_id, chunk, context, use_glossary=False)
 
-        return summary, scene, translated
+        return translated, context
 
-    def translate(self, texts: Union[str, List[str]], src_lang, target_lang, audio_type='Anime', title='',
-                  compare_path: Path = Path('translate_intermediate.json'), glossary: dict = None) -> List[str]:
+    def translate(self, texts: Union[str, List[str]], src_lang: str, target_lang: str,
+                  info: TranslateInfo = TranslateInfo(),
+                  compare_path: Path = Path('translate_intermediate.json')) -> List[str]:
         """
         Translate a list of texts from source language to target language.
-
-        Args:
-            texts (Union[str, List[str]]): The texts to be translated.
-            src_lang (str): The source language.
-            target_lang (str): The target language.
-            audio_type (str): The type of audio (e.g., 'Anime').
-            title (str): The title of the content.
-            compare_path (Path): The path to save intermediate translation results.
-            glossary (dict): The glossary to use for translation.
-
-        Returns:
-            List[str]: The translated texts.
         """
         if not isinstance(texts, list):
             texts = [texts]
 
-        prompter: BaseTranslatePrompter = prompter_map[self.prompter](
-            src_lang, target_lang, audio_type, title=title, glossary=glossary
-        )
+        translator_agent = ChunkedTranslatorAgent(src_lang, target_lang, info, self.chatbot_model, self.fee_limit,
+                                                  self.proxy, self.base_url_config)
+
+        retry_agent = ChunkedTranslatorAgent(src_lang, target_lang, info, self.retry_model, self.fee_limit,
+                                             self.proxy, self.base_url_config) if self.retry_model else None
+
+        # proofreader = ProofreaderAgent(src_lang, target_lang, info)
 
         chunks = self.make_chunks(texts, chunk_size=self.chunk_size)
-        logger.info(f'Translating {title}: {len(chunks)} chunks, {len(texts)} lines in total.')
+        logger.info(f'Translating {info.title}: {len(chunks)} chunks, {len(texts)} lines in total.')
 
-        translations = []
-        summaries = []
-        summary, scene = '', ''
-        compare_list = []
-        start_chunk = 0
+        translations, summaries, compare_list, start_chunk, guideline = self._resume_translation(compare_path)
+        if not guideline:
+            context_reviewer = ContextReviewerAgent(src_lang, target_lang, info)
+            guideline = context_reviewer.build_context(texts, title=info.title, glossary=info.glossary)
+            logger.info(f'Translation Guideline:\n{guideline}')
+
+        context = TranslationContext(guideline=guideline)
+        for i, chunk in list(enumerate(chunks, start=1))[start_chunk:]:
+            atomic = False
+            translated, context = self._translate_chunk(translator_agent, chunk, context, i, retry_agent=retry_agent)
+            # Proofreader Not fully tested
+            # localized_trans = proofreader.localize_subtitles(
+            #     texts=[c[1] for c in chunk], translations=translated, context=context
+            # )
+
+            if len(translated) != len(chunk):
+                logger.warning(f'Chunk {i} translation length inconsistent: {len(translated)} vs {len(chunk)},'
+                               f' Trying to use atomic translation instead.')
+                chunk_texts = [item[1] for item in chunk]
+                translated = self.atomic_translate(self.chatbot_model, chunk_texts, src_lang, target_lang)
+                atomic = True
+
+            translations.extend(translated)
+            summaries.append(context.summary)
+            logger.info(f'Translated {info.title}: {i}/{len(chunks)}')
+            logger.info(f'summary: {context.summary}')
+            logger.info(f'scene: {context.scene}')
+
+            compare_list.extend(self._generate_compare_list(chunk, translated, i, atomic, context))
+            self._save_intermediate_results(compare_path, compare_list, summaries, context.scene, guideline)
+
+        self.api_fee += translator_agent.cost + (retry_agent.cost if retry_agent else 0)
+
+        return translations
+
+    def _resume_translation(self, compare_path: Path) -> Tuple[List[str], List[str], List[dict], int, str]:
+        translations, summaries, compare_list, start_chunk, guideline = [], [], [], 0, ''
 
         if compare_path.exists():
             logger.info(f'Resume from {compare_path}')
@@ -240,62 +168,43 @@ class LLMTranslator(Translator):
                 compare_results = json.load(f)
             compare_list = compare_results['compare']
             summaries = compare_results['summaries']
-            scene = compare_results['scene']
             translations = [item['output'] for item in compare_list]
             start_chunk = compare_list[-1]['chunk']
+            guideline = compare_results['guideline']
             logger.info(f'Resume translation from chunk {start_chunk}')
 
-        for i, chunk in list(enumerate(chunks, start=1))[start_chunk:]:
-            atomic = False
-            summary, scene, translated = self._translate_chunk(chunk, prompter, summaries, scene, i)
+        return translations, summaries, compare_list, start_chunk, guideline
 
-            if len(translated) != len(chunk):
-                logger.warning(f'Chunk {i} translation length inconsistent: {len(translated)} vs {len(chunk)},'
-                               f'Trying to use atomic translation instead.')
-                chunk_texts = [item[1] for item in chunk]
-                translated = self.atomic_translate(chunk_texts, src_lang, target_lang)
-                atomic = True
+    def _generate_compare_list(self, chunk: List[Tuple[int, str]], translated: List[str], chunk_id: int,
+                               atomic: bool, context: TranslationContext) -> List[dict]:
+        return [{'chunk': chunk_id,
+                 'idx': item[0] if item else 'N\\A',
+                 'method': 'atomic' if atomic else 'chunked',
+                 'model': context.model,
+                 'input': item[1] if item else 'N\\A',
+                 'output': trans if trans else 'N\\A'}
+                for (item, trans) in zip_longest(chunk, translated)]
 
-            translations.extend(translated)
-            summaries.append(summary)
-            logger.info(f'Translated {title}: {i}/{len(chunks)}')
-            logger.info(f'summary: {summary}')
-            logger.info(f'scene: {scene}')
+    def _save_intermediate_results(self, compare_path: Path, compare_list: List[dict], summaries: List[str],
+                                   scene: str, guideline: str):
+        compare_results = {'compare': compare_list, 'summaries': summaries, 'scene': scene, 'guideline': guideline}
+        with open(compare_path, 'w', encoding='utf-8') as f:
+            json.dump(compare_results, f, indent=4, ensure_ascii=False)
 
-            compare_list.extend([{'chunk': i,
-                                  'idx': item[0] if item else 'N\\A',
-                                  'method': 'atomic' if atomic else 'chunked',
-                                  'model': self.chatbot.model,
-                                  'input': item[1] if item else 'N\\A',
-                                  'output': trans if trans else 'N\\A'}
-                                 for (item, trans) in zip_longest(chunk, translated)])
-            compare_results = {'compare': compare_list, 'summaries': summaries, 'scene': scene}
-            with open(compare_path, 'w', encoding='utf-8') as f:
-                json.dump(compare_results, f, indent=4, ensure_ascii=False)
-
-        self.api_fee += sum(self.chatbot.api_fees)
-
-        return translations
-
-    def atomic_translate(self, texts, src_lang, target_lang):
+    def atomic_translate(self, chatbot_model: str, texts: List[str], src_lang: str, target_lang: str) -> List[str]:
         """
         Perform atomic translation for each text.
-
-        Args:
-            texts (List[str]): List of texts to be translated.
-            src_lang (str): Source language.
-            target_lang (str): Target language.
-
-        Returns:
-            List[str]: List of translated texts.
         """
-        prompter = AtomicTranslatePrompter(src_lang, target_lang)
-        message_lists = [[
-            {'role': 'user', 'content': prompter.user(text)}
-        ] for text in texts]
+        chatbot = ChunkedTranslatorAgent(src_lang, target_lang, TranslateInfo(), chatbot_model, self.fee_limit,
+                                         self.proxy,
+                                         self.base_url_config).chatbot
 
-        responses = self.chatbot.message(message_lists, output_checker=prompter.check_format)
-        translated = list(map(self.chatbot.get_content, responses))
+        prompter = AtomicTranslatePrompter(src_lang, target_lang)
+        message_lists = [[{'role': 'user', 'content': prompter.user(text)}] for text in texts]
+
+        responses = chatbot.message(message_lists, output_checker=prompter.check_format)
+        self.api_fee += sum(chatbot.api_fees[-(len(texts)):])
+        translated = list(map(chatbot.get_content, responses))
 
         assert len(translated) == len(texts), f'Atomic translation failed: {len(translated)} vs {len(texts)}'
 
@@ -317,7 +226,7 @@ class MSTranslator(Translator):
             'X-ClientTraceId': str(uuid.uuid4())
         }
 
-    def translate(self, texts: Union[str, List[str]], src_lang, target_lang):
+    def translate(self, texts: Union[str, List[str]], src_lang, target_lang, info=None):
         params = {
             'api-version': '3.0',
             'from': src_lang,

@@ -3,17 +3,19 @@
 
 import unittest
 
+from openlrc.context import TranslateInfo
 from openlrc.prompter import BaseTranslatePrompter
 
-formatted_user_input = '''<title>Title</title>
-<context>
-<scene>test scene content</scene>
-<chunk> Chunk 1: test chunk1 summary
-Chunk 2: test chunk2 summary </chunk>
-</context>
+formatted_user_input = '''Translation guidelines from context reviewer:
+This is a guidline.
+
+Previews summaries:
+Chunk 1: test chunk1 summary
+Chunk 2: test chunk2 summary
+
 <chunk_id> Scene 1 Chunk 1 <chunk_id>
 
-Please translate these subtitles for movie named Title from Japanese to Chinese (China).
+Please translate these subtitles for movie from Japanese to Chinese (China).
 
 #1
 Original>
@@ -30,7 +32,8 @@ Translation>
 
 class TestPrompter(unittest.TestCase):
     def setUp(self) -> None:
-        self.prompter = BaseTranslatePrompter('ja', 'zh-cn', 'movie', 'Title')
+        context = TranslateInfo(title='Title', audio_type='movie')
+        self.prompter = BaseTranslatePrompter('ja', 'zh-cn', context)
         self.formatted_user_input = formatted_user_input
 
     def test_user_prompt(self):
@@ -44,7 +47,8 @@ Original>
 生き残る秘訣は、進化し続けることです。
 Translation>'''
         self.assertEqual(
-            self.prompter.user(1, user_input, ['test chunk1 summary', 'test chunk2 summary'], 'test scene content'),
+            self.prompter.user(1, user_input, ['test chunk1 summary', 'test chunk2 summary'],
+                               guideline='This is a guidline.'),
             self.formatted_user_input
         )
 
@@ -58,8 +62,6 @@ Translation>'''
         messages = [{'role': 'system', 'content': 'system content'},
                     {'role': 'user', 'content': formatted_user_input}]
         content = '''<title>Title</title>
-<background>Background</background>
-<description>Description</description>
 <context>
 <scene>Scene</scene>
 <chunk> Chunk 1:  </chunk>

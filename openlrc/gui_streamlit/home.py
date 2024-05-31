@@ -186,7 +186,7 @@ if submitted:
                           window_size_samples, speech_pad_ms),
                       preprocess_options=get_preprocess_options(atten_lim_db),
                       proxy=proxy, )
-        results = lrcer.run(paths, src_lang=src_lang, target_lang=target_lang, prompter=prompter,
+        results = lrcer.run(paths, src_lang=src_lang, target_lang=target_lang,
                             skip_trans=skip_trans, noise_suppress=noise_suppress, bilingual_sub=bilingual_sub)
     print(paths)
     print(results)
