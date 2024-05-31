@@ -13,7 +13,7 @@ from typing import List, Union, Optional
 
 from faster_whisper.transcribe import Segment
 
-from openlrc.context import Context
+from openlrc.context import TranslateInfo
 from openlrc.defaults import default_asr_options, default_vad_options, default_preprocess_options
 from openlrc.logger import logger
 from openlrc.opt import SubtitleOptimizer
@@ -58,7 +58,6 @@ class LRCer:
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
         self.from_video = set()
-        self.context: Context = Context()
         self.proxy = proxy
         self.base_url_config = base_url_config
         self.glossary = self.parse_glossary(glossary)
@@ -132,18 +131,18 @@ class LRCer:
         transcription_queue.put(None)
         logger.info('Transcription producer finished.')
 
-    def transcription_consumer(self, transcription_queue, target_lang, prompter, skip_trans, bilingual_sub):
+    def transcription_consumer(self, transcription_queue, target_lang, skip_trans, bilingual_sub):
         """
         Parallel Consumer.
         """
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = [executor.submit(self.consumer_worker, transcription_queue, target_lang, prompter, skip_trans,
+            futures = [executor.submit(self.consumer_worker, transcription_queue, target_lang, skip_trans,
                                        bilingual_sub)
                        for _ in range(self.consumer_thread)]
             concurrent.futures.wait(futures)
         logger.info('Transcription consumer finished.')
 
-    def consumer_worker(self, transcription_queue, target_lang, prompter, skip_trans, bilingual_sub):
+    def consumer_worker(self, transcription_queue, target_lang, skip_trans, bilingual_sub):
         """
         Parallel translation.
         """
@@ -175,7 +174,7 @@ class LRCer:
             else:
                 with Timer('Translation process'):
                     try:
-                        final_subtitle = self._translate(audio_name, prompter, target_lang, transcribed_opt_sub,
+                        final_subtitle = self._translate(audio_name, target_lang, transcribed_opt_sub,
                                                          translated_path)
                     except Exception as e:
                         self.exception = e
@@ -214,26 +213,23 @@ class LRCer:
 
                 self.transcribed_paths.append(result_path)
 
-    def _translate(self, audio_name, prompter, target_lang, transcribed_opt_sub, translated_path):
+    def _translate(self, audio_name, target_lang, transcribed_opt_sub, translated_path):
+        context = TranslateInfo(title=audio_name, audio_type='Movie', glossary=self.glossary)
+
         json_filename = Path(translated_path.parent / (audio_name + '.json'))
         compare_path = Path(translated_path.parent, f'{audio_name}_compare.json')
         if not translated_path.exists():
             # Translate the transcribed json
-            translator = LLMTranslator(chatbot_model=self.chatbot_model, prompter=prompter, fee_limit=self.fee_limit,
+            translator = LLMTranslator(chatbot_model=self.chatbot_model, fee_limit=self.fee_limit,
                                        proxy=self.proxy, base_url_config=self.base_url_config,
                                        retry_model=self.retry_model)
-            context = self.context
 
             target_texts = translator.translate(
                 transcribed_opt_sub.texts,
                 src_lang=transcribed_opt_sub.lang,
                 target_lang=target_lang,
-                title=audio_name,
-                audio_type=context.audio_type,
-                background=context.background,
-                description=context.get_description(audio_name),
-                compare_path=compare_path,
-                glossary=self.glossary
+                info=context,
+                compare_path=compare_path
             )
 
             with self._lock:
@@ -254,9 +250,7 @@ class LRCer:
         return final_subtitle
 
     def run(self, paths: Union[str, Path, List[Union[str, Path]]], src_lang: Optional[str] = None, target_lang='zh-cn',
-            prompter='base_trans', context_path: Optional[Union[str, Path]] = None, skip_trans=False,
-            noise_suppress=False,
-            bilingual_sub=False, clear_temp_folder=False) -> List[str]:
+            skip_trans=False, noise_suppress=False, bilingual_sub=False, clear_temp_folder=False) -> List[str]:
         """
         Split the translation into 2 phases: transcription and translation. They're running in parallel.
         Firstly, transcribe the audios one-by-one. At the same time, translation threads are created and waiting for
@@ -267,8 +261,6 @@ class LRCer:
             paths (Union[str, Path, List[Union[str, Path]]]): Audio/Video paths, can be a list or a single path.
             src_lang (str): Language of the audio, default to auto-detect.
             target_lang (str): Target language, default to Mandarin Chinese.
-            prompter (str): Currently, only `base_trans` is supported.
-            context_path (str): path to context config file. (Default to use `context.yaml` in the first audio's directory)
             skip_trans (bool): Whether to skip the translation process. (Default to False)
             noise_suppress (bool): Whether to suppress the noise in the audio. (Default to False)
             bilingual_sub (bool): Whether to generate bilingual subtitles. (Default to False)
@@ -292,20 +284,6 @@ class LRCer:
 
         paths = list(map(Path, paths))
 
-        if context_path:
-            context_path = Path(context_path)
-            self.context.load_config(context_path)
-            logger.info(f'Found context config: {context_path}')
-            logger.debug(f'Context: {self.context}')
-        else:
-            # Try to find the default `context.yaml` in the first audio's directory
-            try:
-                context_path = paths[0].parent / 'context.yaml'
-                self.context.load_config(context_path)
-                logger.info(f'Found context config file: {context_path}')
-            except FileNotFoundError:
-                logger.info(f'Default context config not found: {self.context}, using default context.')
-
         audio_paths = self.pre_process(paths, noise_suppress=noise_suppress)
 
         logger.info(f'Working on {len(audio_paths)} audio files: {pformat(audio_paths)}')
@@ -314,8 +292,7 @@ class LRCer:
 
         with Timer('Transcription (Producer) and Translation (Consumer) process'):
             consumer = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='Consumer') \
-                .submit(self.transcription_consumer, transcription_queue, target_lang, prompter, skip_trans,
-                        bilingual_sub)
+                .submit(self.transcription_consumer, transcription_queue, target_lang, skip_trans, bilingual_sub)
             producer = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='Producer') \
                 .submit(self.transcription_producer, transcription_queue, audio_paths, src_lang)
 

@@ -59,7 +59,7 @@ class TestLLMTranslator(unittest.TestCase):
         for chatbot_model in test_models:
             texts = ['Hello, how are you?', 'I am fine, thank you.']
             translator = LLMTranslator(chatbot_model)
-            translations = translator.atomic_translate(texts, 'en', 'zh')
+            translations = translator.atomic_translate(chatbot_model, texts, 'en', 'zh')
             self.assertGreater(get_similarity(translations[0], '你好，你好吗？'), 0.5)
             self.assertGreater(get_similarity(translations[1], '我很好，谢谢。'), 0.5)
 
