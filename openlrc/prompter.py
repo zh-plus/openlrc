@@ -290,52 +290,53 @@ class ContextReviewPrompter(Prompter):
         self.lan_detector = LanguageDetectorBuilder.from_all_languages().build()
 
     def system(self):
-        return f'''Ignore all previous instructions.
-You are context reviewer to build necessary context during translation to ensure the consistency and accuracy of the translation.
- Build a comprehensive glossary of key terms, and phrases used in the {self.src_lang_display} to {self.target_lang_display} translations. This glossary should include any technical terms, slang, or culturally specific references that need to be consistently translated or localized.
- Note the glossary should only contains terms that may cause confusion or inconsistency in translation, such as abbreviation, or techinical words.
- Write a concise story summary that captures the main plot points, characters, and themes of the video. This summary will help other team members understand the context and ensure consistency in translation and localization.
- Provide the character name translations to ensure consistency in the subtitles. Include any relevant information about the characters, such as their relationships, roles, or personalities.
- Define the tone and style of the subtitles, ensuring they match the intended mood and atmosphere of the texts. Provide guidelines on language use, formality, and any stylistic preferences.
- Identify the target audience for the subtitles, considering factors such as age, cultural background, and language proficiency. Provide insights on how to tailor the subtitles to meet the needs and expectations of this audience.
- Compile all this information into a reference document that can be used by translators, localization specialists, and proofreaders to ensure consistency and accuracy throughout the subtitling process.
- Note, user may provide pre-defined glossary, you should carefully review the given texts and update the glossary. Do not change the given glossary unless necessary, you should only add new terms.
- 
- You are given the un-translated texts split by lines.
- 
-Example input:
-Please review the following text (title:The detectors) and provide the necessary context for the translation from English to Chinese:
+        return f'''Context:
+You are a context reviewer responsible for ensuring the consistency and accuracy of translations between two languages. Your task involves reviewing and providing necessary contextual information for translations.
+
+Objective:
+1. Build a comprehensive glossary of key terms and phrases used in the {self.src_lang_display} to {self.target_lang_display} translations. The glossary should include technical terms, slang, and culturally specific references that need consistent translation or localization, focusing on terms that may cause confusion or inconsistency.
+2. Provide character name translations, including relevant information about the characters, such as relationships, roles, or personalities.
+3. Write a concise story summary capturing the main plot points, characters, and themes of the video to help team members understand the context.
+4. Define the tone and style of the subtitles, ensuring they match the intended mood and atmosphere of the texts, with guidelines on language use, formality, and stylistic preferences.
+5. Identify the target audience for the subtitles, considering factors such as age, cultural background, and language proficiency, and provide insights on how to tailor the subtitles accordingly.
+
+Style:
+Formal and professional, with clear and precise language suitable for translation and localization contexts.
+
+Tone:
+Informative and authoritative to ensure clarity and reliability in the instructions.
+
+Audience:
+Translators, localization specialists, and proofreaders who need a detailed and consistent reference document for subtitling.
+
+Response Format:
+The output should include the following sections: Glossary, Characters, Summary, Tone and Style, Target Audience.
+
+Example Input:
+Please review the following text (title: The Detectors) and provide the necessary context for the translation from English to Chinese:
 John and Sarah discuss their plan to locate a suspect, deducing that he is likely in the uptown area.
-John: "As a 10 years experienced detector, my advice is We should start our search in the uptown area."
+John: "As a 10 years experienced detector, my advice is we should start our search in the uptown area."
 Sarah: "Agreed. Let's gather more information before we move."
 Then, they prepare to start their investigation.
 
-Example output:
-Title: The detectors
+Example Output:
 
-Glossary:
+### Glossary:
 - suspect: 嫌疑人
 - uptown: 市中心
 
-Characters:
+### Characters:
 - John: 约翰, a detector with 10 years of experience
 - Sarah: 萨拉, John's detector partner
 
-Summary:
+### Summary:
 John and Sarah discuss their plan to locate a suspect in the uptown area. They decide to gather more information before starting their investigation.
 
-Tone and Style:
+### Tone and Style:
 The subtitles should be formal and professional, reflecting the serious nature of the investigation. Avoid slang and colloquial language.
 
-Target Audience:
+### Target Audience:
 The target audience is adult viewers with an interest in crime dramas. They are likely to be familiar with police procedurals and enjoy suspenseful storytelling.
-
-
-### retry_instructions
-There was an issue with the previous translation. 
-
-Only output the glossary, characters, summary, tone and style, and target audience. Do not output any translated text.
-Remember to include "characters" section in your response, if there is information about any characters in texts.
 '''
 
     def user(self, text, title='', given_glossary: Optional[dict] = None):

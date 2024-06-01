@@ -102,6 +102,7 @@ class ChunkedTranslatorAgent(Agent):
 class ContextReviewerAgent(Agent):
     """
     Review the context of the subtitles to ensure accuracy and completeness.
+    TODO: Add chunking support.
     """
 
     TEMPERATURE = 0.8
