@@ -17,6 +17,10 @@ jobs:
         python-version: [ "3.9", "3.10", "3.11", "3.12" ]
         os: [ windows-latest, ubuntu-latest ]
 
+    defaults:
+      run:
+        shell: bash
+
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
