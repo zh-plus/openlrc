@@ -233,8 +233,8 @@ class GPTBot(ChatBot):
             except openai.APIConnectionError:
                 logger.warning(f'API connection error. Wait 15s before retry. Retry num: {i + 1}.')
                 time.sleep(15)
-            except openai.APIError:
-                logger.warning(f'API error. Wait 15s before retry. Retry num: {i + 1}.')
+            except openai.APIError as e:
+                logger.warning(f'API error: {e}. Wait 15s before retry. Retry num: {i + 1}.')
                 time.sleep(15)
 
         if not response:

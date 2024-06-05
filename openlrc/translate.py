@@ -119,14 +119,16 @@ class LLMTranslator(Translator):
         retry_agent = ChunkedTranslatorAgent(src_lang, target_lang, info, self.retry_model, self.fee_limit,
                                              self.proxy, self.base_url_config) if self.retry_model else None
 
-        # proofreader = ProofreaderAgent(src_lang, target_lang, info)
+        # proofreader = ProofreaderAgent(src_lang, target_lang, info, self.chatbot_model, self.fee_limit, self.proxy,
+        #                                self.base_url_config)
 
         chunks = self.make_chunks(texts, chunk_size=self.chunk_size)
         logger.info(f'Translating {info.title}: {len(chunks)} chunks, {len(texts)} lines in total.')
 
         translations, summaries, compare_list, start_chunk, guideline = self._resume_translation(compare_path)
         if not guideline:
-            context_reviewer = ContextReviewerAgent(src_lang, target_lang, info)
+            context_reviewer = ContextReviewerAgent(src_lang, target_lang, info, self.chatbot_model, self.fee_limit,
+                                                    self.proxy, self.base_url_config)
             guideline = context_reviewer.build_context(texts, title=info.title, glossary=info.glossary)
             logger.info(f'Translation Guideline:\n{guideline}')
 
@@ -134,15 +136,15 @@ class LLMTranslator(Translator):
         for i, chunk in list(enumerate(chunks, start=1))[start_chunk:]:
             atomic = False
             translated, context = self._translate_chunk(translator_agent, chunk, context, i, retry_agent=retry_agent)
+            chunk_texts = [c[1] for c in chunk]
             # Proofreader Not fully tested
-            # localized_trans = proofreader.localize_subtitles(
-            #     texts=[c[1] for c in chunk], translations=translated, context=context
+            # localized_trans = proofreader.proofread(
+            #     texts=chunk_texts, translations=translated, context=context
             # )
 
             if len(translated) != len(chunk):
                 logger.warning(f'Chunk {i} translation length inconsistent: {len(translated)} vs {len(chunk)},'
                                f' Trying to use atomic translation instead.')
-                chunk_texts = [item[1] for item in chunk]
                 translated = self.atomic_translate(self.chatbot_model, chunk_texts, src_lang, target_lang)
                 atomic = True
 

@@ -11,12 +11,12 @@ from lingua import LanguageDetectorBuilder
 from openlrc.context import TranslateInfo
 from openlrc.logger import logger
 
-original_prefix = 'Original>'
-translation_prefix = 'Translation>'
-proofread_prefix = 'Proofread>'
+ORIGINAL_PREFIX = 'Original>'
+TRANSLATION_PREFIX = 'Translation>'
+PROOFREAD_PREFIX = 'Proofread>'
 
-potential_prefix_combo = [
-    [original_prefix, translation_prefix],
+POTENTIAL_PREFIX_COMBOS = [
+    [ORIGINAL_PREFIX, TRANSLATION_PREFIX],
     ['原文>', '翻译>'],
     ['原文>', '译文>'],
     ['原文>', '翻譯>'],
@@ -25,7 +25,7 @@ potential_prefix_combo = [
 ]
 
 # instruction prompt modified from https://github.com/machinewrapped/gpt-subtrans
-base_instruction = f'''Ignore all previous instructions.
+BASE_TRANSLATE_INSTRUCTION = f'''Ignore all previous instructions.
 You are a translator tasked with revising and translating subtitles into a target language. Your goal is to ensure accurate, concise, and natural-sounding translations for each line of dialogue. The input consists of transcribed audio, which may contain transcription errors. Your task is to first correct any errors you find in the sentences based on their context, and then translate them to the target language according to the revised sentences.
 The user will provide a chunk of lines, you should respond with an accurate, concise, and natural-sounding translation for the dialogue, with appropriate punctuation.
 The user may provide additional context, such as title of the source material, a summary of the current scene, or a list of character names. Use this information to improve the quality of your translation.
@@ -35,53 +35,53 @@ The source subtitles were AI-generated with a speech-to-text tool so they are li
 Example input (Japanese to Chinese):
 
 #200
-{original_prefix}
+{ORIGINAL_PREFIX}
 変わりゆく時代において、
-{translation_prefix}
+{TRANSLATION_PREFIX}
 
 #501
-{original_prefix}
+{ORIGINAL_PREFIX}
 生き残る秘訣は、進化し続けることです。
-{translation_prefix}
+{TRANSLATION_PREFIX}
 
 You should respond with:
 
 #200
-{original_prefix}
+{ORIGINAL_PREFIX}
 変わく時代いて、
-{translation_prefix}
+{TRANSLATION_PREFIX}
 在变化的时代中，
 
 #501
-{original_prefix}
+{ORIGINAL_PREFIX}
 生き残る秘訣は、進化し続けることです。
-{translation_prefix}
+{TRANSLATION_PREFIX}
 生存的秘诀是不断进化。
 
 Example input (English to German):
 
 #700
-{original_prefix}
+{ORIGINAL_PREFIX}
 those who resist change may find themselves left behind.
-{translation_prefix}
+{TRANSLATION_PREFIX}
 
 #701
-{original_prefix}
+{ORIGINAL_PREFIX}
 those resist change find themselves left.
-{translation_prefix}
+{TRANSLATION_PREFIX}
 
 You should respond with:
 
 #700
-{original_prefix}
+{ORIGINAL_PREFIX}
 In the age of digital transformation,
-{translation_prefix}
+{TRANSLATION_PREFIX}
 Im Zeitalter der digitalen Transformation,
 
 #701
-{original_prefix}
+{ORIGINAL_PREFIX}
 those who resist change may find themselves left behind.
-{translation_prefix}
+{TRANSLATION_PREFIX}
 diejenigen, die sich dem Wandel widersetzen, könnten sich zurückgelassen finden.
 
 Please ensure that each line of dialogue remains distinct in the translation. Merging lines together can lead to timing problems during playback.
@@ -152,10 +152,10 @@ Please translate these subtitles for {self.audio_type} from {self.src_lang_displ
 <summary></summary>
 <scene></scene>'''
 
-    def system(self):
-        return base_instruction
+    def system(self) -> str:
+        return BASE_TRANSLATE_INSTRUCTION
 
-    def user(self, chunk_num, user_input, summaries='', guideline=''):
+    def user(self, chunk_num: int, user_input: str, summaries='', guideline='') -> str:
         summaries_str = '\n'.join(f'Chunk {i}: {summary}' for i, summary in enumerate(summaries, 1))
         return self.user_prompt.format(
             summaries_str=summaries_str, chunk_num=chunk_num, user_input=user_input, guideline=guideline).strip()
@@ -183,7 +183,7 @@ Use the following glossary to ensure consistency in your translations:
         Returns:
             The formatted string: f"#id\n{original_prefix}\n{text}\n{translation_prefix}\n"
         """
-        return '\n'.join([f'#{i}\n{original_prefix}\n{text}\n{translation_prefix}\n' for i, text in texts])
+        return '\n'.join([f'#{i}\n{ORIGINAL_PREFIX}\n{text}\n{TRANSLATION_PREFIX}\n' for i, text in texts])
 
     def check_format(self, messages, content):
         summary = re.search(r'<summary>(.*)</summary>', content)
@@ -191,17 +191,13 @@ Use the following glossary to ensure consistency in your translations:
 
         # If message is for claude, use messages[0]
         user_input = messages[1]['content'] if len(messages) == 2 else messages[0]['content']
-        original = re.findall(original_prefix + r'\n(.*?)\n' + translation_prefix, user_input, re.DOTALL)
+        original = re.findall(ORIGINAL_PREFIX + r'\n(.*?)\n' + TRANSLATION_PREFIX, user_input, re.DOTALL)
         if not original:
             logger.error(f'Fail to extract original text.')
             return False
 
-        for potential_ori_prefix, potential_trans_prefix in potential_prefix_combo:
-            translation = re.findall(potential_trans_prefix + r'\n*(.*?)(?:#\d+|<summary>|\n*$)', content, re.DOTALL)
-
-            if translation:
-                break
-        else:
+        translation = self._extract_translation(content)
+        if not translation:
             # TODO: Try to change chatbot_model if always fail
             logger.warning(f'Fail to extract translation.')
             logger.debug(f'Content: {content}')
@@ -215,8 +211,26 @@ Use the following glossary to ensure consistency in your translations:
             return False
 
         # Ensure the translated langauge is in the target language
+        if not self._is_translation_in_target_language(translation):
+            return False
+
+        # It's ok to keep going without summary and scene
+        if not summary or not summary.group(1):
+            logger.warning(f'Fail to extract summary.')
+        if not scene or not scene.group(1):
+            logger.warning(f'Fail to extract scene.')
+
+        return True
+
+    def _extract_translation(self, content: str) -> List[str]:
+        for potential_ori_prefix, potential_trans_prefix in POTENTIAL_PREFIX_COMBOS:
+            translation = re.findall(f'{potential_trans_prefix}\n*(.*?)(?:#\\d+|<summary>|\\n*$)', content, re.DOTALL)
+            if translation:
+                return translation
+        return []
+
+    def _is_translation_in_target_language(self, translation: List[str]) -> bool:
         if len(translation) >= 3:
-            # 3-voting for detection stability
             chunk_size = len(translation) // 3
             translation_chunks = [translation[i:i + chunk_size] for i in range(0, len(translation), chunk_size)]
             if len(translation_chunks) > 3:
@@ -227,15 +241,12 @@ Use the following glossary to ensure consistency in your translations:
             translated_langs = [lang.name.lower() for lang in translated_langs if lang]
 
             if not translated_langs:
-                # Cant detect language
                 return True
 
-            # get the most common language
             translated_lang = max(set(translated_langs), key=translated_langs.count)
         else:
             detected_lang = self.lan_detector.detect_language_of(' '.join(translation))
             if not detected_lang:
-                # Cant detect language
                 return True
             translated_lang = detected_lang.name.lower()
 
@@ -243,12 +254,6 @@ Use the following glossary to ensure consistency in your translations:
         if translated_lang != target_lang:
             logger.warning(f'Translated language is {translated_lang}, not {target_lang}.')
             return False
-
-        # It's ok to keep going without summary and scene
-        if not summary or not summary.group(1):
-            logger.warning(f'Fail to extract summary.')
-        if not scene or not scene.group(1):
-            logger.warning(f'Fail to extract scene.')
 
         return True
 
@@ -290,52 +295,53 @@ class ContextReviewPrompter(Prompter):
         self.lan_detector = LanguageDetectorBuilder.from_all_languages().build()
 
     def system(self):
-        return f'''Ignore all previous instructions.
-You are context reviewer to build necessary context during translation to ensure the consistency and accuracy of the translation.
- Build a comprehensive glossary of key terms, and phrases used in the {self.src_lang_display} to {self.target_lang_display} translations. This glossary should include any technical terms, slang, or culturally specific references that need to be consistently translated or localized.
- Note the glossary should only contains terms that may cause confusion or inconsistency in translation, such as abbreviation, or techinical words.
- Write a concise story summary that captures the main plot points, characters, and themes of the video. This summary will help other team members understand the context and ensure consistency in translation and localization.
- Provide the character name translations to ensure consistency in the subtitles. Include any relevant information about the characters, such as their relationships, roles, or personalities.
- Define the tone and style of the subtitles, ensuring they match the intended mood and atmosphere of the texts. Provide guidelines on language use, formality, and any stylistic preferences.
- Identify the target audience for the subtitles, considering factors such as age, cultural background, and language proficiency. Provide insights on how to tailor the subtitles to meet the needs and expectations of this audience.
- Compile all this information into a reference document that can be used by translators, localization specialists, and proofreaders to ensure consistency and accuracy throughout the subtitling process.
- Note, user may provide pre-defined glossary, you should carefully review the given texts and update the glossary. Do not change the given glossary unless necessary, you should only add new terms.
- 
- You are given the un-translated texts split by lines.
- 
-Example input:
-Please review the following text (title:The detectors) and provide the necessary context for the translation from English to Chinese:
+        return f'''Context:
+You are a context reviewer responsible for ensuring the consistency and accuracy of translations between two languages. Your task involves reviewing and providing necessary contextual information for translations.
+
+Objective:
+1. Build a comprehensive glossary of key terms and phrases used in the {self.src_lang_display} to {self.target_lang_display} translations. The glossary should include technical terms, slang, and culturally specific references that need consistent translation or localization, focusing on terms that may cause confusion or inconsistency.
+2. Provide character name translations, including relevant information about the characters, such as relationships, roles, or personalities.
+3. Write a concise story summary capturing the main plot points, characters, and themes of the video to help team members understand the context.
+4. Define the tone and style of the subtitles, ensuring they match the intended mood and atmosphere of the texts, with guidelines on language use, formality, and stylistic preferences.
+5. Identify the target audience for the subtitles, considering factors such as age, cultural background, and language proficiency, and provide insights on how to tailor the subtitles accordingly.
+
+Style:
+Formal and professional, with clear and precise language suitable for translation and localization contexts.
+
+Tone:
+Informative and authoritative to ensure clarity and reliability in the instructions.
+
+Audience:
+Translators, localization specialists, and proofreaders who need a detailed and consistent reference document for subtitling.
+
+Response Format:
+The output should include the following sections: Glossary, Characters, Summary, Tone and Style, Target Audience.
+
+Example Input:
+Please review the following text (title: The Detectors) and provide the necessary context for the translation from English to Chinese:
 John and Sarah discuss their plan to locate a suspect, deducing that he is likely in the uptown area.
-John: "As a 10 years experienced detector, my advice is We should start our search in the uptown area."
+John: "As a 10 years experienced detector, my advice is we should start our search in the uptown area."
 Sarah: "Agreed. Let's gather more information before we move."
 Then, they prepare to start their investigation.
 
-Example output:
-Title: The detectors
+Example Output:
 
-Glossary:
+### Glossary:
 - suspect: 嫌疑人
 - uptown: 市中心
 
-Characters:
+### Characters:
 - John: 约翰, a detector with 10 years of experience
 - Sarah: 萨拉, John's detector partner
 
-Summary:
+### Summary:
 John and Sarah discuss their plan to locate a suspect in the uptown area. They decide to gather more information before starting their investigation.
 
-Tone and Style:
+### Tone and Style:
 The subtitles should be formal and professional, reflecting the serious nature of the investigation. Avoid slang and colloquial language.
 
-Target Audience:
+### Target Audience:
 The target audience is adult viewers with an interest in crime dramas. They are likely to be familiar with police procedurals and enjoy suspenseful storytelling.
-
-
-### retry_instructions
-There was an issue with the previous translation. 
-
-Only output the glossary, characters, summary, tone and style, and target audience. Do not output any translated text.
-Remember to include "characters" section in your response, if there is information about any characters in texts.
 '''
 
     def user(self, text, title='', given_glossary: Optional[dict] = None):
@@ -366,41 +372,41 @@ Conduct a final review to ensure there are no remaining errors or inconsistencie
 Example input:
 Please proofread the following translated text (the original texts are for reference only, focus on the translated text):
 #1
-{original_prefix}
+{ORIGINAL_PREFIX}
 Those who resist change may find themselves left behind.
-{translation_prefix}
+{TRANSLATION_PREFIX}
 那些抗拒变化的人可能会发现自己被抛在后面。
 
 #2
-{original_prefix}
+{ORIGINAL_PREFIX}
 On the other hand, those who embrace change can thrive in the new environment.
-{translation_prefix}
+{TRANSLATION_PREFIX}
 另一方面，那些接受变化的人可以在新环境中发展。
 
 #3
-{original_prefix}
+{ORIGINAL_PREFIX}
 Thus, it is important to adapt to changing circumstances and remain open to new opportunities.
-{translation_prefix}
+{TRANSLATION_PREFIX}
 因此，适应变化的环境并对新机会持开放态度是很重要的。
 
 
 Example output:
 #1
-{translation_prefix}
+{TRANSLATION_PREFIX}
 那些抗拒变化的人可能会发现自己被抛在后面。
-{proofread_prefix}
+{PROOFREAD_PREFIX}
 那些抗拒变化的人可能会发现自己落伍了。
 
 #2
-{translation_prefix}
+{TRANSLATION_PREFIX}
 另一方面，那些接受变化的人可以在新环境中发展。
-{proofread_prefix}
+{PROOFREAD_PREFIX}
 相反，那些拥抱变化的人可以在新环境中如鱼得水。
 
 #3
-{translation_prefix}
+{TRANSLATION_PREFIX}
 因此，适应变化的环境并对新机会持开放态度是很重要的。
-{proofread_prefix}
+{PROOFREAD_PREFIX}
 因此，适应变化的环境并对新机会保持开放态度是非常重要的。
 
 
@@ -412,7 +418,7 @@ Do not merge lines together during the proofread, it leads to incorrect timings 
     def user(self, texts, translations, guideline=''):
         formated_texts = '\n'.join(
             [
-                f'#{i}\n{original_prefix}\n{text}\n{translation_prefix}\n{trans}\n' for i, (text, trans) in
+                f'#{i}\n{ORIGINAL_PREFIX}\n{text}\n{TRANSLATION_PREFIX}\n{trans}\n' for i, (text, trans) in
                 enumerate(zip(texts, translations), start=1)
             ])
         return f'''Translation guidelines from context reviewer:
@@ -427,12 +433,12 @@ Output:
     def check_format(self, messages, content):
         # If message is for claude, use messages[0]
         user_input = messages[1]['content'] if len(messages) == 2 else messages[0]['content']
-        original = re.findall(original_prefix + r'\n(.*?)\n' + translation_prefix, user_input, re.DOTALL)
+        original = re.findall(ORIGINAL_PREFIX + r'\n(.*?)\n' + TRANSLATION_PREFIX, user_input, re.DOTALL)
         if not original:
             logger.error(f'Fail to extract original text.')
             return False
 
-        localized = re.findall(proofread_prefix + r'\s*(.*)', content, re.MULTILINE)
+        localized = re.findall(PROOFREAD_PREFIX + r'\s*(.*)', content, re.MULTILINE)
 
         if not localized:
             # TODO: Try to change chatbot_model if always fail

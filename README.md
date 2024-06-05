@@ -191,6 +191,7 @@ and [Anthropic](https://docs.anthropic.com/claude/docs/models-overview#model-com
 | `gpt-3.5-turbo`            | 0.5, 1.5                                        | 0.01                             |
 | `gpt-4-0125-preview`       | 10, 30                                          | 0.5                              |
 | `gpt-4-turbo-preview`      | 10, 30                                          | 0.5                              |
+| `gpt-4o`                   | 5, 15                                           | 0.25                             |
 | `claude-3-haiku-20240307`  | 0.25, 1.25                                      | 0.015                            |
 | `claude-3-sonnet-20240229` | 3, 15                                           | 0.2                              |
 | `claude-3-opus-20240229`   | 15, 75                                          | 1                                |
