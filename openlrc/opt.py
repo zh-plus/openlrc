@@ -139,7 +139,11 @@ class SubtitleOptimizer:
     def _replace_punctuation_with_chinese(self, text):
         pattern = re.compile("|".join(map(re.escape, PUNCTUATION_MAPPING.keys())))
         result = pattern.sub(lambda match: PUNCTUATION_MAPPING[match.group(0)], text)
-        return re.sub(r'(。){3,}', '...', result)
+
+        result = re.sub(r'(。){3,}', '...', result)
+        result = re.sub(r'(\d)。', r'\1.', result)
+
+        return result
 
     def remove_unk(self):
         """

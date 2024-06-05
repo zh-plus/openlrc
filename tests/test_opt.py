@@ -51,6 +51,12 @@ class TestSubtitleOptimizer(unittest.TestCase):
         optimizer.punctuation_optimization()
         self.assertEqual(optimizer.subtitle.segments[0].text, '你好，你好...你好！你好。')
 
+    def test_punctuation_optimization_with_dots(self):
+        subtitle = self.subtitle
+        optimizer = SubtitleOptimizer(subtitle)
+        optimizer.punctuation_optimization()
+        self.assertEqual(optimizer.subtitle.segments[9].text, '1. 测试。这是1.2节。')
+
     def test_remove_unk(self):
         subtitle = self.subtitle
         optimizer = SubtitleOptimizer(subtitle)
@@ -75,6 +81,6 @@ class TestSubtitleOptimizer(unittest.TestCase):
             optimized_subtitle = json.load(f)
 
         self.assertEqual(optimized_subtitle['language'], 'zh')
-        self.assertEqual(len(optimized_subtitle['segments']), 7)
+        self.assertEqual(len(optimized_subtitle['segments']), 8)
 
         os.remove('data/test_subtitle_optimized.json')

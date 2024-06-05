@@ -10,7 +10,7 @@ class TestSubtitle(unittest.TestCase):
     def setUp(self) -> None:
         self.subtitle = Subtitle.from_json('data/test_valid_subtitle.json')
 
-    def check_content(self, subtitle, length=9):
+    def check_content(self, subtitle, length=10):
         self.assertEqual(subtitle.lang, 'zh')
         self.assertEqual(len(subtitle), length)
         self.assertEqual(subtitle.segments[0].start, 0.0)
@@ -38,26 +38,26 @@ class TestSubtitle(unittest.TestCase):
         subtitle = self.subtitle
         subtitle.to_lrc()
         loaded_subtitle = Subtitle.from_file(subtitle.filename.with_suffix('.lrc'))
-        self.check_content(loaded_subtitle, length=9)
+        self.check_content(loaded_subtitle)
         loaded_subtitle.filename.unlink()
 
     def test_save_to_srt(self):
         subtitle = self.subtitle
         subtitle.to_srt()
         loaded_subtitle = Subtitle.from_file(subtitle.filename.with_suffix('.srt'))
-        self.check_content(loaded_subtitle, length=9)
+        self.check_content(loaded_subtitle)
         loaded_subtitle.filename.unlink()
 
     def test_get_length(self):
         subtitle = self.subtitle
-        self.assertEqual(len(subtitle), 9)
+        self.assertEqual(len(subtitle), 10)
 
     def test_get_texts(self):
         subtitle = self.subtitle
         self.assertEqual(subtitle.texts,
                          ['你好,你好...你好!你好.', '你好', '好好好好好好好好好好好好好好好好好好好好好好好好', 'test',
                                           '这太长打发螺丝扣搭街坊拉克斯酱豆腐垃圾啊阿里山扩大飞机拉克斯基的flak涉及到了反馈啊螺丝扣搭街坊拉啊手动阀手动阀阿斯顿发射点发射点发生发射点发射点发萨看见对方这太长打发螺丝扣搭街坊拉克斯酱豆腐垃圾啊阿里山扩大飞机拉克斯基的flak涉及到了反馈啊螺丝扣搭街坊拉啊手动阀手动阀阿斯顿发射点发射点发生发射点发射点发萨看见对方这太长打发螺丝扣搭街坊拉克斯酱豆腐垃圾啊阿里山扩大飞机拉克斯基的flak涉及到了反馈啊螺丝扣搭街坊拉啊手动阀手动阀阿斯顿发射点发射点发生发射点发射点发萨看见对方',
-                          '繁體的字', '<unk>unk<unk>', '123', '123'])
+                          '繁體的字', '<unk>unk<unk>', '123', '123', '1. 测试.这是1.2节.'])
 
     def test_set_texts_edge_case(self):
         subtitle = self.subtitle
@@ -66,7 +66,7 @@ class TestSubtitle(unittest.TestCase):
 
     def test_set_texts_edge_case_2(self):
         subtitle = self.subtitle
-        subtitle.set_texts([''] * 9, lang='en')
+        subtitle.set_texts([''] * 10, lang='en')
         self.assertEqual(subtitle.lang, 'en')
         self.assertEqual(subtitle.segments[0].text, '')
         self.assertEqual(subtitle.segments[1].text, '')
