@@ -39,18 +39,7 @@ jobs:
             ${{ runner.os }}-
 
       - name: Install Poetry
-        run: |
-          curl -sSL https://install.python-poetry.org | python3 -
-      - name: Add poetry to PATH (windows)
-        if: runner.os == 'Windows'
-        run: |
-          echo "C:\Users\runneradmin\AppData\Roaming\Python\Scripts" >> $env:GITHUB_ENV
-          poetry --version
-      - name: Add poetry to PATH (ubuntu)
-        if: runner.os == 'ubuntu-latest'
-        run: |
-          echo "export PATH=$PATH:$HOME/.local/bin" >> $GITHUB_ENV
-          poetry --version
+        uses: snok/install-poetry@v1
       - name: Install dependencies
         run: |
           poetry lock --no-update
