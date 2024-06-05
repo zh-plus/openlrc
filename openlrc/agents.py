@@ -7,8 +7,8 @@ from typing import Optional, Tuple, List
 from openlrc.chatbot import route_chatbot
 from openlrc.context import TranslationContext, TranslateInfo
 from openlrc.logger import logger
-from openlrc.prompter import BaseTranslatePrompter, ContextReviewPrompter, potential_prefix_combo, \
-    ProofreaderPrompter, proofread_prefix
+from openlrc.prompter import BaseTranslatePrompter, ContextReviewPrompter, POTENTIAL_PREFIX_COMBOS, \
+    ProofreaderPrompter, PROOFREAD_PREFIX
 
 
 class Agent(abc.ABC):
@@ -70,7 +70,7 @@ class ChunkedTranslatorAgent(Agent):
         return match.group(1) if match else ''
 
     def _extract_translations(self, content: str) -> List[str]:
-        for _, trans_prefix in potential_prefix_combo:
+        for _, trans_prefix in POTENTIAL_PREFIX_COMBOS:
             translations = re.findall(f'{trans_prefix}\n*(.*?)(?:#\d+|<summary>|\n*$)', content, re.DOTALL)
             if translations:
                 return self._clean_translations(translations, content)
@@ -150,7 +150,7 @@ class ProofreaderAgent(Agent):
 
     def _parse_responses(self, resp) -> List[str]:
         content = self.chatbot.get_content(resp)
-        revised = re.findall(proofread_prefix + r'\s*(.*)', content, re.MULTILINE)
+        revised = re.findall(PROOFREAD_PREFIX + r'\s*(.*)', content, re.MULTILINE)
 
         return revised
 
