@@ -1,3 +1,17 @@
+### 1.4.0
+
+### New Features:
+
+- Add glossary support for domain specific translation.
+- Add `retry_model` args for retrying translation with different models.
+- Introduce `privider: model_name` for arbitrary model routing.
+
+### Other Changes:
+
+- Extend 0.5s for each suitable sentence.
+- Reduce noise suppression chunk-size for faster processing.
+- Enhance translation workflow by Context Reviewer Agent.
+
 ## 1.3.1
 
 ### New Features:
