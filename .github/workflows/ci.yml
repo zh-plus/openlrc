@@ -17,10 +17,6 @@ jobs:
         python-version: [ "3.9", "3.10", "3.11", "3.12" ]
         os: [ windows-latest, ubuntu-latest ]
 
-    defaults:
-      run:
-        shell: bash
-
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +35,8 @@ jobs:
           key: ${{ runner.os }}-poetry-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
           restore-keys: |
             ${{ runner.os }}-poetry-${{ matrix.python-version }}-
+            ${{ runner.os }}-poetry-
+            ${{ runner.os }}-
 
       - name: Install Poetry
         run: |
@@ -57,12 +55,10 @@ jobs:
         id: setup-ffmpeg
 
       - name: Add OpenAI key to environment variables
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> $GITHUB_ENV
 
       - name: Add ANTHROPIC API Key to environment variables
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> $GITHUB_ENV
 
       - name: Test with unittest
         working-directory: ./tests
