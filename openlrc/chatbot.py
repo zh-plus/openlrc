@@ -172,6 +172,9 @@ class GPTBot(ChatBot):
     def __init__(self, model='gpt-3.5-turbo-0125', temperature=1, top_p=1, retry=8, max_async=16, json_mode=False,
                  fee_limit=0.05, proxy=None, base_url_config=None):
 
+        # clamp temperature to 0-2
+        temperature = max(0, min(2, temperature))
+
         super().__init__(self.pricing, temperature, top_p, retry, max_async, fee_limit)
 
         self.async_client = AsyncGPTClient(
@@ -181,12 +184,7 @@ class GPTBot(ChatBot):
         )
 
         self.model = model
-        self.temperature = temperature
-        self.top_p = top_p
-        self.retry = retry
-        self.max_async = max_async
         self.json_mode = json_mode
-        self.fee_limit = fee_limit
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.async_client.close()
@@ -255,6 +253,9 @@ class ClaudeBot(ChatBot):
     def __init__(self, model='claude-3-sonnet-20240229', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.2,
                  proxy=None, base_url_config=None):
 
+        # clamp temperature to 0-1
+        temperature = max(0, min(1, temperature))
+
         super().__init__(self.pricing, temperature, top_p, retry, max_async, fee_limit)
 
         self.async_client = AsyncAnthropic(
@@ -266,9 +267,6 @@ class ClaudeBot(ChatBot):
         )
 
         self.model = model
-        self.retry = retry
-        self.max_async = max_async
-        self.fee_limit = fee_limit
 
     def update_fee(self, response: Message):
         prompt_price, completion_price = all_pricing[self.model]

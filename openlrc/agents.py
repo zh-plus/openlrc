@@ -2,9 +2,9 @@
 #  All rights reserved.
 import abc
 import re
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Type, Union
 
-from openlrc.chatbot import route_chatbot
+from openlrc.chatbot import route_chatbot, GPTBot, ClaudeBot
 from openlrc.context import TranslationContext, TranslateInfo
 from openlrc.logger import logger
 from openlrc.prompter import BaseTranslatePrompter, ContextReviewPrompter, POTENTIAL_PREFIX_COMBOS, \
@@ -12,12 +12,13 @@ from openlrc.prompter import BaseTranslatePrompter, ContextReviewPrompter, POTEN
 
 
 class Agent(abc.ABC):
-    TEMPERATURE = 0.5
+    TEMPERATURE = 1
     """
     Base class for all agents.
     """
 
     def _initialize_chatbot(self, chatbot_model: str, fee_limit: float, proxy: str, base_url_config: Optional[dict]):
+        chatbot_cls: Union[Type[ClaudeBot], Type[GPTBot]]
         chatbot_cls, model_name = route_chatbot(chatbot_model)
         return chatbot_cls(model=model_name, fee_limit=fee_limit, proxy=proxy, retry=3,
                            temperature=self.TEMPERATURE, base_url_config=base_url_config)
@@ -28,7 +29,7 @@ class ChunkedTranslatorAgent(Agent):
     Translate the well-defined chunked text to the target language and send it to the chatbot for further processing.
     """
 
-    TEMPERATURE = 0.9
+    TEMPERATURE = 1.0
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
                  chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.2, proxy: str = None,
