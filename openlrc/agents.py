@@ -32,7 +32,7 @@ class ChunkedTranslatorAgent(Agent):
     TEMPERATURE = 1.0
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
-                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.2, proxy: str = None,
+                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.25, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         super().__init__()
         self.chatbot_model = chatbot_model
@@ -109,7 +109,7 @@ class ContextReviewerAgent(Agent):
     TEMPERATURE = 0.8
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
-                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.2, proxy: str = None,
+                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.25, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         super().__init__()
         self.src_lang = src_lang
@@ -140,7 +140,7 @@ class ProofreaderAgent(Agent):
     TEMPERATURE = 0.8
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
-                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.2, proxy: str = None,
+                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.25, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         super().__init__()
         self.src_lang = src_lang
