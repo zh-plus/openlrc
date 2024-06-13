@@ -145,3 +145,16 @@ class TestGPTBot(unittest.TestCase):
         chatbot_model = 'openai: invalid_model_name'
         with self.assertRaises(ValueError):
             route_chatbot(chatbot_model + 'error')
+
+    def test_temperature_clamp(self):
+        chatbot1 = GPTBot(temperature=10, top_p=1, retry=8, max_async=16)
+        chatbot2 = GPTBot(temperature=-1, top_p=1, retry=8, max_async=16)
+        chatbot3 = ClaudeBot(temperature=2, top_p=1, retry=8, max_async=16)
+        chatbot4 = ClaudeBot(temperature=-1, top_p=1, retry=8, max_async=16)
+
+        self.assertEqual(chatbot1.temperature, 2)
+        self.assertEqual(chatbot2.temperature, 0)
+        self.assertEqual(chatbot3.temperature, 1)
+        self.assertEqual(chatbot4.temperature, 0)
+
+# TODO: Retry_bot testing
