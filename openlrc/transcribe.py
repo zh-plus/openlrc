@@ -113,9 +113,19 @@ class Transcriber:
             latter_words = seg_entry.words[len(former_words):]
 
             if not latter_words:
-                # Directly split using the hard-mid
-                former_words = seg_entry.words[:len(seg_entry.words) // 2]
-                latter_words = seg_entry.words[len(seg_entry.words) // 2:]
+                # Directly split using the largest word-word gap
+                gaps = [-1]
+                for k in range(len(seg_entry.words) - 1):
+                    gaps.append(seg_entry.words[k + 1].start - seg_entry.words[k].end)
+                max_gap = max(gaps)
+                split_idx = gaps.index(max_gap)  # TODO: Multiple largest or Multiple long gap
+
+                if max_gap >= 2:  # Split using the max gap
+                    former_words = seg_entry.words[:split_idx]
+                    latter_words = seg_entry.words[split_idx:]
+                else:  # Split using hard-mid
+                    former_words = seg_entry.words[:len(seg_entry.words) // 2]
+                    latter_words = seg_entry.words[len(seg_entry.words) // 2:]
 
             former = seg_from_words(seg_entry, seg_entry.id, former_words, seg_entry.tokens[:len(former_words)])
             latter = seg_from_words(seg_entry, seg_entry.id + 1, latter_words, seg_entry.tokens[len(former_words):])
@@ -162,16 +172,27 @@ class Transcriber:
                 entry = seg_from_words(segment, id_cnt, split_words,
                                        segment.tokens[word_start: word_start + len(split_words)])
 
-                # Check if the sentence is too long in words
-                if len(split) < (45 if lang in self.continuous_scripted else 90) or len(entry.words) == 1:
-                    # split if duration > 10s
-                    if entry.end - entry.start > 10:
-                        segmented_entries = mid_split(entry)
+                def recursive_segment(entry):
+                    if len(entry.text) < (45 if lang in self.continuous_scripted else 90) or len(entry.words) == 1:
+                        if entry.end - entry.start > 10:
+                            # split if duration > 10s
+                            segmented_entries = mid_split(entry)
+                            further_segmented = []
+                            for segment in segmented_entries:
+                                further_segmented.extend(recursive_segment(segment))
+                        else:
+                            return [entry]
                     else:
-                        segmented_entries = [entry]
-                else:
-                    # Split them in the middle
-                    segmented_entries = mid_split(entry)
+                        # Split them in the middle
+                        segmented_entries = mid_split(entry)
+                        further_segmented = []
+                        for segment in segmented_entries:
+                            further_segmented.extend(recursive_segment(segment))
+
+                    return further_segmented
+
+                # Check if the sentence is too long in words
+                segmented_entries = recursive_segment(entry)
 
                 sentences.extend(segmented_entries)
                 id_cnt += len(segmented_entries)

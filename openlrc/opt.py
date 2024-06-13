@@ -9,7 +9,7 @@ import zhconv
 
 from openlrc.logger import logger
 from openlrc.subtitle import Subtitle
-from openlrc.utils import extend_filename
+from openlrc.utils import extend_filename, format_timestamp
 
 # Thresholds for different languages
 CUT_LONG_THRESHOLD = {
@@ -81,18 +81,42 @@ class SubtitleOptimizer:
                     merged_element = None
                 new_elements.append(element)
             else:
-                merged_element = self._merge_elements(merged_element, element)
+                if not merged_element:
+                    merged_element = element
+                    continue
+
+                # Merge to previous element if closer to pre-element and gap > 3s
+                previous_gap = merged_element.start - new_elements[-1].start
+                next_gap = element.start - merged_element.end
+                if previous_gap <= next_gap and previous_gap <= 3:
+                    previous_element = new_elements.pop()
+                    merged_element.text = previous_element.text + merged_element.text
+                    merged_element.start = previous_element.start
+                    new_elements.append(merged_element)
+                    merged_element = element
+                elif next_gap <= previous_gap and next_gap <= 3:
+                    merged_element.text += element.text
+                    merged_element.end = element.end
+                    new_elements.append(merged_element)
+                    merged_element = None
+                else:
+                    new_elements.append(merged_element)
+                    merged_element = element
 
         self.subtitle.segments = new_elements
 
     def _finalize_merge(self, new_elements, merged_element, element):
         if merged_element.duration < 1.5:
-            if element.start - merged_element.end < merged_element.start - new_elements[-1].end:
+            previous_gap = merged_element.start - new_elements[-1].end
+            next_gap = element.start - merged_element.end
+            if previous_gap <= next_gap and previous_gap <= 3:
+                new_elements[-1].text += merged_element.text
+                new_elements[-1].end = merged_element.end
+            elif next_gap <= previous_gap and next_gap <= 3:
                 element.text = merged_element.text + element.text
                 element.start = merged_element.start
             else:
-                new_elements[-1].text += merged_element.text
-                new_elements[-1].end = merged_element.end
+                new_elements.append(merged_element)
         else:
             new_elements.append(merged_element)
 
@@ -204,6 +228,9 @@ class SubtitleOptimizer:
         if extend_time:
             self.extend_time()
 
+        # Finally check to notify users
+        self.check()
+
     def save(self, output_name: Optional[str] = None, update_name=False):
         """
         Save the optimized subtitle to a file.
@@ -211,3 +238,8 @@ class SubtitleOptimizer:
         optimized_name = extend_filename(self.filename, '_optimized') if not output_name else output_name
         self.subtitle.save(optimized_name, update_name=update_name)
         logger.info(f'Optimized json file saved to {optimized_name}')
+
+    def check(self):
+        for element in self.subtitle.segments:
+            if element.duration >= 10:
+                logger.warning(f'Duration of text "{element.text}" at {format_timestamp(element.start)} exceeds 10')
