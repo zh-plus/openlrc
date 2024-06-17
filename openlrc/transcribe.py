@@ -127,6 +127,10 @@ class Transcriber:
                     former_words = seg_entry.words[:len(seg_entry.words) // 2]
                     latter_words = seg_entry.words[len(seg_entry.words) // 2:]
 
+            if not former_words or not latter_words:
+                logger.warning(f'Empty former_words or latter_words: {former_words} or {latter_words}, skip')
+                return [seg_entry]
+
             former = seg_from_words(seg_entry, seg_entry.id, former_words, seg_entry.tokens[:len(former_words)])
             latter = seg_from_words(seg_entry, seg_entry.id + 1, latter_words, seg_entry.tokens[len(former_words):])
 
@@ -177,6 +181,9 @@ class Transcriber:
                         if entry.end - entry.start > 10:
                             # split if duration > 10s
                             segmented_entries = mid_split(entry)
+                            if len(segmented_entries) == 1:  # if cant be further segmented
+                                return [entry]
+
                             further_segmented = []
                             for segment in segmented_entries:
                                 further_segmented.extend(recursive_segment(segment))
