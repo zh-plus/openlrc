@@ -1,3 +1,12 @@
+## 1.4.1
+
+Minor bugfixes and improvements.
+
+### Other Changes:
+
+- Improve timestamp accuracy.
+- Fix edges cases for transcription.
+
 ## 1.4.0
 
 ### New Features:
