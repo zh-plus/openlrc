@@ -247,7 +247,8 @@ class ClaudeBot(ChatBot):
     pricing = {
         'claude-3-opus-20240229': (15, 75),
         'claude-3-sonnet-20240229': (3, 15),
-        'claude-3-haiku-20240307': (0.25, 1.25)
+        'claude-3-haiku-20240307': (0.25, 1.25),
+        'claude-3-5-sonnet-20240620': (3, 15),
     }
 
     def __init__(self, model='claude-3-sonnet-20240229', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.25,

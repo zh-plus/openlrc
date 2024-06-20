@@ -32,6 +32,10 @@ classifiers = [
 include = [
     { path = 'openlrc' },
 ]
+exclude = [
+    "openlrc/gui",
+    "openlrc/gui_streamlit",
+]
 
 [tool.poetry.dependencies]
 python = ">=3.9, <4.0"

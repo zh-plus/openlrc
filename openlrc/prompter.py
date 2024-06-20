@@ -21,7 +21,8 @@ POTENTIAL_PREFIX_COMBOS = [
     ['原文>', '译文>'],
     ['原文>', '翻譯>'],
     ['原文>', '譯文>'],
-    ['Original>', 'Translation>']
+    ['Original>', 'Translation>'],
+    ['Original>', 'Traducción>']
 ]
 
 # instruction prompt modified from https://github.com/machinewrapped/gpt-subtrans

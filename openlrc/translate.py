@@ -96,6 +96,7 @@ class LLMTranslator(Translator):
         if retry_agent and len(translated) != len(chunk):
             logger.warning(
                 f'Trying to change chatbot to keep performing chunked translation. Retry chatbot: {retry_agent}')
+            # TODO: use the retry_agent for all the next chunks
             translated, context = retry_agent.translate_chunk(chunk_id, chunk, context)
 
             if len(translated) != len(chunk) and retry_agent.info.glossary:
