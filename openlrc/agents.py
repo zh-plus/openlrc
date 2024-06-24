@@ -33,7 +33,7 @@ class ChunkedTranslatorAgent(Agent):
     TEMPERATURE = 1.0
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
-                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.25, proxy: str = None,
+                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.3, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         super().__init__()
         self.chatbot_model = chatbot_model
@@ -111,7 +111,7 @@ class ContextReviewerAgent(Agent):
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
                  chatbot_model: str = 'gpt-3.5-turbo', retry_model=None,
-                 fee_limit: float = 0.25, proxy: str = None,
+                 fee_limit: float = 0.3, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         super().__init__()
         self.src_lang = src_lang
@@ -146,6 +146,7 @@ class ContextReviewerAgent(Agent):
         resp = self.chatbot.message(messages_list, output_checker=self.prompter.check_format)[0]
         context = self.chatbot.get_content(resp)
 
+        context_pool = [context]
         # Validate
         if not self._validate_context(context):
             validated = False
@@ -153,6 +154,7 @@ class ContextReviewerAgent(Agent):
                 logger.info(f'Failed to validate the context using {self.chatbot}, retrying with {self.retry_chatbot}')
                 resp = self.retry_chatbot.message(messages_list, output_checker=self.validate_prompter.check_format)[0]
                 context = self.retry_chatbot.get_content(resp)
+                context_pool.append(context)
                 if self._validate_context(context):
                     validated = True
                 else:
@@ -163,12 +165,16 @@ class ContextReviewerAgent(Agent):
                     logger.warning(f'Retry to generate the context using {self.chatbot} at {i} reties.')
                     resp = self.chatbot.message(messages_list, output_checker=self.validate_prompter.check_format)[0]
                     context = self.chatbot.get_content(resp)
+                    context_pool.append(context)
                     if self._validate_context(context):
                         validated = True
                         break
 
             if not validated:
-                logger.warning(f'Finally failed to validate the context: {context}, check the context manually.')
+                logger.warning(
+                    f'Finally failed to validate the context: {context}, you may check the context manually.')
+                context = max(context_pool, key=len)
+                logger.info(f'Now using the longest context: {context}')
 
         return context
 
@@ -180,7 +186,7 @@ class ProofreaderAgent(Agent):
     TEMPERATURE = 0.8
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
-                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.25, proxy: str = None,
+                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.3, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         super().__init__()
         self.src_lang = src_lang
