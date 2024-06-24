@@ -52,7 +52,7 @@ class LRCer:
     """
 
     def __init__(self, whisper_model='large-v3', compute_type='float16', device='cuda',
-                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit=0.25, consumer_thread=4, asr_options=None,
+                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit=0.3, consumer_thread=4, asr_options=None,
                  vad_options=None, preprocess_options=None, proxy=None, base_url_config=None,
                  glossary: Union[dict, str, Path] = None, retry_model=None):
         self.chatbot_model = chatbot_model

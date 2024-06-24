@@ -191,8 +191,7 @@ class ContextReviewPrompter(Prompter):
         self.target_lang_display = Language.get(target_lang).display_name('en')
 
     def system(self):
-        return f'''Context:
-You are a context reviewer responsible for ensuring the consistency and accuracy of translations between two languages. Your task involves reviewing and providing necessary contextual information for translations.
+        return f'''You are a context reviewer responsible for ensuring the consistency and accuracy of translations between two languages. Your task involves reviewing and providing necessary contextual information for translations.
 
 Objective:
 1. Build a comprehensive glossary of key terms and phrases used in the {self.src_lang_display} to {self.target_lang_display} translations. The glossary should include technical terms, slang, and culturally specific references that need consistent translation or localization, focusing on terms that may cause confusion or inconsistency.
@@ -202,7 +201,7 @@ Objective:
 5. Identify the target audience for the subtitles, considering factors such as age, cultural background, and language proficiency, and provide insights on how to tailor the subtitles accordingly.
 
 Style:
-Formal and professional, with clear and precise language suitable for translation and localization contexts.
+Formal and professional, with clear and precise language suitable for translation and localization contexts. Be concise and informative in your instructions.
 
 Tone:
 Informative and authoritative to ensure clarity and reliability in the instructions.
@@ -211,8 +210,9 @@ Audience:
 Translators, localization specialists, and proofreaders who need a detailed and consistent reference document for subtitling.
 
 Response Format:
-The output should include the following sections: Glossary, Characters, Summary, Tone and Style, Target Audience.
+The output should include the following sections: Glossary, Characters, Summary, Tone and Style, Target Audience. DO NOT include any other sections in the response.
 
+<example>
 Example Input:
 Please review the following text (title: The Detectors) and provide the necessary context for the translation from English to Chinese:
 John and Sarah discuss their plan to locate a suspect, deducing that he is likely in the uptown area.
@@ -238,7 +238,16 @@ The subtitles should be formal and professional, reflecting the serious nature o
 
 ### Target Audience:
 The target audience is adult viewers with an interest in crime dramas. They are likely to be familiar with police procedurals and enjoy suspenseful storytelling.
-'''
+</example>
+
+Note:
+There was an issue with the previous translation. 
+
+DO NOT add the translated sample text in the response.
+DO NOT include any translation segment.
+Sample Translation is NOT required for this task.
+You should adhere to the same format as the previous response, add or delete section is not allowed.
+Remember to include the glossary, characters, summary, tone and style, and target audience sections in your response.'''
 
     def user(self, text, title='', given_glossary: Optional[dict] = None):
         glossary_text = f'Given glossary: {given_glossary}' if given_glossary else ''
@@ -293,8 +302,7 @@ class ContextReviewerValidatePrompter(Prompter):
 
     def system(self):
         return f'''Ignore all previous instructions.
-You are a context validator, responsible for validating the context provided by the Context Reviewer. Your role is to validate if the context is good.
-A good context should include a comprehensive glossary of key terms and phrases, character name translations, a concise story summary, tone and style guidelines, and target audience insights.
+You are a context validator responsible for verifying the context provided by the context reviewers. Your duty is to initially confirm whether these contexts meet the most basic requirements.
 Only output True/False based on the provided context.
 
 # Example 1:
@@ -330,20 +338,26 @@ False
 
 # Example 3:
 Input:
-Key points for translation:
+### Glossary:
+- obedience: 服从
+- opinions: 意见
+- treasured: 珍贵的
 
-1. The opening lines are a joke, likely setting a humorous tone for the video.
-2. The main topic is about cable management in PC building.
-3. There's a trend of moving cable connectors to the back of the motherboard to reduce clutter.
-4. The speaker seems to approve of this trend.
-5. The text mentions that not everyone likes this new trend.
+### Characters:
+- Mistress: 女主人，主导者
+- Listener: 听众
 
-When translating, maintain the casual, slightly humorous tone of the original text. Technical terms like "PC hardware," "gaming rigs," and "motherboard" should be translated using their standard Chinese equivalents. The joke at the beginning should be translated in a way that preserves the humor if possible, but cultural adaptation may be necessary.
+### Summary:
+In "Mistress and Listener," a powerful sorceress named Elara and a perceptive bard named Kael join forces to decipher a prophecy that threatens Elara's future, uncovering dark secrets and facing formidable adversaries along the way. Their journey transforms their lives, forging a deep bond and revealing the true extent of their powers.
+
+### Tone and Style:
+The tone of "Mistress and Listener" is dark and mysterious, filled with suspense. The style is richly descriptive and immersive, blending fantasy with deep character exploration.
+
+### Target Audience:
+The target audience is young adults and adults who enjoy dark fantasy, those who enjoy themes of hypnosis, submission. The content is explicitly sexual and intended for mature listeners only.
 
 Output:
-False
-
-'''
+True'''
 
     def user(self, context):
         return f'''Input:\n{context}\nOutput:'''
