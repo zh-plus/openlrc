@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from openlrc.agents import ChunkedTranslatorAgent, TranslationContext, ContextReviewerAgent
 from openlrc.context import TranslateInfo
-from openlrc.prompter import BaseTranslatePrompter
+from openlrc.prompter import ChunkedTranslatePrompter
 
 
 class DummyMessage(BaseModel):
@@ -75,7 +75,7 @@ class TestTranslatorAgent(unittest.TestCase):
     #  Properly format texts for translation
     def test_format_texts_success(self):
         texts = [(1, 'Hello, how are you?'), (2, 'I am fine, thank you.')]
-        formatted_text = BaseTranslatePrompter.format_texts(texts)
+        formatted_text = ChunkedTranslatePrompter.format_texts(texts)
 
         expected_output = '#1\nOriginal>\nHello, how are you?\nTranslation>\n\n#2\nOriginal>\nI am fine, thank you.\nTranslation>\n'
         self.assertEqual(formatted_text, expected_output)
@@ -83,7 +83,7 @@ class TestTranslatorAgent(unittest.TestCase):
     #  Use glossary terms in translations when provided
     def test_use_glossary_terms_success(self):
         glossary = {'hello': 'bonjour', 'how are you': 'comment ça va'}
-        prompter = BaseTranslatePrompter(src_lang='en', target_lang='fr', context=TranslateInfo(glossary=glossary))
+        prompter = ChunkedTranslatePrompter(src_lang='en', target_lang='fr', context=TranslateInfo(glossary=glossary))
 
         formatted_glossary = prompter.formatted_glossary
 

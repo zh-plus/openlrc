@@ -4,7 +4,7 @@
 import unittest
 
 from openlrc.context import TranslateInfo
-from openlrc.prompter import BaseTranslatePrompter
+from openlrc.prompter import ChunkedTranslatePrompter
 
 formatted_user_input = '''Translation guidelines from context reviewer:
 This is a guidline.
@@ -33,7 +33,7 @@ Translation>
 class TestPrompter(unittest.TestCase):
     def setUp(self) -> None:
         context = TranslateInfo(title='Title', audio_type='movie')
-        self.prompter = BaseTranslatePrompter('ja', 'zh-cn', context)
+        self.prompter = ChunkedTranslatePrompter('ja', 'zh-cn', context)
         self.formatted_user_input = formatted_user_input
 
     def test_user_prompt(self):
@@ -56,7 +56,7 @@ Translation>'''
         texts = [(1, '変わりゆく時代において、'), (2, '生き残る秘訣は、進化し続けることです。')]
         expected_output = '#1\nOriginal>\n変わりゆく時代において、\nTranslation>\n\n#2\nOriginal>\n' \
                           '生き残る秘訣は、進化し続けることです。\nTranslation>\n'
-        self.assertEqual(BaseTranslatePrompter.format_texts(texts), expected_output)
+        self.assertEqual(ChunkedTranslatePrompter.format_texts(texts), expected_output)
 
     def test_check_format(self):
         messages = [{'role': 'system', 'content': 'system content'},

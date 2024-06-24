@@ -138,7 +138,7 @@ if __name__ == '__main__':
     lrcer.run('./data/test.mp3', target_lang='zh-cn')
 
     # Clear temp folder after processing done
-    lrcer.run('./data/test.mp3', target_lang='zh-cn', clear_temp_folder=True)
+    lrcer.run('./data/test.mp3', target_lang='zh-cn', clear_temp=True)
 
     # Change base_url
     lrcer = LRCer(base_url_config={'openai': 'https://api.g4f.icu/v1',

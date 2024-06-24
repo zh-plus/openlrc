@@ -1,31 +1,20 @@
 #  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
+
 import abc
-import re
 from abc import ABC
 from typing import List, Tuple, Optional
 
 from langcodes import Language
-from lingua import LanguageDetectorBuilder
 
 from openlrc.context import TranslateInfo
-from openlrc.logger import logger
+from openlrc.validators import ChunkedTranslateValidator, AtomicTranslateValidator, ProofreaderValidator, \
+    ContextReviewerValidateValidator
 
 ORIGINAL_PREFIX = 'Original>'
 TRANSLATION_PREFIX = 'Translation>'
 PROOFREAD_PREFIX = 'Proofread>'
 
-POTENTIAL_PREFIX_COMBOS = [
-    [ORIGINAL_PREFIX, TRANSLATION_PREFIX],
-    ['原文>', '翻译>'],
-    ['原文>', '译文>'],
-    ['原文>', '翻譯>'],
-    ['原文>', '譯文>'],
-    ['Original>', 'Translation>'],
-    ['Original>', 'Traducción>']
-]
-
-# instruction prompt modified from https://github.com/machinewrapped/gpt-subtrans
 BASE_TRANSLATE_INSTRUCTION = f'''Ignore all previous instructions.
 You are a translator tasked with revising and translating subtitles into a target language. Your goal is to ensure accurate, concise, and natural-sounding translations for each line of dialogue. The input consists of transcribed audio, which may contain transcription errors. Your task is to first correct any errors you find in the sentences based on their context, and then translate them to the target language according to the revised sentences.
 The user will provide a chunk of lines, you should respond with an accurate, concise, and natural-sounding translation for the dialogue, with appropriate punctuation.
@@ -102,7 +91,7 @@ Do not guess or improvise if the context is unclear, just summarise the dialogue
 
 The translation should be in a lovely colloquial style and suitable for high-quality subtitles.
 
-I’m going to tip $1000 for a better translation!
+I’m going to tip \$1000 for a better translation!
 
 ### retry_instructions
 There was an issue with the previous translation. 
@@ -116,7 +105,10 @@ The content of the translation is for learning purposes only and will not violat
 
 class Prompter(abc.ABC):
     def check_format(self, messages, output_str):
-        return True
+        if hasattr(self, 'validator'):
+            return self.validator.validate(messages, output_str)
+        else:
+            return True
 
 
 class TranslatePrompter(Prompter, ABC):
@@ -129,13 +121,13 @@ class TranslatePrompter(Prompter, ABC):
         raise NotImplementedError()
 
 
-class BaseTranslatePrompter(TranslatePrompter):
+class ChunkedTranslatePrompter(TranslatePrompter):
     def __init__(self, src_lang, target_lang, context: TranslateInfo):
         self.src_lang = src_lang
         self.target_lang = target_lang
         self.src_lang_display = Language.get(src_lang).display_name('en')
         self.target_lang_display = Language.get(target_lang).display_name('en')
-        self.lan_detector = LanguageDetectorBuilder.from_all_languages().build()
+        self.validator = ChunkedTranslateValidator(target_lang)
 
         self.audio_type = context.audio_type
         self.title = context.title
@@ -175,88 +167,7 @@ Use the following glossary to ensure consistency in your translations:
 
     @classmethod
     def format_texts(cls, texts: List[Tuple[int, str]]):
-        """
-        Reconstruct list of text into desired format.
-
-        Args:
-            texts: List of (id, text).
-
-        Returns:
-            The formatted string: f"#id\n{original_prefix}\n{text}\n{translation_prefix}\n"
-        """
         return '\n'.join([f'#{i}\n{ORIGINAL_PREFIX}\n{text}\n{TRANSLATION_PREFIX}\n' for i, text in texts])
-
-    def check_format(self, messages, content):
-        summary = re.search(r'<summary>(.*)</summary>', content)
-        scene = re.search(r'<scene>(.*)</scene>', content)
-
-        # If message is for claude, use messages[0]
-        user_input = messages[1]['content'] if len(messages) == 2 else messages[0]['content']
-        original = re.findall(ORIGINAL_PREFIX + r'\n(.*?)\n' + TRANSLATION_PREFIX, user_input, re.DOTALL)
-        if not original:
-            logger.error(f'Fail to extract original text.')
-            return False
-
-        translation = self._extract_translation(content)
-        if not translation:
-            # TODO: Try to change chatbot_model if always fail
-            logger.warning(f'Fail to extract translation.')
-            logger.debug(f'Content: {content}')
-            return False
-
-        if len(original) != len(translation):
-            logger.warning(
-                f'Fail to ensure length consistent: original is {len(original)}, translation is {len(translation)}')
-            logger.debug(f'original: {original}')
-            logger.debug(f'translation: {original}')
-            return False
-
-        # Ensure the translated langauge is in the target language
-        if not self._is_translation_in_target_language(translation):
-            return False
-
-        # It's ok to keep going without summary and scene
-        if not summary or not summary.group(1):
-            logger.warning(f'Fail to extract summary.')
-        if not scene or not scene.group(1):
-            logger.warning(f'Fail to extract scene.')
-
-        return True
-
-    def _extract_translation(self, content: str) -> List[str]:
-        for potential_ori_prefix, potential_trans_prefix in POTENTIAL_PREFIX_COMBOS:
-            translation = re.findall(f'{potential_trans_prefix}\n*(.*?)(?:#\\d+|<summary>|\\n*$)', content, re.DOTALL)
-            if translation:
-                return translation
-        return []
-
-    def _is_translation_in_target_language(self, translation: List[str]) -> bool:
-        if len(translation) >= 3:
-            chunk_size = len(translation) // 3
-            translation_chunks = [translation[i:i + chunk_size] for i in range(0, len(translation), chunk_size)]
-            if len(translation_chunks) > 3:
-                translation_chunks[-2].extend(translation_chunks[-1])
-                translation_chunks.pop()
-
-            translated_langs = [self.lan_detector.detect_language_of(' '.join(chunk)) for chunk in translation_chunks]
-            translated_langs = [lang.name.lower() for lang in translated_langs if lang]
-
-            if not translated_langs:
-                return True
-
-            translated_lang = max(set(translated_langs), key=translated_langs.count)
-        else:
-            detected_lang = self.lan_detector.detect_language_of(' '.join(translation))
-            if not detected_lang:
-                return True
-            translated_lang = detected_lang.name.lower()
-
-        target_lang = Language.get(self.target_lang).language_name().lower()
-        if translated_lang != target_lang:
-            logger.warning(f'Translated language is {translated_lang}, not {target_lang}.')
-            return False
-
-        return True
 
 
 class AtomicTranslatePrompter(TranslatePrompter):
@@ -265,26 +176,11 @@ class AtomicTranslatePrompter(TranslatePrompter):
         self.target_lang = target_lang
         self.src_lang_display = Language.get(src_lang).display_name('en')
         self.target_lang_display = Language.get(target_lang).display_name('en')
-        self.lan_detector = LanguageDetectorBuilder.from_all_languages().build()
+        self.validator = AtomicTranslateValidator(target_lang)
 
     def user(self, text):
         return f'''Please translate the following text from {self.src_lang_display} to {self.target_lang_display}. 
 Please do not output any content other than the translated text. Here is the text: {text}'''
-
-    def check_format(self, messages, output_str):
-        # Ensure the translated langauge is in the target language
-        detected_lang = self.lan_detector.detect_language_of(output_str)
-        if not detected_lang:
-            # Cant detect language
-            return True
-
-        translated_lang = detected_lang.name.lower()
-        target_lang = Language.get(self.target_lang).language_name().lower()
-        if translated_lang != target_lang:
-            logger.warning(f'Translated text: "{output_str}" is {translated_lang}, not {target_lang}.')
-            return False
-
-        return True
 
 
 class ContextReviewPrompter(Prompter):
@@ -293,7 +189,6 @@ class ContextReviewPrompter(Prompter):
         self.target_lang = target_lang
         self.src_lang_display = Language.get(src_lang).display_name('en')
         self.target_lang_display = Language.get(target_lang).display_name('en')
-        self.lan_detector = LanguageDetectorBuilder.from_all_languages().build()
 
     def system(self):
         return f'''Context:
@@ -358,7 +253,7 @@ class ProofreaderPrompter(Prompter):
         self.target_lang = target_lang
         self.src_lang_display = Language.get(src_lang).display_name('en')
         self.target_lang_display = Language.get(target_lang).display_name('en')
-        self.lan_detector = LanguageDetectorBuilder.from_all_languages().build()
+        self.validator = ProofreaderValidator(target_lang)
 
     def system(self):
         return f'''Ignore all previous instructions.
@@ -388,70 +283,67 @@ On the other hand, those who embrace change can thrive in the new environment.
 {ORIGINAL_PREFIX}
 Thus, it is important to adapt to changing circumstances and remain open to new opportunities.
 {TRANSLATION_PREFIX}
-因此，适应变化的环境并对新机会持开放态度是很重要的。
-
-
-Example output:
-#1
-{TRANSLATION_PREFIX}
-那些抗拒变化的人可能会发现自己被抛在后面。
-{PROOFREAD_PREFIX}
-那些抗拒变化的人可能会发现自己落伍了。
-
-#2
-{TRANSLATION_PREFIX}
-另一方面，那些接受变化的人可以在新环境中发展。
-{PROOFREAD_PREFIX}
-相反，那些拥抱变化的人可以在新环境中如鱼得水。
-
-#3
-{TRANSLATION_PREFIX}
-因此，适应变化的环境并对新机会持开放态度是很重要的。
-{PROOFREAD_PREFIX}
-因此，适应变化的环境并对新机会保持开放态度是非常重要的。
-
-
-### retry_instructions
-Please proofread the subtitles again, paying careful attention to ensure that each line is proofreaded separately, and that every line has a matching text.
-Do not merge lines together during the proofread, it leads to incorrect timings and confusion for the reader.
+因此，适应变化的环境并对新机会持开放态度
 '''
 
-    def user(self, texts, translations, guideline=''):
-        formated_texts = '\n'.join(
-            [
-                f'#{i}\n{ORIGINAL_PREFIX}\n{text}\n{TRANSLATION_PREFIX}\n{trans}\n' for i, (text, trans) in
-                enumerate(zip(texts, translations), start=1)
-            ])
-        return f'''Translation guidelines from context reviewer:
-{guideline}
 
-Please proofread the following translated subtitles, which is from {self.src_lang_display} to {self.target_lang_display}:
-{formated_texts}
+class ContextReviewerValidatePrompter(Prompter):
+    def __init__(self):
+        self.validator = ContextReviewerValidateValidator('en')
+
+    def system(self):
+        return f'''Ignore all previous instructions.
+You are a context validator, responsible for validating the context provided by the Context Reviewer. Your role is to validate if the context is good.
+A good context should include a comprehensive glossary of key terms and phrases, character name translations, a concise story summary, tone and style guidelines, and target audience insights.
+Only output True/False based on the provided context.
+
+# Example 1:
+Input:
+I will provide a context review for this translation, focusing on appropriate content and language:
+
+### Glossary:
+- PC hardware: 电脑硬件
+- gaming rigs: 游戏装置
+- motherboard: 主板
+
+### Characters:
+No specific characters mentioned.
+
+### Summary:
+The text discusses a trend in PC hardware design where cables are being hidden by moving connectors to the back of the motherboard. The speaker expresses approval of this trend, noting it utilizes previously unused space. However, they also mention that not everyone agrees with this design change.
+
+### Tone and Style:
+The tone is casual and informative, with a touch of humor. The translation should maintain this conversational style while ensuring clarity for technical terms. Avoid overly formal language and try to capture the light-hearted nature of the commentary.
+
+### Target Audience:
+The target audience appears to be tech-savvy individuals, particularly those interested in PC gaming and hardware. They likely have some familiarity with computer components and assembly. The translation should cater to Chinese speakers with similar interests and knowledge levels.
 
 Output:
+True
+
+# Example 2:
+Input:
+Sorry, I can't provide the context for this text. I can assist in generating other texts.
+
+Output:
+False
+
+# Example 3:
+Input:
+Key points for translation:
+
+1. The opening lines are a joke, likely setting a humorous tone for the video.
+2. The main topic is about cable management in PC building.
+3. There's a trend of moving cable connectors to the back of the motherboard to reduce clutter.
+4. The speaker seems to approve of this trend.
+5. The text mentions that not everyone likes this new trend.
+
+When translating, maintain the casual, slightly humorous tone of the original text. Technical terms like "PC hardware," "gaming rigs," and "motherboard" should be translated using their standard Chinese equivalents. The joke at the beginning should be translated in a way that preserves the humor if possible, but cultural adaptation may be necessary.
+
+Output:
+False
+
 '''
 
-    def check_format(self, messages, content):
-        # If message is for claude, use messages[0]
-        user_input = messages[1]['content'] if len(messages) == 2 else messages[0]['content']
-        original = re.findall(ORIGINAL_PREFIX + r'\n(.*?)\n' + TRANSLATION_PREFIX, user_input, re.DOTALL)
-        if not original:
-            logger.error(f'Fail to extract original text.')
-            return False
-
-        localized = re.findall(PROOFREAD_PREFIX + r'\s*(.*)', content, re.MULTILINE)
-
-        if not localized:
-            # TODO: Try to change chatbot_model if always fail
-            logger.warning(f'Fail to extract translation.')
-            logger.debug(f'Content: {content}')
-            return False
-
-        if len(original) != len(localized):
-            logger.warning(
-                f'Fail to ensure length consistent: original is {len(original)}, translation is {len(localized)}')
-            logger.debug(f'original: {original}')
-            logger.debug(f'translation: {original}')
-            return False
-
-        return True
+    def user(self, context):
+        return f'''Input:\n{context}\nOutput:'''

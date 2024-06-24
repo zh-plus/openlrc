@@ -7,8 +7,9 @@ from typing import Optional, Tuple, List, Type, Union
 from openlrc.chatbot import route_chatbot, GPTBot, ClaudeBot
 from openlrc.context import TranslationContext, TranslateInfo
 from openlrc.logger import logger
-from openlrc.prompter import BaseTranslatePrompter, ContextReviewPrompter, POTENTIAL_PREFIX_COMBOS, \
-    ProofreaderPrompter, PROOFREAD_PREFIX
+from openlrc.prompter import ChunkedTranslatePrompter, ContextReviewPrompter, ProofreaderPrompter, PROOFREAD_PREFIX, \
+    ContextReviewerValidatePrompter
+from openlrc.validators import POTENTIAL_PREFIX_COMBOS
 
 
 class Agent(abc.ABC):
@@ -38,7 +39,7 @@ class ChunkedTranslatorAgent(Agent):
         self.chatbot_model = chatbot_model
         self.info = info
         self.chatbot = self._initialize_chatbot(chatbot_model, fee_limit, proxy, base_url_config)
-        self.prompter = BaseTranslatePrompter(src_lang, target_lang, info)
+        self.prompter = ChunkedTranslatePrompter(src_lang, target_lang, info)
         self.cost = 0
 
     def __str__(self):
@@ -106,30 +107,69 @@ class ContextReviewerAgent(Agent):
     TODO: Add chunking support.
     """
 
-    TEMPERATURE = 0.8
+    TEMPERATURE = 0.6
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
-                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.25, proxy: str = None,
+                 chatbot_model: str = 'gpt-3.5-turbo', retry_model=None,
+                 fee_limit: float = 0.25, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         super().__init__()
         self.src_lang = src_lang
         self.target_lang = target_lang
         self.info = info
         self.chatbot_model = chatbot_model
+        self.validate_prompter = ContextReviewerValidatePrompter()
         self.prompter = ContextReviewPrompter(src_lang, target_lang)
         self.chatbot = self._initialize_chatbot(chatbot_model, fee_limit, proxy, base_url_config)
+        self.retry_chatbot = self._initialize_chatbot(
+            retry_model, fee_limit, proxy, base_url_config
+        ) if retry_model else None
 
     def __str__(self):
         return f'Context Reviewer Agent ({self.chatbot_model})'
 
+    def _validate_context(self, context: str) -> bool:
+        messages_list = [
+            {'role': 'system', 'content': self.validate_prompter.system()},
+            {'role': 'user', 'content': self.validate_prompter.user(context)},
+        ]
+        resp = self.chatbot.message(messages_list, output_checker=self.validate_prompter.check_format)[0]
+        return 'true' in self.chatbot.get_content(resp).lower()
+
     def build_context(self, texts, title='', glossary: Optional[dict] = None) -> str:
         text_content = '\n'.join(texts)
+
         messages_list = [
             {'role': 'system', 'content': self.prompter.system()},
             {'role': 'user', 'content': self.prompter.user(text_content, title=title, given_glossary=glossary)},
         ]
         resp = self.chatbot.message(messages_list, output_checker=self.prompter.check_format)[0]
         context = self.chatbot.get_content(resp)
+
+        # Validate
+        if not self._validate_context(context):
+            validated = False
+            if self.retry_chatbot:
+                logger.info(f'Failed to validate the context using {self.chatbot}, retrying with {self.retry_chatbot}')
+                resp = self.retry_chatbot.message(messages_list, output_checker=self.validate_prompter.check_format)[0]
+                context = self.retry_chatbot.get_content(resp)
+                if self._validate_context(context):
+                    validated = True
+                else:
+                    logger.warning(f'Failed to validate the context using {self.retry_chatbot}: {context}')
+
+            if not validated:
+                for i in range(2, 4):
+                    logger.warning(f'Retry to generate the context using {self.chatbot} at {i} reties.')
+                    resp = self.chatbot.message(messages_list, output_checker=self.validate_prompter.check_format)[0]
+                    context = self.chatbot.get_content(resp)
+                    if self._validate_context(context):
+                        validated = True
+                        break
+
+            if not validated:
+                logger.warning(f'Finally failed to validate the context: {context}, check the context manually.')
+
         return context
 
 
