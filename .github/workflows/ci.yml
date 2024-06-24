@@ -23,6 +23,9 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Delete huge unnecessary tools folder
+        run: rm -rf /opt/hostedtoolcache
+
       - uses: actions/checkout@v4
 
       - name: Set up Python ${{ matrix.python-version }}
