@@ -51,7 +51,7 @@ class LRCer:
         retry_model: The model to use when retrying the translation. Default: None
     """
 
-    def __init__(self, whisper_model='large-v3', compute_type='float16', chatbot_model: str = 'gpt-3.5-turbo',
+    def __init__(self, whisper_model='large-v3', compute_type='float16', device='cuda', chatbot_model: str = 'gpt-3.5-turbo',
                  fee_limit=0.25, consumer_thread=4, asr_options=None, vad_options=None, preprocess_options=None,
                  proxy=None, base_url_config=None, glossary: Union[dict, str, Path] = None, retry_model=None):
         self.chatbot_model = chatbot_model
@@ -84,7 +84,7 @@ class LRCer:
         if preprocess_options:
             self.preprocess_options.update(preprocess_options)
 
-        self.transcriber = Transcriber(model_name=whisper_model, compute_type=compute_type,
+        self.transcriber = Transcriber(model_name=whisper_model, compute_type=compute_type, device=device,
                                        asr_options=self.asr_options, vad_options=self.vad_options)
         self.transcribed_paths = []
 
