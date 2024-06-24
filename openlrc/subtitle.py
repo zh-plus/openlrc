@@ -254,6 +254,7 @@ class BilingualSubtitle:
         if len(src) != len(target):
             raise ValueError(f'Source and target subtitle length not equal: {len(src)} vs {len(target)}')
 
+        self.lang = f'{src.lang}-{target.lang}'
         self.segments = []
         for src_seg, target_seg in zip(src.segments, target.segments):
             if src_seg.start != target_seg.start or src_seg.end != target_seg.end:

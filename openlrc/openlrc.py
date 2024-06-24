@@ -194,6 +194,8 @@ class LRCer:
                 bilingual_subtitle = BilingualSubtitle.from_preprocessed(
                     transcribed_path.parent, audio_name.replace('_preprocessed', '')
                 )
+                bilingual_optimizer = SubtitleOptimizer(bilingual_subtitle)
+                bilingual_optimizer.extend_time()
                 # TODO: consider the edge case (audio file name contains _preprocessed)
                 getattr(bilingual_subtitle, f'to_{subtitle_format}')()
                 bilingual_lrc_path = bilingual_subtitle.filename.with_suffix(bilingual_subtitle.suffix)

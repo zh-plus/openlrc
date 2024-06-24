@@ -8,7 +8,7 @@ from typing import Union, Optional, List
 import zhconv
 
 from openlrc.logger import logger
-from openlrc.subtitle import Subtitle
+from openlrc.subtitle import Subtitle, BilingualSubtitle
 from openlrc.utils import extend_filename, format_timestamp
 
 # Thresholds for different languages
@@ -42,7 +42,7 @@ class SubtitleOptimizer:
     SubtitleOptimizer class is used to optimize subtitles by performing various operations.
     """
 
-    def __init__(self, subtitle: Union[Path, Subtitle]):
+    def __init__(self, subtitle: Union[Path, Subtitle, BilingualSubtitle]):
         if isinstance(subtitle, Path):
             subtitle = Subtitle.from_json(subtitle)
 
@@ -139,6 +139,10 @@ class SubtitleOptimizer:
         """
         Cut long texts based on language-specific thresholds.
         """
+        if isinstance(self.subtitle, BilingualSubtitle):
+            logger.warning('Bilingual subtitle is not supported for cut_long operation.')
+            return
+
         threshold = CUT_LONG_THRESHOLD.get(self.lang.lower(), 150)
 
         for element in self.subtitle.segments:
@@ -157,6 +161,10 @@ class SubtitleOptimizer:
         """
         Replace English punctuation with Chinese punctuation.
         """
+        if isinstance(self.subtitle, BilingualSubtitle):
+            logger.warning('Bilingual subtitle is not supported for punctuation_optimization operation.')
+            return
+
         for element in self.subtitle.segments:
             element.text = self._replace_punctuation_with_chinese(element.text)
 
