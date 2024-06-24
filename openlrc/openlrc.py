@@ -51,9 +51,10 @@ class LRCer:
         retry_model: The model to use when retrying the translation. Default: None
     """
 
-    def __init__(self, whisper_model='large-v3', compute_type='float16', device='cuda', chatbot_model: str = 'gpt-3.5-turbo',
-                 fee_limit=0.25, consumer_thread=4, asr_options=None, vad_options=None, preprocess_options=None,
-                 proxy=None, base_url_config=None, glossary: Union[dict, str, Path] = None, retry_model=None):
+    def __init__(self, whisper_model='large-v3', compute_type='float16', device='cuda',
+                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit=0.25, consumer_thread=4, asr_options=None,
+                 vad_options=None, preprocess_options=None, proxy=None, base_url_config=None,
+                 glossary: Union[dict, str, Path] = None, retry_model=None):
         self.chatbot_model = chatbot_model
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
@@ -181,7 +182,9 @@ class LRCer:
                         return
 
             # Copy preprocessed/xxx_preprocessed.lrc or preprocessed/xxx_preprocessed.srt to xxx.lrc or xxx.srt
-            subtitle_format = 'srt' if audio_name in self.from_video else 'lrc'
+            original_name_wo_suffix = transcribed_path.parents[
+                                          1] / f"{transcribed_path.name.replace('_preprocessed_transcribed.json', '')}"
+            subtitle_format = 'srt' if original_name_wo_suffix in self.from_video else 'lrc'
             subtitle_path = getattr(final_subtitle, f'to_{subtitle_format}')()
             result_path = subtitle_path.parents[1] / subtitle_path.name.replace(f'_preprocessed.{subtitle_format}',
                                                                                 f'.{subtitle_format}')
@@ -250,7 +253,7 @@ class LRCer:
         return final_subtitle
 
     def run(self, paths: Union[str, Path, List[Union[str, Path]]], src_lang: Optional[str] = None, target_lang='zh-cn',
-            skip_trans=False, noise_suppress=False, bilingual_sub=False, clear_temp_folder=False) -> List[str]:
+            skip_trans=False, noise_suppress=False, bilingual_sub=False, clear_temp=False) -> List[str]:
         """
         Split the translation into 2 phases: transcription and translation. They're running in parallel.
         Firstly, transcribe the audios one-by-one. At the same time, translation threads are created and waiting for
@@ -264,7 +267,7 @@ class LRCer:
             skip_trans (bool): Whether to skip the translation process. (Default to False)
             noise_suppress (bool): Whether to suppress the noise in the audio. (Default to False)
             bilingual_sub (bool): Whether to generate bilingual subtitles. (Default to False)
-            clear_temp_folder (bool): Whether to clear the temporary folder.
+            clear_temp (bool): Whether to clear all the temporary files, including the generated .wav from video.
                 Note, set this back to False to see more intermediate results if error encountered. (Default to False)
 
         Returns:
@@ -305,14 +308,13 @@ class LRCer:
 
         logger.info(f'Totally used API fee: {self.api_fee:.4f} USD')
 
-        if clear_temp_folder:
+        if clear_temp:
             logger.info('Clearing temporary folder...')
             self.clear_temp_files(audio_paths)
 
         return self.transcribed_paths
 
-    @staticmethod
-    def clear_temp_files(paths):
+    def clear_temp_files(self, paths):
         """
         Clear the temporary files generated during the transcription and translation process.
         """
@@ -322,6 +324,12 @@ class LRCer:
 
             shutil.rmtree(folder)
             logger.debug(f'Removed {folder}')
+
+        for input_video_path in self.from_video:
+            generated_wave = input_video_path.with_suffix('.wav')
+            if generated_wave.exists():
+                generated_wave.unlink()
+                logger.debug(f'Removed generated wav (from video): {generated_wave}')
 
     @staticmethod
     def to_json(segments: List[Segment], name, lang):
@@ -352,10 +360,10 @@ class LRCer:
             if not path.exists() or not path.is_file():
                 raise FileNotFoundError(f'File not found: {path}')
 
-            paths[i] = extract_audio(path)
-
             if get_file_type(path) == 'video':
-                self.from_video.add(path.stem + '_preprocessed')
+                self.from_video.add(path.with_suffix(''))
+
+            paths[i] = extract_audio(path)
 
         # Audio-based process
         preprocessor = Preprocessor(paths, options=self.preprocess_options)
