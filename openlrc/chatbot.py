@@ -155,6 +155,9 @@ class ChatBot:
 
         return results
 
+    def __str__(self):
+        return f'ChatBot ({self.model})'
+
 
 @_register_chatbot
 class GPTBot(ChatBot):
