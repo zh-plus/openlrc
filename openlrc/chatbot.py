@@ -7,7 +7,7 @@ import random
 import re
 import time
 from copy import deepcopy
-from typing import List, Union, Dict, Callable
+from typing import List, Union, Dict, Callable, Optional
 
 import anthropic
 import google.generativeai as genai
@@ -112,23 +112,27 @@ class ChatBot:
     def get_content(self, response):
         raise NotImplementedError()
 
-    async def _create_achat(self, messages: List[Dict],
+    async def _create_achat(self, messages: List[Dict], stop_sequences: Optional[List[str]] = None,
                             output_checker: Callable = lambda user_input, generated_content: True):
         raise NotImplementedError()
 
-    async def _amessage(self, messages_list: List[List[Dict]],
+    async def _amessage(self, messages_list: List[List[Dict]], stop_sequences: Optional[List[str]] = None,
                         output_checker: Callable = lambda user_input, generated_content: True):
         """
         Async send messages to the GPT chatbot.
         """
 
         results = await asyncio.gather(
-            *(self._create_achat(message, output_checker=output_checker) for message in messages_list)
+            *(
+                self._create_achat(
+                    message, stop_sequences=stop_sequences, output_checker=output_checker
+                ) for message in messages_list
+            )
         )
 
         return results
 
-    def message(self, messages_list: Union[List[Dict], List[List[Dict]]],
+    def message(self, messages_list: Union[List[Dict], List[List[Dict]]], stop_sequences: Optional[List[str]] = None,
                 output_checker: Callable = lambda user_input, generated_content: True):
         """
         Send chunked messages to the GPT chatbot.
@@ -152,7 +156,9 @@ class ChatBot:
                                    f'exceeds the limit: {self.fee_limit}$.')
 
         try:
-            results = asyncio.run(self._amessage(messages_list, output_checker=output_checker))
+            results = asyncio.run(
+                self._amessage(messages_list, stop_sequences=stop_sequences, output_checker=output_checker)
+            )
         except ChatBotException as e:
             logger.error(f'Failed to message with GPT. Error: {e}')
             raise e
@@ -210,9 +216,12 @@ class GPTBot(ChatBot):
     def get_content(self, response):
         return response.choices[0].message.content
 
-    async def _create_achat(self, messages: List[Dict],
+    async def _create_achat(self, messages: List[Dict], stop_sequences: Optional[List[str]] = None,
                             output_checker: Callable = lambda user_input, generated_content: True):
-        logger.debug(f'Raw content: {messages}')
+        # Check stop sequences
+        if stop_sequences and len(stop_sequences) > 4:
+            logger.warning('Too many stop sequences. For openai, Only the first 4 will be used.')
+            stop_sequences = stop_sequences[:4]
 
         response = None
         for i in range(self.retry):
@@ -222,7 +231,8 @@ class GPTBot(ChatBot):
                     messages=messages,
                     temperature=self.temperature,
                     top_p=self.top_p,
-                    response_format={'type': 'json_object' if self.json_mode else 'text'}
+                    response_format={'type': 'json_object' if self.json_mode else 'text'},
+                    stop=stop_sequences
                 )
                 self.update_fee(response)
                 if response.choices[0].finish_reason == 'length':
@@ -291,9 +301,9 @@ class ClaudeBot(ChatBot):
     def get_content(self, response):
         return response.content[0].text
 
-    async def _create_achat(self, messages: List[Dict],
+    async def _create_achat(self, messages: List[Dict], stop_sequences: Optional[List[str]] = None,
                             output_checker: Callable = lambda user_input, generated_content: True):
-        logger.debug(f'Raw content: {messages}')
+        # No need to check stop sequences for Claude (unlimited)
 
         # Move "system" role into the parameters
         system_msg = NOT_GIVEN
@@ -310,6 +320,7 @@ class ClaudeBot(ChatBot):
                     system=system_msg,
                     temperature=self.temperature,
                     top_p=self.top_p,
+                    stop_sequences=stop_sequences
                 )
                 self.update_fee(response)
 
@@ -390,8 +401,13 @@ class GeminiBot(ChatBot):
     def get_content(self, response):
         return response.text
 
-    async def _create_achat(self, messages: List[Dict],
+    async def _create_achat(self, messages: List[Dict], stop_sequences: Optional[List[str]] = None,
                             output_checker: Callable = lambda user_input, generated_content: True):
+        # Check stop sequences
+        if stop_sequences and len(stop_sequences) > 5:
+            logger.warning('Too many stop sequences. Only the first 5 will be used.')
+            stop_sequences = stop_sequences[:5]
+
         history_messages = deepcopy(messages)
         system_msg = None
         if history_messages[0]['role'] == 'system':
@@ -409,6 +425,7 @@ class GeminiBot(ChatBot):
             content = message.pop('content')
             history_messages[i]['parts'] = [{'text': content}]
 
+        self.config.stop_sequences = stop_sequences
         generative_model = genai.GenerativeModel(model_name=self.model, safety_settings=self.safety_settings,
                                                  generation_config=self.config, system_instruction=system_msg)
         client = genai.ChatSession(generative_model, history=history_messages)
