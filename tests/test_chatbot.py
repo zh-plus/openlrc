@@ -6,7 +6,7 @@ from typing import Union
 
 from pydantic import BaseModel
 
-from openlrc.chatbot import GPTBot, ClaudeBot, route_chatbot
+from openlrc.chatbot import GPTBot, ClaudeBot, route_chatbot, GeminiBot
 
 
 class Usage(BaseModel):
@@ -28,7 +28,7 @@ class OpenAIResponse(BaseModel):
     usage: Union[Usage]
 
 
-class TestGPTBot(unittest.TestCase):
+class TestChatBot(unittest.TestCase):
     def setUp(self):
         self.gpt_bot = GPTBot(temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.05)
         self.claude_bot = ClaudeBot(temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.05)
@@ -157,4 +157,26 @@ class TestGPTBot(unittest.TestCase):
         self.assertEqual(chatbot3.temperature, 1)
         self.assertEqual(chatbot4.temperature, 0)
 
+
 # TODO: Retry_bot testing
+
+class TestGeminiBot(unittest.TestCase):
+    # def setUp(self):
+    #     import os
+    #     os.environ['HTTP_PROXY'] = 'http://127.0.0.1:7890'
+    #     os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:7890'
+    #
+    # def tearDown(self):
+    #     import os
+    #     os.environ.pop('HTTP_PROXY')
+    #     os.environ.pop('HTTPS_PROXY')
+
+    def test_multi_turn(self):
+        bot = GeminiBot()
+        result = bot.message([
+            {'role': 'system', 'content': 'You are a echo machine, echo each word from input.'},
+            {'role': 'user', 'content': 'How are you?'},
+            {'role': 'assistant', 'content': 'How are you?'},
+            {'role': 'user', 'content': 'THen?'}
+        ])[0]
+        self.assertTrue('THen?' in bot.get_content(result))

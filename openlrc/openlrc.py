@@ -50,11 +50,10 @@ class LRCer:
             dictionary specifies a source word and its corresponding translation. Default: None.
         retry_model: The model to use when retrying the translation. Default: None
     """
-
-    def __init__(self, whisper_model='large-v3', compute_type='float16', device='cuda',
-                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit=0.3, consumer_thread=4, asr_options=None,
-                 vad_options=None, preprocess_options=None, proxy=None, base_url_config=None,
-                 glossary: Union[dict, str, Path] = None, retry_model=None):
+    def __init__(self, whisper_model: str = 'large-v3', compute_type: str = 'float16', device: str = 'cuda',
+                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.3, consumer_thread: int = 4,
+                 asr_options=None, vad_options=None, preprocess_options=None, proxy=None, base_url_config=None,
+                 glossary: Optional[Union[dict, str, Path]] = None, retry_model=None):
         self.chatbot_model = chatbot_model
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
@@ -188,7 +187,7 @@ class LRCer:
             subtitle_path = getattr(final_subtitle, f'to_{subtitle_format}')()
             result_path = subtitle_path.parents[1] / subtitle_path.name.replace(f'_preprocessed.{subtitle_format}',
                                                                                 f'.{subtitle_format}')
-            shutil.copy(subtitle_path, result_path)
+            shutil.move(subtitle_path, result_path)
 
             if not skip_trans and bilingual_sub:
                 bilingual_subtitle = BilingualSubtitle.from_preprocessed(
@@ -199,14 +198,14 @@ class LRCer:
                 # TODO: consider the edge case (audio file name contains _preprocessed)
                 getattr(bilingual_subtitle, f'to_{subtitle_format}')()
                 bilingual_lrc_path = bilingual_subtitle.filename.with_suffix(bilingual_subtitle.suffix)
-                shutil.copy(bilingual_lrc_path, result_path.parent / bilingual_lrc_path.name)
+                shutil.move(bilingual_lrc_path, result_path.parent / bilingual_lrc_path.name)
 
                 non_translated_subtitle = transcribed_opt_sub
                 optimizer = SubtitleOptimizer(non_translated_subtitle)
                 optimizer.extend_time()  # Extend 0.5s like what translated do
                 getattr(non_translated_subtitle, f'to_{subtitle_format}')()
                 non_translated_lrc_path = non_translated_subtitle.filename.with_suffix(non_translated_subtitle.suffix)
-                shutil.copy(
+                shutil.move(
                     non_translated_lrc_path,
                     result_path.parent / subtitle_path.name.replace(
                         f'_preprocessed.{subtitle_format}',

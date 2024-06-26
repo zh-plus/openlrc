@@ -66,20 +66,19 @@ class ChunkedTranslateValidator(BaseValidator):
 
         return True
 
-    def validate(self, messages, content):
-        summary = re.search(r'<summary>(.*)</summary>', content)
-        scene = re.search(r'<scene>(.*)</scene>', content)
+    def validate(self, user_input, generated_content):
+        summary = re.search(r'<summary>(.*)</summary>', generated_content)
+        scene = re.search(r'<scene>(.*)</scene>', generated_content)
 
-        user_input = messages[1]['content'] if len(messages) == 2 else messages[0]['content']
         original = re.findall(ORIGINAL_PREFIX + r'\n(.*?)\n' + TRANSLATION_PREFIX, user_input, re.DOTALL)
         if not original:
             logger.error(f'Fail to extract original text.')
             return False
 
-        translation = self._extract_translation(content)
+        translation = self._extract_translation(generated_content)
         if not translation:
             logger.warning(f'Fail to extract translation.')
-            logger.debug(f'Content: {content}')
+            logger.debug(f'Content: {generated_content}')
             return False
 
         if len(original) != len(translation):
@@ -101,33 +100,32 @@ class ChunkedTranslateValidator(BaseValidator):
 
 
 class AtomicTranslateValidator(BaseValidator):
-    def validate(self, messages, content):
-        detected_lang = self.lan_detector.detect_language_of(content)
+    def validate(self, user_input, generated_content):
+        detected_lang = self.lan_detector.detect_language_of(generated_content)
         if not detected_lang:
             return True
 
         translated_lang = detected_lang.name.lower()
         target_lang = Language.get(self.target_lang).language_name().lower()
         if translated_lang != target_lang:
-            logger.warning(f'Translated text: "{content}" is {translated_lang}, not {target_lang}.')
+            logger.warning(f'Translated text: "{generated_content}" is {translated_lang}, not {target_lang}.')
             return False
 
         return True
 
 
 class ProofreaderValidator(BaseValidator):
-    def validate(self, messages, content):
-        user_input = messages[1]['content'] if len(messages) == 2 else messages[0]['content']
+    def validate(self, user_input, generated_content):
         original = re.findall(ORIGINAL_PREFIX + r'\n(.*?)\n' + TRANSLATION_PREFIX, user_input, re.DOTALL)
         if not original:
             logger.error(f'Fail to extract original text.')
             return False
 
-        localized = re.findall(PROOFREAD_PREFIX + r'\s*(.*)', content, re.MULTILINE)
+        localized = re.findall(PROOFREAD_PREFIX + r'\s*(.*)', generated_content, re.MULTILINE)
 
         if not localized:
             logger.warning(f'Fail to extract translation.')
-            logger.debug(f'Content: {content}')
+            logger.debug(f'Content: {generated_content}')
             return False
 
         if len(original) != len(localized):
@@ -141,10 +139,20 @@ class ProofreaderValidator(BaseValidator):
 
 
 class ContextReviewerValidateValidator(BaseValidator):
-    def validate(self, messages, content):
-        if 'true' in content.lower() or 'false' in content.lower():
+    def validate(self, user_input: str, generated_content: str) -> bool:
+        """
+        Validate the generated content based on user input.
+
+        Args:
+            user_input (str): The user input to compare against.
+            generated_content (str): The content generated for validation.
+
+        Returns:
+            bool: True if validation passes, False otherwise.
+        """
+        if re.search(r'\b(?:true|false)\b', generated_content, re.IGNORECASE):
             return True
         else:
-            logger.warning(f'Context reviewer validation failed: {content}.')
+            logger.warning(f'Context reviewer validation failed: {generated_content}.')
 
         return False

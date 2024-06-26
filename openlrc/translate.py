@@ -128,6 +128,7 @@ class LLMTranslator(Translator):
 
         translations, summaries, compare_list, start_chunk, guideline = self._resume_translation(compare_path)
         if not guideline:
+            logger.info('Building translation guideline.')
             context_reviewer = ContextReviewerAgent(src_lang, target_lang, info, self.chatbot_model, self.retry_model,
                                                     self.fee_limit, self.proxy, self.base_url_config)
             guideline = context_reviewer.build_context(texts, title=info.title, glossary=info.glossary)

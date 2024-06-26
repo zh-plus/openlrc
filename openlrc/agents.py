@@ -143,7 +143,9 @@ class ContextReviewerAgent(Agent):
             {'role': 'system', 'content': self.prompter.system()},
             {'role': 'user', 'content': self.prompter.user(text_content, title=title, given_glossary=glossary)},
         ]
-        resp = self.chatbot.message(messages_list, output_checker=self.prompter.check_format)[0]
+        resp = self.chatbot.message(
+            messages_list, stop_sequences=[self.prompter.stop_sequence], output_checker=self.prompter.check_format
+        )[0]
         context = self.chatbot.get_content(resp)
 
         context_pool = [context]

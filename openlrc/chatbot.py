@@ -6,14 +6,19 @@ import os
 import random
 import re
 import time
-from typing import List, Union, Dict, Callable
+from copy import deepcopy
+from typing import List, Union, Dict, Callable, Optional
 
 import anthropic
+import google.generativeai as genai
 import httpx
 import openai
 from anthropic import AsyncAnthropic
 from anthropic._types import NOT_GIVEN
 from anthropic.types import Message
+from google.generativeai import GenerationConfig
+from google.generativeai.types import BrokenResponseError, AsyncGenerateContentResponse, GenerateContentResponse, \
+    StopCandidateException, HarmCategory, HarmBlockThreshold, BlockedPromptException
 from openai import AsyncClient as AsyncGPTClient
 from openai.types.chat import ChatCompletion
 
@@ -107,22 +112,28 @@ class ChatBot:
     def get_content(self, response):
         raise NotImplementedError()
 
-    async def _create_achat(self, messages: List[Dict], output_checker: Callable = lambda *args, **kw: True):
+    async def _create_achat(self, messages: List[Dict], stop_sequences: Optional[List[str]] = None,
+                            output_checker: Callable = lambda user_input, generated_content: True):
         raise NotImplementedError()
 
-    async def _amessage(self, messages_list: List[List[Dict]], output_checker: Callable = lambda *args, **kw: True):
+    async def _amessage(self, messages_list: List[List[Dict]], stop_sequences: Optional[List[str]] = None,
+                        output_checker: Callable = lambda user_input, generated_content: True):
         """
         Async send messages to the GPT chatbot.
         """
 
         results = await asyncio.gather(
-            *(self._create_achat(message, output_checker=output_checker) for message in messages_list)
+            *(
+                self._create_achat(
+                    message, stop_sequences=stop_sequences, output_checker=output_checker
+                ) for message in messages_list
+            )
         )
 
         return results
 
-    def message(self, messages_list: Union[List[Dict], List[List[Dict]]],
-                output_checker: Callable = lambda *args, **kw: True):
+    def message(self, messages_list: Union[List[Dict], List[List[Dict]]], stop_sequences: Optional[List[str]] = None,
+                output_checker: Callable = lambda user_input, generated_content: True):
         """
         Send chunked messages to the GPT chatbot.
         """
@@ -145,7 +156,9 @@ class ChatBot:
                                    f'exceeds the limit: {self.fee_limit}$.')
 
         try:
-            results = asyncio.run(self._amessage(messages_list, output_checker=output_checker))
+            results = asyncio.run(
+                self._amessage(messages_list, stop_sequences=stop_sequences, output_checker=output_checker)
+            )
         except ChatBotException as e:
             logger.error(f'Failed to message with GPT. Error: {e}')
             raise e
@@ -203,8 +216,12 @@ class GPTBot(ChatBot):
     def get_content(self, response):
         return response.choices[0].message.content
 
-    async def _create_achat(self, messages: List[Dict], output_checker: Callable = lambda *args, **kw: True):
-        logger.debug(f'Raw content: {messages}')
+    async def _create_achat(self, messages: List[Dict], stop_sequences: Optional[List[str]] = None,
+                            output_checker: Callable = lambda user_input, generated_content: True):
+        # Check stop sequences
+        if stop_sequences and len(stop_sequences) > 4:
+            logger.warning('Too many stop sequences. For openai, Only the first 4 will be used.')
+            stop_sequences = stop_sequences[:4]
 
         response = None
         for i in range(self.retry):
@@ -214,12 +231,13 @@ class GPTBot(ChatBot):
                     messages=messages,
                     temperature=self.temperature,
                     top_p=self.top_p,
-                    response_format={'type': 'json_object' if self.json_mode else 'text'}
+                    response_format={'type': 'json_object' if self.json_mode else 'text'},
+                    stop=stop_sequences
                 )
                 self.update_fee(response)
                 if response.choices[0].finish_reason == 'length':
                     raise LengthExceedException(response)
-                if not output_checker(messages, response.choices[0].message.content):
+                if not output_checker(messages[-1]['content'], response.choices[0].message.content):
                     logger.warning(f'Invalid response format. Retry num: {i + 1}.')
                     continue
 
@@ -283,8 +301,9 @@ class ClaudeBot(ChatBot):
     def get_content(self, response):
         return response.content[0].text
 
-    async def _create_achat(self, messages: List[Dict], output_checker: Callable = lambda *args, **kw: True):
-        logger.debug(f'Raw content: {messages}')
+    async def _create_achat(self, messages: List[Dict], stop_sequences: Optional[List[str]] = None,
+                            output_checker: Callable = lambda user_input, generated_content: True):
+        # No need to check stop sequences for Claude (unlimited)
 
         # Move "system" role into the parameters
         system_msg = NOT_GIVEN
@@ -301,12 +320,13 @@ class ClaudeBot(ChatBot):
                     system=system_msg,
                     temperature=self.temperature,
                     top_p=self.top_p,
+                    stop_sequences=stop_sequences
                 )
                 self.update_fee(response)
 
                 if response.stop_reason == 'max_tokens':
                     raise LengthExceedException(response)
-                if not output_checker(messages, response.content[-1].text):
+                if not output_checker(messages[-1]['content'], response.content[-1].text):
                     logger.warning(f'Invalid response format. Retry num: {i + 1}.')
                     continue
 
@@ -324,6 +344,113 @@ class ClaudeBot(ChatBot):
             except anthropic.APIError as e:
                 logger.warning(f'API error: {e}. Wait 15s before retry. Retry num: {i + 1}.')
                 time.sleep(15)
+
+        if not response:
+            raise ChatBotException('Failed to create a chat.')
+
+        return response
+
+
+@_register_chatbot
+class GeminiBot(ChatBot):
+    # Pricing for 1M tokens, info from https://ai.google.dev/pricing
+    # Note we consider the pricing for prompts longer than 128k
+    pricing = {
+        'gemini-1.0-pro-latest': (0.5, 1.5),
+        'gemini-1.0-pro': (0.5, 1.5),
+        'gemini-1.0-pro-001': (0.5, 1.5),
+        'gemini-1.5-flash-latest': (0.175, 2.1),
+        'gemini-1.5-flash': (0.175, 2.1),
+        'gemini-1.5-flash-001': (0.175, 2.1),
+        'gemini-1.5-pro-latest': (1.75, 21),
+        'gemini-1.5-pro': (1.75, 21),
+        'gemini-1.5-pro-001': (1.75, 21),
+    }
+
+    def __init__(self, model='gemini-1.5-flash', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.3,
+                 proxy=None, base_url_config=None):
+        self.temperature = max(0, min(1, temperature))
+
+        super().__init__(self.pricing, temperature, top_p, retry, max_async, fee_limit)
+
+        genai.configure(api_key=os.environ['GOOGLE_API_KEY'])
+        self.model = model
+        self.config = GenerationConfig(temperature=self.temperature, top_p=self.top_p)
+        # Should not block any translation-related content.
+        self.safety_settings = {
+            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+        }
+
+        if proxy:
+            logger.warning('Google Gemini SDK does not support proxy, try using the system-level proxy if needed.')
+
+        if base_url_config:
+            logger.warning('Google Gemini SDK does not support changing base_url.')
+
+    def update_fee(self, response: Union[GenerateContentResponse, AsyncGenerateContentResponse]):
+        prompt_price, completion_price = all_pricing[self.model]
+
+        prompt_tokens = response.usage_metadata.prompt_token_count
+        completion_tokens = response.usage_metadata.candidates_token_count
+
+        self.api_fees[-1] += (prompt_tokens * prompt_price + completion_tokens * completion_price) / 1000000
+
+    def get_content(self, response):
+        return response.text
+
+    async def _create_achat(self, messages: List[Dict], stop_sequences: Optional[List[str]] = None,
+                            output_checker: Callable = lambda user_input, generated_content: True):
+        # Check stop sequences
+        if stop_sequences and len(stop_sequences) > 5:
+            logger.warning('Too many stop sequences. Only the first 5 will be used.')
+            stop_sequences = stop_sequences[:5]
+
+        history_messages = deepcopy(messages)
+        system_msg = None
+        if history_messages[0]['role'] == 'system':
+            system_msg = history_messages.pop(0)['content']
+
+        if history_messages[-1]['role'] != 'user':
+            logger.error('The last message should be user message.')
+        user_msg = history_messages.pop(-1)['content']
+
+        # convert assistant role into model
+        for i, message in enumerate(history_messages):
+            if message['role'] == 'assistant':
+                history_messages[i]['role'] = 'model'
+
+            content = message.pop('content')
+            history_messages[i]['parts'] = [{'text': content}]
+
+        self.config.stop_sequences = stop_sequences
+        generative_model = genai.GenerativeModel(model_name=self.model, safety_settings=self.safety_settings,
+                                                 generation_config=self.config, system_instruction=system_msg)
+        client = genai.ChatSession(generative_model, history=history_messages)
+
+        response = None
+        for i in range(self.retry):
+            try:
+                # send_message_async is buggy, so we use send_message instead as a workaround
+                response = client.send_message(user_msg)
+                self.update_fee(response)
+                if not output_checker(user_msg, response.text):
+                    logger.warning(f'Invalid response format. Retry num: {i + 1}.')
+                    continue
+
+                if not response._done:
+                    logger.warning(f'Failed to get a complete response. Retry num: {i + 1}.')
+                    continue
+
+                break
+            except BrokenResponseError as e:
+                logger.warning(f'Broken response error: {e}. Retry num: {i + 1}.')
+            except StopCandidateException as e:
+                logger.warning(f'Stop candidate error: {e}. Retry num: {i + 1}.')
+            except BlockedPromptException as e:
+                logger.warning(f'Blocked prompt error: {e}. Retry num: {i + 1}.')
 
         if not response:
             raise ChatBotException('Failed to create a chat.')

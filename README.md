@@ -37,6 +37,10 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
     lrcer = LRCer(chatbot_model='openai: claude-3-haiku-20240307',
                   base_url_config={'openai': 'https://api.g4f.icu/v1/'})
     ```
+- 2024.6.25: Support Gemini as translation engine LLM, try using `gemini-1.5-flash`:
+    ```python
+    lrcer = LRCer(chatbot_model='gemini-1.5-flash')
+    ```
 
 ## Installation ⚙️
 
@@ -58,8 +62,9 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
 
 2. Add LLM API keys, you can either:
     - Add your [OpenAI API key](https://platform.openai.com/account/api-keys) to environment variable `OPENAI_API_KEY`.
-    - Add your [Anthropic API key](https://console.anthropic.com/settings/keys) to environment
-      variable `ANTHROPIC_API_KEY`.
+   - Add your [Anthropic API key](https://console.anthropic.com/settings/keys) to environment variable
+     `ANTHROPIC_API_KEY`.
+   - Add your [Google API Key](https://aistudio.google.com/app/apikey) to environment variable `GOOGLE_API_KEY`.
 
 3. Install [PyTorch](https://pytorch.org/get-started/locally/):
    ```shell
@@ -185,31 +190,38 @@ lrcer.run('./data/test.mp3', target_lang='zh-cn')
 *pricing data from [OpenAI](https://openai.com/pricing)
 and [Anthropic](https://docs.anthropic.com/claude/docs/models-overview#model-comparison)*
 
-| Model Name                 | Pricing for 1M Tokens <br/>(Input/Output) (USD) | Cost for 1 Hour Audio <br/>(USD) |
-|----------------------------|-------------------------------------------------|----------------------------------|
-| `gpt-3.5-turbo-0125`       | 0.5, 1.5                                        | 0.01                             |
-| `gpt-3.5-turbo`            | 0.5, 1.5                                        | 0.01                             |
-| `gpt-4-0125-preview`       | 10, 30                                          | 0.5                              |
-| `gpt-4-turbo-preview`      | 10, 30                                          | 0.5                              |
-| `gpt-4o`                   | 5, 15                                           | 0.25                             |
-| `claude-3-haiku-20240307`  | 0.25, 1.25                                      | 0.015                            |
-| `claude-3-sonnet-20240229` | 3, 15                                           | 0.2                              |
-| `claude-3-opus-20240229`   | 15, 75                                          | 1                                |
+| Model Name                   | Pricing for 1M Tokens <br/>(Input/Output) (USD) | Cost for 1 Hour Audio <br/>(USD) |
+|------------------------------|-------------------------------------------------|----------------------------------|
+| `gpt-3.5-turbo-0125`         | 0.5, 1.5                                        | 0.01                             |
+| `gpt-3.5-turbo`              | 0.5, 1.5                                        | 0.01                             |
+| `gpt-4-0125-preview`         | 10, 30                                          | 0.5                              |
+| `gpt-4-turbo-preview`        | 10, 30                                          | 0.5                              |
+| `gpt-4o`                     | 5, 15                                           | 0.25                             |
+| `claude-3-haiku-20240307`    | 0.25, 1.25                                      | 0.015                            |
+| `claude-3-sonnet-20240229`   | 3, 15                                           | 0.2                              |
+| `claude-3-opus-20240229`     | 15, 75                                          | 1                                |
+| `claude-3-5-sonnet-20240620` | 3, 15                                           | 0.2                              |
+| `gemini-1.5-flash`           | 0.175, 2.1                                      | 0.01                             |
+| `gemini-1.0-pro`             | 0.5, 1.5                                        | 0.01                             |
+| `gemini-1.5-pro`             | 1.75, 21                                        | 0.1                              |
 
 **Note the cost is estimated based on the token count of the input and output text.
 The actual cost may vary due to the language and audio speed.**
 
 ### Recommended translation model
 
-For english audio, we recommend using `gpt-3.5-turbo`.
+For english audio, we recommend using `gpt-3.5-turbo` or `gemini-1.5-flash`.
 
-For non-english audio, we recommend using `claude-3-sonnet-20240229`.
+For non-english audio, we recommend using `claude-3-5-sonnet-20240620`.
 
 ## How it works
 
 ![](https://github.com/zh-plus/openlrc/blob/master/resources/how-it-works.png?raw=true)
 
 To maintain context between translation segments, the process is sequential for each audio file.
+
+
+[//]: # (## Comparison to https://microsoft.github.io/autogen/docs/notebooks/agentchat_video_transcript_translate_with_whisper/)
 
 ## Todo
 
