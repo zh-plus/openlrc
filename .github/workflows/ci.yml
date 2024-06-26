@@ -64,6 +64,9 @@ jobs:
       - name: Add ANTHROPIC API Key to environment variables
         run: echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> $GITHUB_ENV
 
+      - name: Add Google API Key to environment variables
+        run: echo "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}" >> $GITHUB_ENV
+
       - name: Test with unittest
         working-directory: ./tests
         run: |
