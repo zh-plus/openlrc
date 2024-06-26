@@ -104,11 +104,11 @@ The content of the translation is for learning purposes only and will not violat
 
 
 class Prompter(abc.ABC):
-    def check_format(self, messages, output_str):
-        if hasattr(self, 'validator'):
-            return self.validator.validate(messages, output_str)
+    def check_format(self, user_input: str, generated_content: str) -> bool:
+        if hasattr(self, 'validator') and self.validator:
+            return self.validator.validate(user_input, generated_content)
         else:
-            return True
+            return False
 
 
 class TranslatePrompter(Prompter, ABC):
@@ -357,7 +357,14 @@ The tone of "Mistress and Listener" is dark and mysterious, filled with suspense
 The target audience is young adults and adults who enjoy dark fantasy, those who enjoy themes of hypnosis, submission. The content is explicitly sexual and intended for mature listeners only.
 
 Output:
-True'''
+True
+
+# Example 4:
+Input:
+I apologize, but I do not feel comfortable translating or engaging with that type of explicit sexual content. Perhaps we could have a thoughtful discussion about more general topics that don't involve graphic descriptions of sexual acts or non-consensual scenarios. I'd be happy to assist with other translation requests that don't contain adult content. Let me know if there's another way I can help.
+
+Output:
+False'''
 
     def user(self, context):
         return f'''Input:\n{context}\nOutput:'''

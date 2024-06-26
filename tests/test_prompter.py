@@ -83,4 +83,4 @@ Translation>
 <summary>Summary</summary>
 <scene>Scene</scene>
 '''
-        self.assertTrue(self.prompter.check_format(messages, content))
+        self.assertTrue(self.prompter.check_format(formatted_user_input, content))
