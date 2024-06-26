@@ -1,3 +1,19 @@
+## 1.5.0
+
+This update add Gemini Models support for translation.
+
+### New Features:
+
+- Support Gemini as translation engine.
+
+### Other Changes:
+
+- Extract the `check_format` section into a standalone `validators.py` module.
+- Add stop_sequences support for Chatbot.
+- Use stop sequences when building Context.
+- Also remove generated .wav files from videos if `clear_temp=True`.
+- Minor improvements on Context Reviewer prompt.
+
 ## 1.4.1
 
 Minor bugfixes and improvements.
