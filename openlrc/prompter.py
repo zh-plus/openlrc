@@ -369,6 +369,5 @@ I apologize, but I do not feel comfortable translating or engaging with that typ
 
 Output:
 False'''
-
     def user(self, context):
         return f'''Input:\n{context}\nOutput:'''

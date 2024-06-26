@@ -50,7 +50,6 @@ class LRCer:
             dictionary specifies a source word and its corresponding translation. Default: None.
         retry_model: The model to use when retrying the translation. Default: None
     """
-
     def __init__(self, whisper_model: str = 'large-v3', compute_type: str = 'float16', device: str = 'cuda',
                  chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.3, consumer_thread: int = 4,
                  asr_options=None, vad_options=None, preprocess_options=None, proxy=None, base_url_config=None,
