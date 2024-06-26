@@ -190,7 +190,7 @@ class ContextReviewPrompter(Prompter):
         self.src_lang_display = Language.get(src_lang).display_name('en')
         self.target_lang_display = Language.get(target_lang).display_name('en')
 
-        self.stop_sequence = '<*--END-OF-CONTEXT--*>'
+        self.stop_sequence = '<--END-OF-CONTEXT-->'
 
     def system(self):
         return f'''You are a context reviewer responsible for ensuring the consistency and accuracy of translations between two languages. Your task involves reviewing and providing necessary contextual information for translations.
