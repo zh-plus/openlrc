@@ -390,7 +390,7 @@ class GeminiBot(ChatBot):
         if base_url_config:
             logger.warning('Google Gemini SDK does not support changing base_url.')
 
-    def update_fee(self, response: GenerateContentResponse | AsyncGenerateContentResponse):
+    def update_fee(self, response: Union[GenerateContentResponse, AsyncGenerateContentResponse]):
         prompt_price, completion_price = all_pricing[self.model]
 
         prompt_tokens = response.usage_metadata.prompt_token_count
