@@ -53,14 +53,14 @@ class TestAtomicTranslateValidator(unittest.TestCase):
 
     def test_validate_returns_true_when_generated_content_matches_target_language(self):
         validator = AtomicTranslateValidator(target_lang='en')
-        user_input = "Hello"
-        generated_content = "Hello"
+        user_input = "你有什么问题？"
+        generated_content = "What's your problem?"
 
         result = validator.validate(user_input, generated_content)
         self.assertTrue(result)
 
     def test_validate_returns_false_when_generated_content_not_matches_target_language(self):
-        validator = AtomicTranslateValidator(target_lang='en')
+        validator = AtomicTranslateValidator(target_lang='cn-zh')
         user_input = "Hello"
         generated_content = "你好"
 

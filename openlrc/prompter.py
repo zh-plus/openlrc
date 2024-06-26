@@ -190,6 +190,8 @@ class ContextReviewPrompter(Prompter):
         self.src_lang_display = Language.get(src_lang).display_name('en')
         self.target_lang_display = Language.get(target_lang).display_name('en')
 
+        self.stop_sequence = '<*--END-OF-CONTEXT--*>'
+
     def system(self):
         return f'''You are a context reviewer responsible for ensuring the consistency and accuracy of translations between two languages. Your task involves reviewing and providing necessary contextual information for translations.
 
@@ -221,7 +223,6 @@ Sarah: "Agreed. Let's gather more information before we move."
 Then, they prepare to start their investigation.
 
 Example Output:
-
 ### Glossary:
 - suspect: 嫌疑人
 - uptown: 市中心
@@ -238,6 +239,8 @@ The subtitles should be formal and professional, reflecting the serious nature o
 
 ### Target Audience:
 The target audience is adult viewers with an interest in crime dramas. They are likely to be familiar with police procedurals and enjoy suspenseful storytelling.
+{self.stop_sequence}
+
 </example>
 
 Note:
@@ -247,7 +250,8 @@ DO NOT add the translated sample text in the response.
 DO NOT include any translation segment.
 Sample Translation is NOT required for this task.
 You should adhere to the same format as the previous response, add or delete section is not allowed.
-Remember to include the glossary, characters, summary, tone and style, and target audience sections in your response.'''
+Remember to include the glossary, characters, summary, tone and style, and target audience sections in your response.
+Remember to add {self.stop_sequence} after the generated contexts.'''
 
     def user(self, text, title='', given_glossary: Optional[dict] = None):
         glossary_text = f'Given glossary: {given_glossary}' if given_glossary else ''
