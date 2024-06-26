@@ -251,7 +251,8 @@ DO NOT include any translation segment.
 Sample Translation is NOT required for this task.
 You should adhere to the same format as the previous response, add or delete section is not allowed.
 Remember to include the glossary, characters, summary, tone and style, and target audience sections in your response.
-Remember to add {self.stop_sequence} after the generated contexts.'''
+Remember to add {self.stop_sequence} after the generated contexts.
+Remember you are a context provider, but NOT a translator. DO NOT provide any directly translation in the response.'''
 
     def user(self, text, title='', given_glossary: Optional[dict] = None):
         glossary_text = f'Given glossary: {given_glossary}' if given_glossary else ''
