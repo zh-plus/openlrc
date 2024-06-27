@@ -172,7 +172,7 @@ class Subtitle:
         return cls(language=lang, segments=segments, filename=filename)
 
     @classmethod
-    def from_srt(cls, filename):
+    def from_srt(cls, filename: Union[str, Path]):
         """
         Processes an SRT (SubRip Subtitle) file according to the SRT specifications outlined
         at http://www.textfiles.com/uploads/kds-srt.txt.
@@ -184,14 +184,6 @@ class Subtitle:
             - A blank line indicating the end of a subtitle entry.
 
         This function is designed to read or manipulate an SRT file based on the provided filename.
-
-        Args:
-            filename (str): The path to the SRT file to be processed.
-
-        Returns:
-            The return value is not specified in the provided docstring. Depending on the implementation,
-            this function could return a data structure representing the parsed SRT file, a success status,
-            or possibly nothing.
         """
         filename = Path(filename)
         with open(filename, encoding='utf-8') as f:
@@ -212,7 +204,7 @@ class Subtitle:
 
                 # Multi-line subtitle
                 text = []
-                while lines[i].strip():
+                while i < len(lines) and lines[i].strip():
                     text.append(lines[i].strip())
                     i += 1
 
