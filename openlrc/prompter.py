@@ -9,7 +9,7 @@ from langcodes import Language
 
 from openlrc.context import TranslateInfo
 from openlrc.validators import ChunkedTranslateValidator, AtomicTranslateValidator, ProofreaderValidator, \
-    ContextReviewerValidateValidator
+    ContextReviewerValidateValidator, TranslationEvaluatorValidator
 
 ORIGINAL_PREFIX = 'Original>'
 TRANSLATION_PREFIX = 'Translation>'
@@ -91,7 +91,7 @@ Do not guess or improvise if the context is unclear, just summarise the dialogue
 
 The translation should be in a lovely colloquial style and suitable for high-quality subtitles.
 
-I’m going to tip \$1000 for a better translation!
+I’m going to tip $1000 for a better translation!
 
 ### retry_instructions
 There was an issue with the previous translation. 
@@ -303,7 +303,7 @@ Thus, it is important to adapt to changing circumstances and remain open to new 
 
 class ContextReviewerValidatePrompter(Prompter):
     def __init__(self):
-        self.validator = ContextReviewerValidateValidator('en')
+        self.validator = ContextReviewerValidateValidator()
 
     def system(self):
         return f'''Ignore all previous instructions.
@@ -370,5 +370,77 @@ I apologize, but I do not feel comfortable translating or engaging with that typ
 
 Output:
 False'''
+
     def user(self, context):
         return f'''Input:\n{context}\nOutput:'''
+
+
+class TranslationEvaluatorPrompter(Prompter):
+    def __init__(self):
+        self.validator = TranslationEvaluatorValidator()
+        self.stop_sequence = '<--END-OF-JSON-->'
+
+    def system(self):
+        return f'''Ignore all previous instructions.
+### Context:
+You are an expert in evaluating subtitle translations. Your task is to assess the quality of a translated subtitle text based on several key factors. The original text and its translation are provided for your review.
+
+### Objective:
+The goal is to provide a comprehensive evaluation of the translated subtitle text by scoring it on five specific criteria: Accuracy, Fluency, Completeness, Cultural Adaptation, and Consistency. Each criterion should be rated on a scale from 1 to 10, with 1 being the lowest quality and 10 being the highest.
+
+### Style:
+The evaluation should be detailed, objective, and professional. Use clear and concise language to convey your assessment.
+
+### Tone:
+Maintain a constructive and neutral tone throughout your evaluation. Focus on providing actionable feedback that can help improve the quality of the translation.
+
+### Audience:
+Your evaluation will be read by subtitle translators, quality assurance teams, and project managers who are looking to understand the strengths and weaknesses of the translation.
+
+### Response Format:
+Please provide your evaluation in the following JSON format:
+
+{{
+    "accuracy": {{"score": [1-10], "justification": "[Justification]"}},
+    "fluency": {{"score": [1-10], "justification": "[Justification]"}},
+    "completeness": {{"score": [1-10], "justification": "[Justification]"}},
+    "cultural adaptation": {{"score": [1-10], "justification": "[Justification]"}},
+    "consistency": {{"score": [1-10], "justification": "[Justification]"}}
+}}
+{self.stop_sequence}
+
+### Example1:
+Input:
+Original Texts:
+Those who resist change may find themselves left behind.
+On the other hand, those who embrace change can thrive in the new environment.
+
+Translated Texts:
+那些抗拒变化的人可能会发现自己被抛在后面。
+另一方面，那些接受变化的人可以在新环境中发展。
+
+Output:
+result = {{
+    "accuracy": {{"score": <example integer score>, "justification": "<example-string>"}},
+    "fluency": {{"score": <example integer score>, "justification": "<example-string>"}},
+    "completeness": {{"score": <example integer score>, "justification": "<example-string>"}},
+    "cultural adaptation": {{"score": <example integer score>, "justification": "<example-string>"}},
+    "consistency"': {{"score": <example integer score>, "justification": "<example-string>"}}
+}}
+{self.stop_sequence}
+
+Note that the result are processed by an automated system, so it is imperative that you adhere to the required output format.
+'''
+
+    def user(self, original: List[str], translation: List[str]):
+        original_str = '\n'.join(original)
+        translation_str = '\n'.join(translation)
+        return f'''Input:
+Original Texts:
+{original_str}
+
+Translated Texts:
+{translation_str}
+
+Output:
+'''
