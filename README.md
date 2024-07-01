@@ -252,6 +252,7 @@ To maintain context between translation segments, the process is sequential for 
   languages.
 - [x] [Feature] Add custom OpenAI & Anthropic endpoint support.
 - [ ] [Feature] Add local translation model support (e.g. [SakuraLLM](https://github.com/SakuraLLM/Sakura-13B-Galgame)).
+- [ ] [Quality] Construct translation quality benchmark test for each patch.
 - [ ] [Others] Add transcribed examples.
     - [ ] Song
     - [ ] Podcast

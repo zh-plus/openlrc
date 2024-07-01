@@ -1,9 +1,11 @@
 #  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
-
+import abc
+import json
 import re
 from typing import List
 
+from json_repair import repair_json
 from langcodes import Language
 from lingua import LanguageDetectorBuilder
 
@@ -24,13 +26,17 @@ POTENTIAL_PREFIX_COMBOS = [
 ]
 
 
-class BaseValidator:
-    def __init__(self, target_lang):
-        self.target_lang = target_lang
-        self.lan_detector = LanguageDetectorBuilder.from_all_languages().build()
+class BaseValidator(abc.ABC):
+    @abc.abstractmethod
+    def validate(self, user_input, generated_content):
+        raise NotImplementedError()
 
 
 class ChunkedTranslateValidator(BaseValidator):
+    def __init__(self, target_lang):
+        self.lan_detector = LanguageDetectorBuilder.from_all_languages().build()
+        self.target_lang = target_lang
+
     def _extract_translation(self, content: str) -> List[str]:
         for potential_ori_prefix, potential_trans_prefix in POTENTIAL_PREFIX_COMBOS:
             translation = re.findall(f'{potential_trans_prefix}\n*(.*?)(?:#\\d+|<summary>|\\n*$)', content, re.DOTALL)
@@ -100,6 +106,10 @@ class ChunkedTranslateValidator(BaseValidator):
 
 
 class AtomicTranslateValidator(BaseValidator):
+    def __init__(self, target_lang):
+        self.lan_detector = LanguageDetectorBuilder.from_all_languages().build()
+        self.target_lang = target_lang
+
     def validate(self, user_input, generated_content):
         detected_lang = self.lan_detector.detect_language_of(generated_content)
         if not detected_lang:
@@ -156,3 +166,17 @@ class ContextReviewerValidateValidator(BaseValidator):
             logger.warning(f'Context reviewer validation failed: {generated_content}.')
 
         return False
+
+
+class TranslationEvaluatorValidator(BaseValidator):
+    def validate(self, user_input, generated_content):
+        repaired_content = repair_json(generated_content)
+        # verify json format
+        if not repaired_content:
+            try:
+                json.loads(generated_content)
+            except json.JSONDecodeError:
+                logger.warning(f'Fail to parse json: {generated_content}')
+                return False
+
+        return True

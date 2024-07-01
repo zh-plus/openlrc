@@ -1,14 +1,17 @@
 #  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 import abc
+import json
 import re
 from typing import Optional, Tuple, List, Type, Union
+
+from json_repair import repair_json
 
 from openlrc.chatbot import route_chatbot, GPTBot, ClaudeBot
 from openlrc.context import TranslationContext, TranslateInfo
 from openlrc.logger import logger
 from openlrc.prompter import ChunkedTranslatePrompter, ContextReviewPrompter, ProofreaderPrompter, PROOFREAD_PREFIX, \
-    ContextReviewerValidatePrompter
+    ContextReviewerValidatePrompter, TranslationEvaluatorPrompter
 from openlrc.validators import POTENTIAL_PREFIX_COMBOS
 
 
@@ -211,3 +214,34 @@ class ProofreaderAgent(Agent):
         resp = self.chatbot.message(messages_list, output_checker=self.prompter.check_format)[0]
         revised = self._parse_responses(resp)
         return revised
+
+
+class TranslationEvaluatorAgent(Agent):
+    TEMPERATURE = 0.95
+
+    def __init__(self, chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.3, proxy: str = None,
+                 base_url_config: Optional[dict] = None):
+        super().__init__()
+        self.chatbot = self._initialize_chatbot(chatbot_model, fee_limit, proxy, base_url_config)
+        self.prompter = TranslationEvaluatorPrompter()
+
+    def evaluate(self, src_texts, target_texts) -> dict:
+        messages_list = [
+            {'role': 'system', 'content': self.prompter.system()},
+            {'role': 'user', 'content': self.prompter.user(src_texts, target_texts)},
+        ]
+        resp = self.chatbot.message(messages_list, stop_sequences=[self.prompter.stop_sequence])[0]
+        content = self.chatbot.get_content(resp)
+
+        # Repair potentially broken JSON
+        content = repair_json(content)
+
+        # Returned response should be in JSON format
+        json_resp = json.loads(content)
+        # acc = json_resp['accuracy']
+        # fluency = json_resp['fluency']
+        # completeness = json_resp['completeness']
+        # cultural_adaptation = json_resp['cultural adaptation']
+        # consistency = json_resp['consistency']
+
+        return json_resp

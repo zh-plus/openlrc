@@ -70,21 +70,21 @@ class TestAtomicTranslateValidator(unittest.TestCase):
 
 class TestContextReviewerValidateValidator(unittest.TestCase):
     def test_validate_returns_true_when_true_in_generated_content(self):
-        validator = ContextReviewerValidateValidator(target_lang='en')
+        validator = ContextReviewerValidateValidator()
         user_input = "Some input"
         generated_content = "This is true"
         result = validator.validate(user_input, generated_content)
         self.assertTrue(result)
 
     def test_validate_returns_true_when_false_in_generated_content(self):
-        validator = ContextReviewerValidateValidator(target_lang='en')
+        validator = ContextReviewerValidateValidator()
         user_input = "Some input"
         generated_content = "FALse!"
         result = validator.validate(user_input, generated_content)
         self.assertTrue(result)
 
     def test_validate_returns_false_when_no_true_or_false_in_generated_content(self):
-        validator = ContextReviewerValidateValidator(target_lang='en')
+        validator = ContextReviewerValidateValidator()
         user_input = "Some input"
         generated_content = "I dont know!"
         result = validator.validate(user_input, generated_content)

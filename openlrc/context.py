@@ -19,7 +19,7 @@ class TranslationContext(BaseModel):
 
     @property
     def non_glossary_guideline(self) -> str:
-        cleaned_text = re.sub(r'### Glossary(.*?\n)*?### Characters', '### Characters', self.guideline, flags=re.DOTALL)
+        cleaned_text = re.sub(r'### Glossary.*?### Characters', '### Characters', self.guideline, flags=re.DOTALL)
         return cleaned_text
 
 
