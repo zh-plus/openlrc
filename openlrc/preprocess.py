@@ -69,7 +69,7 @@ class Preprocessor:
             if not ns_path.exists():
                 audio, info = load_audio(audio_path, sr=df_state.sr())
 
-                # Split audio into 10 min chunks
+                # Split audio into 3 min chunks
                 audio_chunks = [audio[:, i:i + chunk_size * info.sample_rate]
                                 for i in range(0, audio.shape[1], chunk_size * info.sample_rate)]
 
@@ -79,7 +79,7 @@ class Preprocessor:
 
                 enhanced = torch.cat(enhanced_chunks, dim=1)
 
-                assert enhanced.shape == audio.shape, 'Enhanced audio shape does not match original audio shape.'
+                assert enhanced.shape == audio.shape, f'Enhanced audio shape does not match original audio shape: {enhanced.shape} != {audio.shape}'
 
                 save_audio(ns_path, enhanced, sr=df_state.sr())
 
