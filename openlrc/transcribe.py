@@ -81,9 +81,6 @@ class Transcriber:
                            seg.temperature, seg.avg_logprob, seg.compression_ratio, seg.no_speech_prob, words)
 
         def mid_split(seg_entry):
-            """
-            Todo: Split into multiple segments (>2)
-            """
             text = seg_entry.text
             doc = nlp(text)
 
@@ -118,7 +115,7 @@ class Transcriber:
                 for k in range(len(seg_entry.words) - 1):
                     gaps.append(seg_entry.words[k + 1].start - seg_entry.words[k].end)
                 max_gap = max(gaps)
-                split_idx = gaps.index(max_gap)  # TODO: Multiple largest or Multiple long gap
+                split_idx = gaps.index(max_gap)
 
                 if max_gap >= 2:  # Split using the max gap
                     former_words = seg_entry.words[:split_idx]

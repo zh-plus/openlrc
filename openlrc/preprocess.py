@@ -59,7 +59,7 @@ class Preprocessor:
             atten_lim_db = self.options['atten_lim_db']
 
         model, df_state, _ = init_df()
-        chunk_size = 300  # 5 min
+        chunk_size = 180  # 3 min
 
         ns_audio_paths = []
         for audio_path, output_path in zip(audio_paths, self.output_paths):

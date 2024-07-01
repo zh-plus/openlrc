@@ -108,7 +108,7 @@ class Prompter(abc.ABC):
         if hasattr(self, 'validator') and self.validator:
             return self.validator.validate(user_input, generated_content)
         else:
-            return False
+            return True
 
 
 class TranslatePrompter(Prompter, ABC):

@@ -2,7 +2,7 @@
 #  All rights reserved.
 from lingua import Language
 
-# Check https://github.com/SYSTRAN/faster-whisper/blob/master/faster_whisper/transcribe.py#L184 for details
+# Check https://github.com/SYSTRAN/faster-whisper/blob/master/faster_whisper/transcribe.py for details
 default_asr_options = {
     "beam_size": 3,
     "best_of": 5,
