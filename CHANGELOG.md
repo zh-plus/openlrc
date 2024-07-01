@@ -1,3 +1,13 @@
+## 1.4.1
+
+Minor bugfixes and improvements.
+
+### Other Changes:
+
+- Fix default check_format returning False issue.
+- Fix edges cases for srt file generation.
+- Prepare translation evaluator for benchmarking.
+
 ## 1.5.0
 
 This update add Gemini Models support for translation.

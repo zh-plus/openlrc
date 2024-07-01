@@ -8,7 +8,7 @@ in-project = true
 
 [tool.poetry]
 name = "openlrc"
-version = "1.5.0"
+version = "1.5.1"
 description = "Transcribe (whisper) and translate (gpt) voice into LRC file."
 license = "MIT"
 authors = [
@@ -64,7 +64,8 @@ aiohttp = "^3.9.4"
 ctranslate2 = "4.2.1"
 gradio = "^4.26.0"
 numpy = "^1.26.4"
-google-generativeai = '0.7.0'
+google-generativeai = "0.7.0"
+json_repair = "0.25.2"
 
 #torch = ">=2.0.0, !=2.0.1"
 #torchaudio = "^2.0.0"
