@@ -34,11 +34,10 @@ default_asr_options = {
 
 # Check https://github.com/guillaumekln/faster-whisper/blob/3b4a6aa1c22d293ddde9f08bdd31fc842086a6ea/faster_whisper/vad.py#L14 for details
 default_vad_options = {
-    "threshold": 0.382,
+    "threshold": 0.15001,
     "min_speech_duration_ms": 250,
     "max_speech_duration_s": float("inf"),
     "min_silence_duration_ms": 2000,
-    "window_size_samples": 1024,
     "speech_pad_ms": 400,
 }
 
