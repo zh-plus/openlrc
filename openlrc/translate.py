@@ -21,8 +21,8 @@ from openlrc.prompter import AtomicTranslatePrompter
 class Translator(ABC):
 
     @abstractmethod
-    def translate(self, texts: Union[str, List[str]], src_lang: str, target_lang: str,
-                  info: TranslateInfo) -> List[str]:
+    def translate(self, texts: Union[str, List[str]], src_lang: str, target_lang: str, info: TranslateInfo) \
+            -> List[str]:
         pass
 
 
@@ -44,6 +44,7 @@ class LLMTranslator(Translator):
         self.api_fee = 0
         self.intercept_line = intercept_line
         self.retry_model = retry_model
+        self.use_retry_cnt = 0
 
     @staticmethod
     def list_chatbots() -> List[str]:
@@ -82,26 +83,30 @@ class LLMTranslator(Translator):
 
     def _translate_chunk(self, translator_agent: ChunkedTranslatorAgent, chunk: List[Tuple[int, str]],
                          context: TranslationContext, chunk_id: int,
-                         retry_agent: Optional[ChunkedTranslatorAgent] = None) -> Tuple[
-        List[str], TranslationContext]:
+                         retry_agent: Optional[ChunkedTranslatorAgent] = None) -> Tuple[List[str], TranslationContext]:
         """
         Translate a single chunk of text.
         """
-        translated, context = translator_agent.translate_chunk(chunk_id, chunk, context)
 
-        if len(translated) != len(chunk) and translator_agent.info.glossary:
-            logger.warning(f'Cannot translate chunk {chunk_id} with glossary, trying to remove glossary.')
-            translated, context = translator_agent.translate_chunk(chunk_id, chunk, context, use_glossary=False)
+        def handle_translation(agent: ChunkedTranslatorAgent) -> Tuple[List[str], TranslationContext]:
+            trans, updated_context = agent.translate_chunk(chunk_id, chunk, context)
+            if len(trans) != len(chunk) and agent.info.glossary:
+                logger.warning(f'Agent {agent}: Removing glossary for chunk {chunk_id}.')
+                trans, updated_context = agent.translate_chunk(chunk_id, chunk, context, use_glossary=False)
+            return trans, updated_context
 
-        if retry_agent and len(translated) != len(chunk):
-            logger.warning(
-                f'Trying to change chatbot to keep performing chunked translation. Retry chatbot: {retry_agent}')
-            # TODO: use the retry_agent for all the next chunks
-            translated, context = retry_agent.translate_chunk(chunk_id, chunk, context)
+        if self.use_retry_cnt == 0 or not retry_agent:
+            translated, context = handle_translation(translator_agent)
 
-            if len(translated) != len(chunk) and retry_agent.info.glossary:
-                logger.warning(f'New bot: Trying to remove glossary to keep performing chunked translation.')
-                translated, context = retry_agent.translate_chunk(chunk_id, chunk, context, use_glossary=False)
+            if retry_agent and len(translated) != len(chunk):
+                self.use_retry_cnt = 3  # Use retry_agent for the next 3 chunks
+                logger.warning(
+                    f'Using retry agent {retry_agent} for chunk {chunk_id}, and next {self.use_retry_cnt} chunks.')
+                translated, context = handle_translation(retry_agent)
+        else:
+            logger.info(f'Using retry agent for chunk {chunk_id}, remaining retries: {self.use_retry_cnt}')
+            translated, context = handle_translation(retry_agent)
+            self.use_retry_cnt -= 1
 
         return translated, context
 
