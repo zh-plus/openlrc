@@ -4,7 +4,7 @@
 import unittest
 
 from openlrc.context import TranslateInfo
-from openlrc.prompter import ChunkedTranslatePrompter
+from openlrc.prompter import ChunkedTranslatePrompter, Prompter
 
 formatted_user_input = '''Translation guidelines from context reviewer:
 This is a guidline.
@@ -84,3 +84,9 @@ Translation>
 <scene>Scene</scene>
 '''
         self.assertTrue(self.prompter.check_format(formatted_user_input, content))
+
+    def test_default_check_format(self):
+        class TMPPrompter(Prompter):
+            pass
+
+        self.assertTrue(TMPPrompter().check_format('content', 'content'))

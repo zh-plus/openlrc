@@ -132,6 +132,12 @@ class ContextReviewerAgent(Agent):
         return f'Context Reviewer Agent ({self.chatbot_model})'
 
     def _validate_context(self, context: str) -> bool:
+        # Use the content to check first
+        lowered_context = context.lower()
+        keywords = ['glossary', 'characters', 'summary', 'tone and style', 'target audience']
+        if all(keyword in lowered_context for keyword in keywords):
+            return True
+
         messages_list = [
             {'role': 'system', 'content': self.validate_prompter.system()},
             {'role': 'user', 'content': self.validate_prompter.user(context)},
