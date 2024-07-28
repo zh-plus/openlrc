@@ -252,13 +252,18 @@ Sample Translation is NOT required for this task.
 You should adhere to the same format as the previous response, add or delete section is not allowed.
 Remember to include the glossary, characters, summary, tone and style, and target audience sections in your response.
 Remember to add {self.stop_sequence} after the generated contexts.
-Remember you are a context provider, but NOT a translator. DO NOT provide any directly translation in the response.'''
+Remember you are a context provider, but NOT a translator. DO NOT provide any directly translation in the response.
+If you are given an existing glossary, try your best to incorporate it into the context review.
+Stop generating as soon as possible if you have generated a workable guideline (only include the glossary, characters, summary, tone and style, and target audience).'''
 
     def user(self, text, title='', given_glossary: Optional[dict] = None):
         glossary_text = f'Given glossary: {given_glossary}' if given_glossary else ''
         return f'''{glossary_text}
 Please review the following text (title:{title}) and provide the necessary context for the translation from {self.src_lang_display} to {self.target_lang_display}:
-{text}'''
+{text}
+
+Now, generate Glossary, Characters, Summary, Tone and Style, and Target Audience:
+'''
 
 
 class ProofreaderPrompter(Prompter):
