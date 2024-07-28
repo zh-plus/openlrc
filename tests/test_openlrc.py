@@ -13,16 +13,16 @@ from openlrc.transcribe import TranscriptionInfo
 from openlrc.utils import extend_filename
 
 
-@patch('openlrc.transcribe.WhisperModel', MagicMock())
+@patch('openlrc.transcribe.BatchedInferencePipeline', MagicMock())
 @patch('openlrc.transcribe.Transcriber.transcribe',
        MagicMock(return_value=(
                [
                    Segment(
-                       0, 0, 0, 3, 'hello world1', [], 0, 0.8, 0, 0, words=[
+                       0, 0, 0, 3, 'hello world1', [], 0.8, 0, 0, words=[
                            Word(0, 1.5, 'hello', probability=0.8), Word(1.6, 3, ' world1', probability=0.8)
                        ]),
                    Segment(
-                       0, 0, 3, 6, 'hello world2', [], 0, 0.8, 0, 0, words=[
+                       0, 0, 3, 6, 'hello world2', [], 0.8, 0, 0, words=[
                            Word(3, 4.5, 'hello', probability=0.8), Word(4.6, 6, ' world2', probability=0.8)
                        ])
                ],

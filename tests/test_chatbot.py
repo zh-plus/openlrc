@@ -40,7 +40,7 @@ class TestChatBot(unittest.TestCase):
             {'role': 'user', 'content': 'Hello'},
         ]
         fee = bot.estimate_fee(messages)
-        self.assertTrue(isclose(fee, 6e-06))
+        self.assertTrue(isclose(fee, 2.1e-06))
 
     def test_gpt_update_fee(self):
         bot = self.gpt_bot
@@ -55,7 +55,7 @@ class TestChatBot(unittest.TestCase):
         bot.api_fees += [0]
         response3 = OpenAIResponse(usage=OpenAIUsage(prompt_tokens=300, completion_tokens=600, total_tokens=900))
         bot.update_fee(response3)
-        self.assertListEqual(bot.api_fees, [0.00035, 0.0007, 0.00105])
+        self.assertListEqual(bot.api_fees, [0.000135, 0.00027, 0.000405])
 
     def test_claude_update_fee(self):
         bot = self.claude_bot

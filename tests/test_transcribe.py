@@ -11,12 +11,12 @@ from openlrc.transcribe import Transcriber, TranscriptionInfo
 
 return_tuple = ([
                     Segment(
-                        0, 0, 0, 3, 'hello world', [], 0, 0.8, 0, 0, words=[
+                        0, 0, 0, 3, 'hello world', [], 0.8, 0, 0, words=[
                             Word(0, 1.5, 'hello', probability=0.8),
                             Word(1.6, 3, ' world', probability=0.8)
                         ]),
                     Segment(
-                        0, 0, 3, 6, 'hello world', [], 0, 0.8, 0, 0, words=[
+                        0, 0, 3, 6, 'hello world', [], 0.8, 0, 0, words=[
                             Word(3, 4.5, 'hello', probability=0.8),
                             Word(4.6, 6, ' world', probability=0.8)
                         ]),
@@ -28,7 +28,7 @@ class TestTranscriber(unittest.TestCase):
         self.audio_path = Path('data/test_audio.wav')
 
     def test_transcribe_success(self):
-        with patch('openlrc.transcribe.WhisperModel') as MockModel:
+        with patch('openlrc.transcribe.BatchedInferencePipeline') as MockModel:
             MockModel.return_value.transcribe.return_value = return_tuple
 
             transcriber = Transcriber(model_name='tiny')
@@ -37,7 +37,7 @@ class TestTranscriber(unittest.TestCase):
             self.assertEqual(round(info.duration), 30)
 
     def test_audio_file_not_found(self):
-        with patch('openlrc.transcribe.WhisperModel') as MockModel:
+        with patch('openlrc.transcribe.BatchedInferencePipeline') as MockModel:
             MockModel.return_value.transcribe.return_value = return_tuple
 
             transcriber = Transcriber(model_name='tiny')
