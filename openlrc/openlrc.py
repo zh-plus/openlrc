@@ -33,10 +33,8 @@ class LRCer:
             the converted model is downloaded from the Hugging Face Hub. Default: ``large-v3``
         compute_type: The type of computation to use. Can be ``int8``, ``int8_float16``, ``int16``,
             ``float16`` or ``float32``. Default: ``float16``
-        chatbot_model: The chatbot model to use, currently we support gptbot from , claudebot from Anthropic.
-            OpenAI: gpt-4-0125-preview, gpt-4-turbo-preview, gpt-3.5-turbo-0125, gpt-3.5-turbo
-            Anthropic: claude-3-opus-20240229, claude-3-sonnet-20240229, claude-3-haiku-20240307
-            Default: ``gpt-3.5-turbo``
+        chatbot_model: The chatbot model to use, check the available models using list_chatbot_models().
+            Default: ``gpt-4o-mini``
         fee_limit: The maximum fee you are willing to pay for one translation call. Default: ``0.1``
         consumer_thread: To prevent exceeding the RPM and TPM limits set by OpenAI, the default is TPM/MAX_TOKEN.
         asr_options: Parameters for whisper model.
@@ -48,12 +46,14 @@ class LRCer:
         glossary: A dictionary mapping specific source words to their desired translations. This is used to enforce
             custom translations that override the default behavior of the translation model. Each key-value pair in the
             dictionary specifies a source word and its corresponding translation. Default: None.
-        retry_model: The model to use when retrying the translation. Default: None
+        retry_model: The model to use when retrying the translation. Default: None.
+        is_force_glossary_used: Whether to force the given glossary to be used in context. Default: False
     """
+
     def __init__(self, whisper_model: str = 'large-v3', compute_type: str = 'float16', device: str = 'cuda',
-                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.3, consumer_thread: int = 4,
+                 chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.5, consumer_thread: int = 4,
                  asr_options=None, vad_options=None, preprocess_options=None, proxy=None, base_url_config=None,
-                 glossary: Optional[Union[dict, str, Path]] = None, retry_model=None):
+                 glossary: Optional[Union[dict, str, Path]] = None, retry_model=None, is_force_glossary_used=False):
         self.chatbot_model = chatbot_model
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
@@ -62,6 +62,7 @@ class LRCer:
         self.base_url_config = base_url_config
         self.glossary = self.parse_glossary(glossary)
         self.retry_model = retry_model
+        self.is_force_glossary_used = is_force_glossary_used
 
         self._lock = Lock()
         self.exception = None
@@ -218,7 +219,8 @@ class LRCer:
                 self.transcribed_paths.append(result_path)
 
     def _translate(self, audio_name, target_lang, transcribed_opt_sub, translated_path):
-        context = TranslateInfo(title=audio_name, audio_type='Movie', glossary=self.glossary)
+        context = TranslateInfo(title=audio_name, audio_type='Movie', glossary=self.glossary,
+                                forced_glossary=self.is_force_glossary_used)
 
         json_filename = Path(translated_path.parent / (audio_name + '.json'))
         compare_path = Path(translated_path.parent, f'{audio_name}_compare.json')

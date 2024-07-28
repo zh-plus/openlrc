@@ -27,3 +27,4 @@ class TranslateInfo(BaseModel):
     title: Optional[str] = ''
     audio_type: str = 'Movie'
     glossary: Optional[dict] = None
+    forced_glossary: bool = False
