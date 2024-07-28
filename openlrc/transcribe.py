@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import NamedTuple, Union, List
 
 import pysbd
-from faster_whisper.transcribe import WhisperModel, Segment
+from faster_whisper.transcribe import WhisperModel, Segment, BatchedInferencePipeline
 from pysbd.languages import LANGUAGE_CODES
 from tqdm import tqdm
 
@@ -25,7 +25,7 @@ class TranscriptionInfo(NamedTuple):
 
 
 class Transcriber:
-    def __init__(self, model_name='large-v3', compute_type='float16', device='cuda',
+    def __init__(self, model_name='large-v3', compute_type='float16', device='cuda', vad_filter=True,
                  asr_options=default_asr_options, vad_options=default_vad_options):
         self.model_name = model_name
         self.compute_type = compute_type
@@ -35,12 +35,11 @@ class Transcriber:
         self.asr_options = asr_options
         self.vad_options = vad_options
 
-        self.whisper_model = WhisperModel(model_name, device, compute_type=compute_type, num_workers=2)
+        model = WhisperModel(model_name, device, compute_type=compute_type, num_workers=1)
+        self.whisper_model = BatchedInferencePipeline(model, use_vad_model=vad_filter, **self.vad_options)
 
-    def transcribe(self, audio_path: Union[str, Path], language=None, vad_filter=True):
-        seg_gen, info = self.whisper_model.transcribe(str(audio_path), language=language,
-                                                      vad_filter=vad_filter, vad_parameters=self.vad_options,
-                                                      **self.asr_options)
+    def transcribe(self, audio_path: Union[str, Path], language=None):
+        seg_gen, info = self.whisper_model.transcribe(str(audio_path), language=language, **self.asr_options)
 
         segments = []  # [Segment(start, end, text, words=[Word(start, end, word, probability)])]
         timestamps = 0
@@ -60,6 +59,8 @@ class Transcriber:
         info = TranscriptionInfo(language=info.language, duration=get_audio_duration(audio_path),
                                  duration_after_vad=info.duration_after_vad)
 
+        logger.info(
+            f'VAD removed {format_timestamp(info.duration - info.duration_after_vad)}s of silence ({info.vad_ratio}%) ')
         if info.vad_ratio > 0.5:
             logger.warning(f'VAD ratio is too high, check your audio quality. '
                            f'VAD ratio: {info.vad_ratio}, duration: {format_timestamp(info.duration, fmt="srt")}, '
@@ -77,8 +78,8 @@ class Transcriber:
 
         def seg_from_words(seg: Segment, seg_id, words, tokens):
             text = ''.join([word.word for word in words])
-            return Segment(seg_id, seg.seek, words[0].start, words[-1].end, text, tokens,
-                           seg.temperature, seg.avg_logprob, seg.compression_ratio, seg.no_speech_prob, words)
+            return Segment(seg_id, seg.seek, words[0].start, words[-1].end, text, tokens, seg.avg_logprob,
+                           seg.compression_ratio, seg.no_speech_prob, words, seg.temperature)
 
         def mid_split(seg_entry):
             text = seg_entry.text

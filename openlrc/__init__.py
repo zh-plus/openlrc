@@ -1,5 +1,9 @@
-from openlrc.openlrc import LRCer
+#  Copyright (C) 2024. Hao Zheng
+#  All rights reserved.
 
-__all__ = ('LRCer',)
-__version__ = '0.0.3'
+from openlrc.openlrc import LRCer
+from openlrc.translate import list_chatbot_models
+
+__all__ = ('LRCer', 'list_chatbot_models')
+__version__ = '1.5.2'
 __author__ = 'zh-plus'

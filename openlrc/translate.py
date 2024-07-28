@@ -26,10 +26,20 @@ class Translator(ABC):
         pass
 
 
+def list_chatbot_models() -> List[str]:
+    """
+    List available chatbot models.
+
+    Returns:
+        List[str]: List of available chatbot models.
+    """
+    return list(all_pricing.keys())
+
+
 class LLMTranslator(Translator):
     CHUNK_SIZE = 30
 
-    def __init__(self, chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.3, chunk_size: int = CHUNK_SIZE,
+    def __init__(self, chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.5, chunk_size: int = CHUNK_SIZE,
                  intercept_line: Optional[int] = None, proxy: Optional[str] = None,
                  base_url_config: Optional[dict] = None,
                  retry_model: Optional[str] = None):
@@ -45,16 +55,6 @@ class LLMTranslator(Translator):
         self.intercept_line = intercept_line
         self.retry_model = retry_model
         self.use_retry_cnt = 0
-
-    @staticmethod
-    def list_chatbots() -> List[str]:
-        """
-        List available chatbot models.
-
-        Returns:
-            List[str]: List of available chatbot models.
-        """
-        return list(all_pricing.keys())
 
     @staticmethod
     def make_chunks(texts: List[str], chunk_size: int = 30) -> List[List[Tuple[int, str]]]:
@@ -99,7 +99,7 @@ class LLMTranslator(Translator):
             translated, context = handle_translation(translator_agent)
 
             if retry_agent and len(translated) != len(chunk):
-                self.use_retry_cnt = 3  # Use retry_agent for the next 3 chunks
+                self.use_retry_cnt = 10  # Use retry_agent for the next 3 chunks
                 logger.warning(
                     f'Using retry agent {retry_agent} for chunk {chunk_id}, and next {self.use_retry_cnt} chunks.')
                 translated, context = handle_translation(retry_agent)
@@ -136,7 +136,9 @@ class LLMTranslator(Translator):
             logger.info('Building translation guideline.')
             context_reviewer = ContextReviewerAgent(src_lang, target_lang, info, self.chatbot_model, self.retry_model,
                                                     self.fee_limit, self.proxy, self.base_url_config)
-            guideline = context_reviewer.build_context(texts, title=info.title, glossary=info.glossary)
+            guideline = context_reviewer.build_context(
+                texts, title=info.title, glossary=info.glossary, forced_glossary=info.forced_glossary
+            )
             logger.info(f'Translation Guideline:\n{guideline}')
 
         context = TranslationContext(guideline=guideline)

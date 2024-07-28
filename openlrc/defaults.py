@@ -4,7 +4,8 @@ from lingua import Language
 
 # Check https://github.com/SYSTRAN/faster-whisper/blob/master/faster_whisper/transcribe.py for details
 default_asr_options = {
-    "beam_size": 3,
+    "batch_size": 8,
+    "beam_size": 5,
     "best_of": 5,
     "patience": 1,
     "length_penalty": 1,
@@ -18,27 +19,23 @@ default_asr_options = {
     "log_prob_threshold": None,
     "no_speech_threshold": None,
 
-    "condition_on_previous_text": False,
     "initial_prompt": None,
     "prefix": None,
     "suppress_blank": True,
     "suppress_tokens": [-1],
     "without_timestamps": False,
-    "max_initial_timestamp": 0.0,
+
     "word_timestamps": True,
     "prepend_punctuations": "\"'“¿([{-",
     "append_punctuations": "\"'.。,，!！?？:：”)]}、",
-    "hallucination_silence_threshold": 2,
+    # "hallucination_silence_threshold": 2,
     "hotwords": None,
 }
 
-# Check https://github.com/guillaumekln/faster-whisper/blob/3b4a6aa1c22d293ddde9f08bdd31fc842086a6ea/faster_whisper/vad.py#L14 for details
+# Check https://github.com/SYSTRAN/faster-whisper/blob/master/faster_whisper/transcribe.py#L123 for details
 default_vad_options = {
-    "threshold": 0.15001,
-    "min_speech_duration_ms": 250,
-    "max_speech_duration_s": float("inf"),
-    "min_silence_duration_ms": 2000,
-    "speech_pad_ms": 400,
+    "vad_onset": 0.500,
+    "vad_offset": 0.363
 }
 
 default_preprocess_options = {
