@@ -176,6 +176,7 @@ class ChatBot:
 class GPTBot(ChatBot):
     # Pricing for 1M tokens, info from https://openai.com/pricing
     pricing = {
+        'gpt-4o-mini': (0.15, 0.6),
         'gpt-3.5-turbo-0125': (0.5, 1.5),
         'gpt-3.5-turbo': (0.5, 1.5),
         'gpt-4-0125-preview': (10, 30),
@@ -185,7 +186,7 @@ class GPTBot(ChatBot):
         'gpt-4o': (5, 15),
     }
 
-    def __init__(self, model='gpt-3.5-turbo-0125', temperature=1, top_p=1, retry=8, max_async=16, json_mode=False,
+    def __init__(self, model='gpt-4o-mini', temperature=1, top_p=1, retry=8, max_async=16, json_mode=False,
                  fee_limit=0.05, proxy=None, base_url_config=None):
 
         # clamp temperature to 0-2

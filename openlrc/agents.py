@@ -36,7 +36,7 @@ class ChunkedTranslatorAgent(Agent):
     TEMPERATURE = 1.0
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
-                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.3, proxy: str = None,
+                 chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.5, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         super().__init__()
         self.chatbot_model = chatbot_model
@@ -113,8 +113,8 @@ class ContextReviewerAgent(Agent):
     TEMPERATURE = 0.6
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
-                 chatbot_model: str = 'gpt-3.5-turbo', retry_model=None,
-                 fee_limit: float = 0.3, proxy: str = None,
+                 chatbot_model: str = 'gpt-4o-mini', retry_model=None,
+                 fee_limit: float = 0.5, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         super().__init__()
         self.src_lang = src_lang
@@ -145,7 +145,7 @@ class ContextReviewerAgent(Agent):
         resp = self.chatbot.message(messages_list, output_checker=self.validate_prompter.check_format)[0]
         return 'true' in self.chatbot.get_content(resp).lower()
 
-    def build_context(self, texts, title='', glossary: Optional[dict] = None) -> str:
+    def build_context(self, texts, title='', glossary: Optional[dict] = None, forced_glossary=False) -> str:
         text_content = '\n'.join(texts)
 
         messages_list = [
@@ -187,7 +187,14 @@ class ContextReviewerAgent(Agent):
                 context = max(context_pool, key=len)
                 logger.info(f'Now using the longest context: {context}')
 
+        if forced_glossary:
+            context = self.add_external_glossary(context, glossary)
+
         return context
+
+    def add_external_glossary(self, context, glossary: dict) -> str:
+        glossary_content = '\n'.join([f'- {key}: {value}' for key, value in glossary.items()])
+        return f'### External Glossary:\n{glossary_content}\n\n{context}'
 
 
 class ProofreaderAgent(Agent):
@@ -197,7 +204,7 @@ class ProofreaderAgent(Agent):
     TEMPERATURE = 0.8
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
-                 chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.3, proxy: str = None,
+                 chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.5, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         super().__init__()
         self.src_lang = src_lang
@@ -225,7 +232,7 @@ class ProofreaderAgent(Agent):
 class TranslationEvaluatorAgent(Agent):
     TEMPERATURE = 0.95
 
-    def __init__(self, chatbot_model: str = 'gpt-3.5-turbo', fee_limit: float = 0.3, proxy: str = None,
+    def __init__(self, chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.5, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         super().__init__()
         self.chatbot = self._initialize_chatbot(chatbot_model, fee_limit, proxy, base_url_config)
