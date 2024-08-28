@@ -36,7 +36,7 @@ class ChunkedTranslatorAgent(Agent):
     TEMPERATURE = 1.0
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
-                 chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.5, proxy: str = None,
+                 chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.8, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         super().__init__()
         self.chatbot_model = chatbot_model
@@ -114,7 +114,7 @@ class ContextReviewerAgent(Agent):
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
                  chatbot_model: str = 'gpt-4o-mini', retry_model=None,
-                 fee_limit: float = 0.5, proxy: str = None,
+                 fee_limit: float = 0.8, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         super().__init__()
         self.src_lang = src_lang
@@ -204,7 +204,7 @@ class ProofreaderAgent(Agent):
     TEMPERATURE = 0.8
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
-                 chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.5, proxy: str = None,
+                 chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.8, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         super().__init__()
         self.src_lang = src_lang
@@ -232,7 +232,7 @@ class ProofreaderAgent(Agent):
 class TranslationEvaluatorAgent(Agent):
     TEMPERATURE = 0.95
 
-    def __init__(self, chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.5, proxy: str = None,
+    def __init__(self, chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.8, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         super().__init__()
         self.chatbot = self._initialize_chatbot(chatbot_model, fee_limit, proxy, base_url_config)

@@ -70,7 +70,7 @@ def route_chatbot(model):
 class ChatBot:
     pricing = None
 
-    def __init__(self, pricing, temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.3):
+    def __init__(self, pricing, temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.8):
         self.pricing = pricing
         self._model = None
 
@@ -273,7 +273,7 @@ class ClaudeBot(ChatBot):
         'claude-3-5-sonnet-20240620': (3, 15),
     }
 
-    def __init__(self, model='claude-3-sonnet-20240229', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.3,
+    def __init__(self, model='claude-3-sonnet-20240229', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.8,
                  proxy=None, base_url_config=None):
 
         # clamp temperature to 0-1
@@ -368,7 +368,7 @@ class GeminiBot(ChatBot):
         'gemini-1.5-pro-001': (1.75, 21),
     }
 
-    def __init__(self, model='gemini-1.5-flash', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.3,
+    def __init__(self, model='gemini-1.5-flash', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.8,
                  proxy=None, base_url_config=None):
         self.temperature = max(0, min(1, temperature))
 

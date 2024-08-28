@@ -39,7 +39,7 @@ def list_chatbot_models() -> List[str]:
 class LLMTranslator(Translator):
     CHUNK_SIZE = 30
 
-    def __init__(self, chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.5, chunk_size: int = CHUNK_SIZE,
+    def __init__(self, chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.8, chunk_size: int = CHUNK_SIZE,
                  intercept_line: Optional[int] = None, proxy: Optional[str] = None,
                  base_url_config: Optional[dict] = None,
                  retry_model: Optional[str] = None):

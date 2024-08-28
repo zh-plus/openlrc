@@ -35,12 +35,13 @@ class LRCer:
             ``float16`` or ``float32``. Default: ``float16``
         chatbot_model: The chatbot model to use, check the available models using list_chatbot_models().
             Default: ``gpt-4o-mini``
-        fee_limit: The maximum fee you are willing to pay for one translation call. Default: ``0.1``
-        consumer_thread: To prevent exceeding the RPM and TPM limits set by OpenAI, the default is TPM/MAX_TOKEN.
-        asr_options: Parameters for whisper model.
-        vad_options: Parameters for VAD model.
-        proxy: Proxy for openai requests. e.g. 'http://127.0.0.1:7890'
-        base_url_config: Base URL dict for OpenAI & Anthropic.
+        fee_limit (float): The maximum fee you are willing to pay for one translation call. Default: ``0.8``
+        consumer_thread (int): To prevent exceeding the RPM and TPM limits set by OpenAI, the default is TPM/MAX_TOKEN.
+        asr_options (Optional[dict]): Parameters for whisper model.
+        vad_options (Optional[dict]): Parameters for VAD model.
+        preprocess_options (Optional[dict]): Options for audio preprocessing.
+        proxy (Optional[str]): Proxy for openai requests. e.g. 'http://127.0.0.1:7890'
+        base_url_config (Optional[dict]): Base URL dict for OpenAI & Anthropic.
             e.g. {'openai': 'https://openai.justsong.cn/', 'anthropic': 'https://api.g4f.icu'}
             Default: ``None``
         glossary: A dictionary mapping specific source words to their desired translations. This is used to enforce
@@ -51,9 +52,11 @@ class LRCer:
     """
 
     def __init__(self, whisper_model: str = 'large-v3', compute_type: str = 'float16', device: str = 'cuda',
-                 chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.5, consumer_thread: int = 4,
-                 asr_options=None, vad_options=None, preprocess_options=None, proxy=None, base_url_config=None,
-                 glossary: Optional[Union[dict, str, Path]] = None, retry_model=None, is_force_glossary_used=False):
+                 chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.8, consumer_thread: int = 4,
+                 asr_options: Optional[dict] = None, vad_options: Optional[dict] = None,
+                 preprocess_options: Optional[dict] = None, proxy: Optional[str] = None,
+                 base_url_config: Optional[dict] = None, glossary: Optional[Union[dict, str, Path]] = None,
+                 retry_model: Optional[str] = None, is_force_glossary_used: bool = False):
         self.chatbot_model = chatbot_model
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
