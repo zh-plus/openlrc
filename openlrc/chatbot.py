@@ -17,8 +17,8 @@ from anthropic import AsyncAnthropic
 from anthropic._types import NOT_GIVEN
 from anthropic.types import Message
 from google.generativeai import GenerationConfig
-from google.generativeai.types import BrokenResponseError, AsyncGenerateContentResponse, GenerateContentResponse, \
-    StopCandidateException, HarmCategory, HarmBlockThreshold, BlockedPromptException
+from google.generativeai.types import AsyncGenerateContentResponse, GenerateContentResponse, \
+    HarmCategory, HarmBlockThreshold
 from openai import AsyncClient as AsyncGPTClient
 from openai.types.chat import ChatCompletion
 
@@ -243,25 +243,24 @@ class GPTBot(ChatBot):
                     continue
 
                 break
-            except openai.RateLimitError:
-                sleep_time = random.randint(30, 60)
-                logger.warning(f'Rate limit exceeded. Wait {sleep_time}s before retry. Retry num: {i + 1}.')
+            except (openai.RateLimitError, openai.APITimeoutError, openai.APIConnectionError, openai.APIError) as e:
+                sleep_time = self._get_sleep_time(e)
+                logger.warning(f'{type(e).__name__}: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.')
                 time.sleep(sleep_time)
-            except openai.APITimeoutError:
-                logger.warning(f'Timeout. Wait 3 before retry. Retry num: {i + 1}.')
-                time.sleep(3)
-            except openai.APIConnectionError:
-                logger.warning(f'API connection error. Wait 15s before retry. Retry num: {i + 1}.')
-                time.sleep(15)
-            except openai.APIError as e:
-                logger.warning(f'API error: {e}. Wait 15s before retry. Retry num: {i + 1}.')
-                time.sleep(15)
 
         if not response:
             raise ChatBotException('Failed to create a chat.')
 
         return response
 
+    @staticmethod
+    def _get_sleep_time(error):
+        if isinstance(error, openai.RateLimitError):
+            return random.randint(30, 60)
+        elif isinstance(error, openai.APITimeoutError):
+            return 3
+        else:
+            return 15
 
 @_register_chatbot
 class ClaudeBot(ChatBot):
@@ -332,24 +331,24 @@ class ClaudeBot(ChatBot):
                     continue
 
                 break
-            except anthropic.RateLimitError:
-                sleep_time = random.randint(30, 60)
-                logger.warning(f'Rate limit exceeded. Wait {sleep_time}s before retry. Retry num: {i + 1}.')
+            except (
+            anthropic.RateLimitError, anthropic.APITimeoutError, anthropic.APIConnectionError, anthropic.APIError) as e:
+                sleep_time = self._get_sleep_time(e)
+                logger.warning(f'{type(e).__name__}: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.')
                 time.sleep(sleep_time)
-            except anthropic.APITimeoutError:
-                logger.warning(f'Timeout. Wait 3 before retry. Retry num: {i + 1}.')
-                time.sleep(3)
-            except anthropic.APIConnectionError:
-                logger.warning(f'API connection error. Wait 15s before retry. Retry num: {i + 1}.')
-                time.sleep(15)
-            except anthropic.APIError as e:
-                logger.warning(f'API error: {e}. Wait 15s before retry. Retry num: {i + 1}.')
-                time.sleep(15)
 
         if not response:
             raise ChatBotException('Failed to create a chat.')
 
         return response
+
+    def _get_sleep_time(self, error):
+        if isinstance(error, anthropic.RateLimitError):
+            return random.randint(30, 60)
+        elif isinstance(error, anthropic.APITimeoutError):
+            return 3
+        else:
+            return 15
 
 
 @_register_chatbot
@@ -446,12 +445,8 @@ class GeminiBot(ChatBot):
                     continue
 
                 break
-            except BrokenResponseError as e:
-                logger.warning(f'Broken response error: {e}. Retry num: {i + 1}.')
-            except StopCandidateException as e:
-                logger.warning(f'Stop candidate error: {e}. Retry num: {i + 1}.')
-            except BlockedPromptException as e:
-                logger.warning(f'Blocked prompt error: {e}. Retry num: {i + 1}.')
+            except (genai.RateLimitError, genai.APITimeoutError, genai.APIConnectionError, genai.APIError) as e:
+                logger.warning(f'{type(e).__name__}: {e}. Retry num: {i + 1}.')
 
         if not response:
             raise ChatBotException('Failed to create a chat.')
