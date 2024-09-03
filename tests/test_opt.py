@@ -49,7 +49,7 @@ class TestSubtitleOptimizer(unittest.TestCase):
         subtitle = self.subtitle
         optimizer = SubtitleOptimizer(subtitle)
         optimizer.punctuation_optimization()
-        self.assertEqual(optimizer.subtitle.segments[0].text, '你好，你好...你好！你好。')
+        self.assertEqual(optimizer.subtitle.segments[0].text, '你好，你好……你好！你好。')
 
     def test_punctuation_optimization_with_dots(self):
         subtitle = self.subtitle
