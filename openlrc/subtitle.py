@@ -243,19 +243,30 @@ class BilingualElement:
 
 class BilingualSubtitle:
     def __init__(self, src: Subtitle, target: Subtitle, filename: Union[str, Path]):
+        self._validate_subtitles(src, target)
+        self.src_lang = src.lang
+        self.target_lang = target.lang
+        self.segments = self._create_bilingual_segments(src, target)
+        self.filename = Path(filename)
+        self.suffix = '.lrc'
+
+    @staticmethod
+    def _validate_subtitles(src: Subtitle, target: Subtitle):
         if len(src) != len(target):
             raise ValueError(f'Source and target subtitle length not equal: {len(src)} vs {len(target)}')
-
-        self.lang = f'{src.lang}-{target.lang}'
-        self.segments = []
         for src_seg, target_seg in zip(src.segments, target.segments):
             if src_seg.start != target_seg.start or src_seg.end != target_seg.end:
                 raise ValueError(
-                    f'Source and target subtitle start time not equal: {src_seg.start} vs {target_seg.start}')
-            self.segments.append(BilingualElement(src_seg.start, src_seg.end, src_seg.text, target_seg.text))
+                    f'Source and target subtitle timings not equal: {src_seg.start}-{src_seg.end} vs {target_seg.start}-{target_seg.end}')
 
-        self.filename = Path(filename)
-        self.suffix = '.lrc'
+    @staticmethod
+    def _create_bilingual_segments(src: Subtitle, target: Subtitle):
+        return [BilingualElement(src_seg.start, src_seg.end, src_seg.text, target_seg.text)
+                for src_seg, target_seg in zip(src.segments, target.segments)]
+
+    @property
+    def lang(self):
+        return f'{self.src_lang}-{self.target_lang}'
 
     @classmethod
     def from_preprocessed(cls, preprocessed_folder, audio_name):
@@ -293,6 +304,8 @@ class BilingualSubtitle:
 
         logger.info(f'File saved to {lrc_path}')
 
+        return lrc_path
+
     def to_srt(self):
         srt_path = self.filename.with_suffix('.srt')
         fmt = partial(format_timestamp, fmt='srt')
@@ -305,3 +318,5 @@ class BilingualSubtitle:
 
         logger.info(f'File saved to {srt_path}')
         self.suffix = '.srt'
+
+        return srt_path
