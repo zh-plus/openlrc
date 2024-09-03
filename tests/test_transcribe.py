@@ -27,19 +27,21 @@ class TestTranscriber(unittest.TestCase):
     def setUp(self) -> None:
         self.audio_path = Path('data/test_audio.wav')
 
-    def test_transcribe_success(self):
-        with patch('openlrc.transcribe.BatchedInferencePipeline') as MockModel:
-            MockModel.return_value.transcribe.return_value = return_tuple
+    @patch('openlrc.transcribe.BatchedInferencePipeline')
+    @patch('openlrc.transcribe.WhisperModel')
+    def test_transcribe_success(self, MockWhisperModel, MockBatchedInferencePipeline):
+        MockBatchedInferencePipeline.return_value.transcribe.return_value = return_tuple
 
-            transcriber = Transcriber(model_name='tiny')
-            result, info = transcriber.transcribe(self.audio_path)
-            self.assertIsNotNone(result)
-            self.assertEqual(round(info.duration), 30)
+        transcriber = Transcriber(model_name='tiny')
+        result, info = transcriber.transcribe(self.audio_path)
+        self.assertIsNotNone(result)
+        self.assertEqual(round(info.duration), 30)
 
-    def test_audio_file_not_found(self):
-        with patch('openlrc.transcribe.BatchedInferencePipeline') as MockModel:
-            MockModel.return_value.transcribe.return_value = return_tuple
+    @patch('openlrc.transcribe.BatchedInferencePipeline')
+    @patch('openlrc.transcribe.WhisperModel')
+    def test_audio_file_not_found(self, MockWhisperModel, MockBatchedInferencePipeline):
+        MockBatchedInferencePipeline.return_value.transcribe.return_value = return_tuple
 
-            transcriber = Transcriber(model_name='tiny')
-            with self.assertRaises(FileNotFoundError):
-                transcriber.transcribe('audio.wav')
+        transcriber = Transcriber(model_name='tiny')
+        with self.assertRaises(FileNotFoundError):
+            transcriber.transcribe('audio.wav')
