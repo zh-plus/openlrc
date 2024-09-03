@@ -120,13 +120,19 @@ class TranslatePrompter(Prompter, ABC):
     def post_process(texts):
         raise NotImplementedError()
 
+    @classmethod
+    def get_language_display_names(cls, src_lang, target_lang):
+        return (
+            Language.get(src_lang).display_name('en'),
+            Language.get(target_lang).display_name('en')
+        )
+
 
 class ChunkedTranslatePrompter(TranslatePrompter):
     def __init__(self, src_lang, target_lang, context: TranslateInfo):
         self.src_lang = src_lang
         self.target_lang = target_lang
-        self.src_lang_display = Language.get(src_lang).display_name('en')
-        self.target_lang_display = Language.get(target_lang).display_name('en')
+        self.src_lang_display, self.target_lang_display = self.get_language_display_names(src_lang, target_lang)
         self.validator = ChunkedTranslateValidator(target_lang)
 
         self.audio_type = context.audio_type
@@ -174,8 +180,7 @@ class AtomicTranslatePrompter(TranslatePrompter):
     def __init__(self, src_lang, target_lang):
         self.src_lang = src_lang
         self.target_lang = target_lang
-        self.src_lang_display = Language.get(src_lang).display_name('en')
-        self.target_lang_display = Language.get(target_lang).display_name('en')
+        self.src_lang_display, self.target_lang_display = self.get_language_display_names(src_lang, target_lang)
         self.validator = AtomicTranslateValidator(target_lang)
 
     def user(self, text):
@@ -187,8 +192,8 @@ class ContextReviewPrompter(Prompter):
     def __init__(self, src_lang, target_lang):
         self.src_lang = src_lang
         self.target_lang = target_lang
-        self.src_lang_display = Language.get(src_lang).display_name('en')
-        self.target_lang_display = Language.get(target_lang).display_name('en')
+        self.src_lang_display, self.target_lang_display = TranslatePrompter.get_language_display_names(src_lang,
+                                                                                                       target_lang)
 
         self.stop_sequence = '<--END-OF-CONTEXT-->'
 
@@ -272,7 +277,7 @@ class ProofreaderPrompter(Prompter):
         self.target_lang = target_lang
         self.src_lang_display = Language.get(src_lang).display_name('en')
         self.target_lang_display = Language.get(target_lang).display_name('en')
-        self.validator = ProofreaderValidator(target_lang)
+        self.validator = ProofreaderValidator()
 
     def system(self):
         return f'''Ignore all previous instructions.
