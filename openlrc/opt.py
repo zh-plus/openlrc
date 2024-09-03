@@ -67,58 +67,62 @@ class SubtitleOptimizer:
 
         self.subtitle.segments = new_elements
 
-    def merge_short(self, threshold=1.2):
+    def merge_short(self, duration_threshold=1.2):
         """
         Merge short duration subtitles.
         """
-        new_elements = []
-        merged_element = None
+        optimized_segments = []
+        current_segment = None
 
         for i, element in enumerate(self.subtitle.segments):
-            if i == 0 or element.duration >= threshold:
-                if merged_element:
-                    self._finalize_merge(new_elements, merged_element, element)
-                    merged_element = None
-                new_elements.append(element)
+            if i == 0 or element.duration >= duration_threshold:
+                if current_segment:
+                    self._finalize_merge(optimized_segments, current_segment, element)
+                    current_segment = None
+                optimized_segments.append(element)
             else:
-                if not merged_element:
-                    merged_element = element
+                if not current_segment:
+                    current_segment = element
                     continue
 
                 # Merge to previous element if closer to pre-element and gap > 3s
-                previous_gap = merged_element.start - new_elements[-1].start
-                next_gap = element.start - merged_element.end
+                previous_gap = current_segment.start - optimized_segments[-1].start
+                next_gap = element.start - current_segment.end
                 if previous_gap <= next_gap and previous_gap <= 3:
-                    previous_element = new_elements.pop()
-                    merged_element.text = previous_element.text + merged_element.text
-                    merged_element.start = previous_element.start
-                    new_elements.append(merged_element)
-                    merged_element = element
+                    previous_element = optimized_segments.pop()
+                    current_segment.text = previous_element.text + current_segment.text
+                    current_segment.start = previous_element.start
+                    optimized_segments.append(current_segment)
+                    current_segment = element
                 elif next_gap <= previous_gap and next_gap <= 3:
-                    merged_element.text += element.text
-                    merged_element.end = element.end
-                    new_elements.append(merged_element)
-                    merged_element = None
+                    current_segment.text += element.text
+                    current_segment.end = element.end
+                    optimized_segments.append(current_segment)
+                    current_segment = None
                 else:
-                    new_elements.append(merged_element)
-                    merged_element = element
+                    optimized_segments.append(current_segment)
+                    current_segment = element
 
-        self.subtitle.segments = new_elements
+        # Handle the last merged_element if it exists
+        if current_segment:
+            self._finalize_merge(optimized_segments, current_segment, None)
 
-    def _finalize_merge(self, new_elements, merged_element, element):
-        if merged_element.duration < 1.5:
-            previous_gap = merged_element.start - new_elements[-1].end
-            next_gap = element.start - merged_element.end
+        self.subtitle.segments = optimized_segments
+
+    def _finalize_merge(self, optimized_segments, current_segment, next_segment):
+        if next_segment and current_segment.duration < 1.5:
+            previous_gap = current_segment.start - optimized_segments[-1].end
+            next_gap = next_segment.start - current_segment.end
             if previous_gap <= next_gap and previous_gap <= 3:
-                new_elements[-1].text += merged_element.text
-                new_elements[-1].end = merged_element.end
+                optimized_segments[-1].text += current_segment.text
+                optimized_segments[-1].end = current_segment.end
             elif next_gap <= previous_gap and next_gap <= 3:
-                element.text = merged_element.text + element.text
-                element.start = merged_element.start
+                next_segment.text = current_segment.text + next_segment.text
+                next_segment.start = current_segment.start
             else:
-                new_elements.append(merged_element)
+                optimized_segments.append(current_segment)
         else:
-            new_elements.append(merged_element)
+            optimized_segments.append(current_segment)
 
     def _merge_elements(self, merged_element, element):
         if not merged_element:
@@ -159,7 +163,7 @@ class SubtitleOptimizer:
 
     def punctuation_optimization(self):
         """
-        Replace English punctuation with Chinese punctuation.
+        Replace English punctuation with Chinese punctuation where appropriate.
         """
         if isinstance(self.subtitle, BilingualSubtitle):
             logger.warning('Bilingual subtitle is not supported for punctuation_optimization operation.')
@@ -169,13 +173,36 @@ class SubtitleOptimizer:
             element.text = self._replace_punctuation_with_chinese(element.text)
 
     def _replace_punctuation_with_chinese(self, text):
-        pattern = re.compile("|".join(map(re.escape, PUNCTUATION_MAPPING.keys())))
-        result = pattern.sub(lambda match: PUNCTUATION_MAPPING[match.group(0)], text)
+        # Define a regex pattern to match URLs
+        url_pattern = r'https?://\S+'
 
-        result = re.sub(r'(。){3,}', '...', result)
-        result = re.sub(r'(\d)。', r'\1.', result)
+        # Find all URLs in the text
+        urls = re.findall(url_pattern, text)
 
-        return result
+        # Replace URLs with placeholders
+        for i, url in enumerate(urls):
+            text = text.replace(url, f'URL_PLACEHOLDER_{i}')
+
+        # Replace "..." with "……"
+        text = re.sub(r'\.{3,}', '……', text)
+
+        # Replace consecutive Chinese full stops "。。。。" with "……"
+        text = re.sub(r'。{3,}', '……', text)
+
+        # Replace punctuation
+        for eng, chn in PUNCTUATION_MAPPING.items():
+            # Avoid replacing dots in abbreviations like "Mr.", "Mrs.", or in decimal numbers
+            if eng == '.':
+                text = re.sub(r'(?<!\w)\.(?!\w)|(?<=[^A-Za-z0-9])\.(?=[^A-Za-z0-9])|(?<=[^A-Za-z0-9])\.(?=$)', chn,
+                              text)
+            else:
+                text = text.replace(eng, chn)
+
+        # Restore URLs
+        for i, url in enumerate(urls):
+            text = text.replace(f'URL_PLACEHOLDER_{i}', url)
+
+        return text
 
     def remove_unk(self):
         """
