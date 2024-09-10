@@ -1,3 +1,14 @@
+## 1.4.2
+
+Code refactoring, documentation updates, and minor bug fixes.
+
+### Other Changes:
+
+- Fixed issue #54.
+- Changed the default LLM model to `gpt-4o-mini`.
+- Minor improvements on prompts.
+- Improve post-optimizations for subtitles.
+
 ## 1.4.1
 
 Minor bugfixes and improvements.
