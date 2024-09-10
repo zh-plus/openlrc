@@ -28,20 +28,18 @@ class TestTranscriber(unittest.TestCase):
         self.audio_path = Path('data/test_audio.wav')
 
     @patch('openlrc.transcribe.BatchedInferencePipeline')
-    @patch('openlrc.transcribe.WhisperModel')
-    def test_transcribe_success(self, MockWhisperModel, MockBatchedInferencePipeline):
+    def test_transcribe_success(self, MockBatchedInferencePipeline):
         MockBatchedInferencePipeline.return_value.transcribe.return_value = return_tuple
 
-        transcriber = Transcriber(model_name='tiny')
+        transcriber = Transcriber(model_name='tiny', device='cpu', compute_type='default')
         result, info = transcriber.transcribe(self.audio_path)
         self.assertIsNotNone(result)
         self.assertEqual(round(info.duration), 30)
 
     @patch('openlrc.transcribe.BatchedInferencePipeline')
-    @patch('openlrc.transcribe.WhisperModel')
-    def test_audio_file_not_found(self, MockWhisperModel, MockBatchedInferencePipeline):
+    def test_audio_file_not_found(self, MockBatchedInferencePipeline):
         MockBatchedInferencePipeline.return_value.transcribe.return_value = return_tuple
 
-        transcriber = Transcriber(model_name='tiny')
+        transcriber = Transcriber(model_name='tiny', device='cpu', compute_type='default')
         with self.assertRaises(FileNotFoundError):
             transcriber.transcribe('audio.wav')

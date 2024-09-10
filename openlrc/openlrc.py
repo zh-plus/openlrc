@@ -32,8 +32,9 @@ class LRCer:
         whisper_model (str): Name of whisper model (tiny, tiny.en, base, base.en, small, small.en, medium,
             medium.en, large-v1, large-v2, large-v3, distill-large-v3) When a size is configured,
             the converted model is downloaded from the Hugging Face Hub. Default: ``large-v3``
-        compute_type (str): The type of computation to use. Can be ``int8``, ``int8_float16``, ``int16``,
+        compute_type (str): The type of computation to use. Can be ``default``, ``int8``, ``int8_float16``, ``int16``,
             ``float16`` or ``float32``. Default: ``float16``
+            Note: ``default`` will keep the same quantization that was used during model conversion.
         device (str): The device to use for computation. Default: ``cuda``
         chatbot_model (str): The chatbot model to use, check the available models using list_chatbot_models().
             Default: ``gpt-4o-mini``
