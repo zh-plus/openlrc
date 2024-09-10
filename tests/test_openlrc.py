@@ -56,36 +56,36 @@ class TestLRCer(unittest.TestCase):
     @patch('openlrc.translate.LLMTranslator.translate',
            MagicMock(return_value=['test translation1', 'test translation2']))
     def test_single_audio_transcription_translation(self):
-        lrcer = LRCer(whisper_model='tiny')
+        lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
         result = lrcer.run(self.audio_path)
         self.assertTrue(result)
 
     @patch('openlrc.translate.LLMTranslator.translate',
            MagicMock(return_value=['test translation1', 'test translation2']))
     def test_multiple_audio_transcription_translation(self):
-        lrcer = LRCer(whisper_model='tiny')
+        lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
         result = lrcer.run([self.audio_path, self.video_path])
         self.assertTrue(result)
         self.assertEqual(len(result), 2)
 
     def test_audio_file_not_found(self):
-        lrcer = LRCer(whisper_model='tiny')
+        lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
         with self.assertRaises(FileNotFoundError):
             lrcer.run('data/invalid.mp3')
 
     def test_video_file_transcription_translation(self):
-        lrcer = LRCer(whisper_model='tiny')
+        lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
         result = lrcer.run('data/test_video.mp4')
         self.assertTrue(result)
 
     @patch('openlrc.translate.LLMTranslator.translate', MagicMock(side_effect=Exception('test exception')))
     def test_translation_error(self):
-        lrcer = LRCer(whisper_model='tiny')
+        lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
         with self.assertRaises(Exception):
             lrcer.run(self.audio_path)
 
     @patch('openlrc.translate.LLMTranslator.translate', MagicMock(side_effect=Exception('test exception')))
     def test_skip_translation(self):
-        lrcer = LRCer(whisper_model='tiny')
+        lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
         result = lrcer.run('data/test_video.mp4', skip_trans=True)
         self.assertTrue(result)
