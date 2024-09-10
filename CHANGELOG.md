@@ -1,4 +1,4 @@
-## 1.4.2
+## 1.5.2
 
 Code refactoring, documentation updates, and minor bug fixes.
 
@@ -9,7 +9,7 @@ Code refactoring, documentation updates, and minor bug fixes.
 - Minor improvements on prompts.
 - Improve post-optimizations for subtitles.
 
-## 1.4.1
+## 1.5.1
 
 Minor bugfixes and improvements.
 
