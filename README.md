@@ -277,3 +277,19 @@ To maintain context between translation segments, the process is sequential for 
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=zh-plus/Open-Lyrics&type=Date)](https://star-history.com/#zh-plus/Open-Lyrics&Date)
+
+
+## Citation
+
+
+```
+@book{openlrc2024zh,
+	title = {zh-plus/openlrc},
+	url = {https://github.com/zh-plus/openlrc},
+	author = {Hao, Zheng},
+	date = {2024-09-10},
+	year = {2024},
+	month = {9},
+	day = {10},
+}
+```
