@@ -45,7 +45,7 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
   a [specific commit](https://github.com/SYSTRAN/faster-whisper/commit/d57c5b40b06e59ec44240d93485a95799548af50) of
   faster-whisper, which is not published on PyPI. Install it from source:
     ```shell
-    pip install "faster-whisper @ https://github.com/SYSTRAN/faster-whisper/archive/d57c5b40b06e59ec44240d93485a95799548af50.tar.gz"
+    pip install "faster-whisper @ https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz"
     ```
 
 ## Installation ⚙️

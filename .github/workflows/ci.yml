@@ -47,12 +47,14 @@ jobs:
 
       - name: Install Poetry
         uses: snok/install-poetry@v1
+        with:
+          version: 1.8.4
       - name: Install dependencies
         run: |
           poetry lock --no-update
           poetry install
           poetry run pip uninstall -y faster-whisper
-          poetry run pip install "faster-whisper @ https://github.com/SYSTRAN/faster-whisper/archive/d57c5b40b06e59ec44240d93485a95799548af50.tar.gz"
+          poetry run pip install "faster-whisper @ https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz"
           poetry run pip install --force-reinstall torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 
       - name: Install ffmpeg
