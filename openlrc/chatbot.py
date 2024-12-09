@@ -187,7 +187,7 @@ class GPTBot(ChatBot):
 
         self.async_client = AsyncGPTClient(
             api_key=os.environ['OPENAI_API_KEY'],
-            http_client=httpx.AsyncClient(proxies=proxy),
+            http_client=httpx.AsyncClient(proxy=proxy),
             base_url=base_url_config['openai'] if base_url_config and base_url_config['openai'] else None
         )
 
@@ -267,7 +267,7 @@ class ClaudeBot(ChatBot):
         self.async_client = AsyncAnthropic(
             api_key=os.environ['ANTHROPIC_API_KEY'],
             http_client=httpx.AsyncClient(
-                proxies=proxy
+                proxy=proxy
             ),
             base_url=base_url_config['anthropic'] if base_url_config and base_url_config['anthropic'] else None
         )
