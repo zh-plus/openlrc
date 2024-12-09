@@ -223,7 +223,8 @@ class GPTBot(ChatBot):
                     temperature=self.temperature,
                     top_p=self.top_p,
                     response_format={'type': 'json_object' if self.json_mode else 'text'},
-                    stop=stop_sequences
+                    stop=stop_sequences,
+                    max_tokens=self.model_info.max_tokens
                 )
                 self.update_fee(response)
                 if response.choices[0].finish_reason == 'length':
@@ -300,13 +301,13 @@ class ClaudeBot(ChatBot):
         for i in range(self.retry):
             try:
                 response = await self.async_client.messages.create(
-                    max_tokens=8192,
                     model=self.model_name,
                     messages=messages,
                     system=system_msg,
                     temperature=self.temperature,
                     top_p=self.top_p,
-                    stop_sequences=stop_sequences
+                    stop_sequences=stop_sequences,
+                    max_tokens=self.model_info.max_tokens,
                 )
                 self.update_fee(response)
 

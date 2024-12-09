@@ -1,3 +1,17 @@
+## 1.6.1
+
+Hot fix for missed mp3 files issue.
+
+## 1.6.0
+
+Update faster-whisper to the latest version. Add models.py for model info.
+
+### Other Changes:
+
+- Fixed issue #60.
+- Change default parameters for new faster-whisper.
+- Update installation guide in README.
+
 ## 1.5.2
 
 Code refactoring, documentation updates, and minor bug fixes.

@@ -8,7 +8,7 @@ in-project = true
 
 [tool.poetry]
 name = "openlrc"
-version = "1.6.0"
+version = "1.6.1"
 description = "Transcribe (whisper) and translate (gpt) voice into LRC file."
 license = "MIT"
 authors = [
@@ -56,7 +56,7 @@ filetype = "^1.2.0"
 jaconvV2 = "^0.4"
 spacy = "^3.7.0"
 pysbd = "^0.3.4"
-faster-whisper = "^1.1.0"
+faster-whisper = { url = "https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz" }
 soundfile = "^0.12.1"
 ffmpeg-normalize = "^1.27.5"
 deepfilternet = "^0.5.6"

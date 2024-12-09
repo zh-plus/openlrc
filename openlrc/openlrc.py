@@ -171,7 +171,7 @@ class LRCer:
         def process_translation(base_name, target_lang, transcribed_opt_sub, skip_trans):
             translated_path = extend_filename(transcribed_opt_sub.filename, '_translated')
             final_json_path = translated_path.with_name(f'{base_name}.json')
-            
+
             if final_json_path.exists():
                 return Subtitle.from_json(final_json_path)
 
@@ -440,39 +440,29 @@ class LRCer:
 
     def pre_process(self, paths, noise_suppress=False):
         """
-        Preprocess the input audio/video files.
+        Preprocess input audio/video files.
 
         Args:
-            paths (List[Path]): List of paths to the input files.
-            noise_suppress (bool): Whether to apply noise suppression.
+            paths (List[Path]): Input file paths
+            noise_suppress (bool): Apply noise suppression if True
 
         Returns:
-            List[Path]: List of paths to the preprocessed audio files.
-
-        This method handles the initial processing of input files, including
-        audio extraction from videos and noise suppression if requested.
+            List[Path]: Preprocessed audio file paths
         """
-        paths = list(set(Path(path) for path in paths))
+        paths = [Path(p) for p in set(paths)]
 
-        # Check if path is audio or video
         for i, path in enumerate(paths):
-            if not path.exists() or not path.is_file():
+            if not path.is_file():
                 raise FileNotFoundError(f'File not found: {path}')
 
             if get_file_type(path) == 'video':
                 self.from_video.add(path.with_suffix(''))
+                audio_path = path.with_suffix('.wav')
+                if not audio_path.exists():
+                    extract_audio(path)
+                paths[i] = audio_path
 
-            extracted_audio_path = path.with_suffix('.wav')
-            if not extracted_audio_path.exists():
-                extract_audio(path)
-
-            paths[i] = extracted_audio_path
-
-        # Audio-based process
-        preprocessor = Preprocessor(paths, options=self.preprocess_options)
-        paths = preprocessor.run(noise_suppress)
-
-        return paths
+        return Preprocessor(paths, options=self.preprocess_options).run(noise_suppress)
 
     @staticmethod
     def post_process(transcribed_sub: Path, output_name: Path = None, remove_files: List[Path] = None,
