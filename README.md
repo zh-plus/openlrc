@@ -72,15 +72,10 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
      `ANTHROPIC_API_KEY`.
    - Add your [Google API Key](https://aistudio.google.com/app/apikey) to environment variable `GOOGLE_API_KEY`.
 
-3. Install latest [fast-whisper](https://github.com/guillaumekln/faster-whisper) from source:
-   ```shell
-   pip install "faster-whisper @ https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz"
-   ```
-
-4. Install [ffmpeg](https://ffmpeg.org/download.html) and add `bin` directory
+3. Install [ffmpeg](https://ffmpeg.org/download.html) and add `bin` directory
    to your `PATH`.
 
-5. This project can be installed from PyPI:
+4. This project can be installed from PyPI:
 
     ```shell
     pip install openlrc
@@ -92,9 +87,19 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
     pip install git+https://github.com/zh-plus/openlrc
     ```
 
+5. Install latest [fast-whisper](https://github.com/guillaumekln/faster-whisper) from source:
+   ```shell
+   pip install "faster-whisper @ https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz"
+   ```
+
 6. Install [PyTorch](https://pytorch.org/get-started/locally/):
    ```shell
    pip install --force-reinstall torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+   ```
+
+7. Fix the `typing-extensions` issue:
+   ```shell
+   pip install typing-extensions -U
    ```
 
 ## Usage 🐍
@@ -292,9 +297,7 @@ To maintain context between translation segments, the process is sequential for 
 
 [![Star History Chart](https://api.star-history.com/svg?repos=zh-plus/Open-Lyrics&type=Date)](https://star-history.com/#zh-plus/Open-Lyrics&Date)
 
-
 ## Citation
-
 
 ```
 @book{openlrc2024zh,
