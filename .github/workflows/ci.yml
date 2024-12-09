@@ -55,6 +55,7 @@ jobs:
           poetry install
           poetry run pip uninstall -y faster-whisper
           poetry run pip install "faster-whisper @ https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz"
+          poetry run pip install -U typing-extensions
           poetry run pip install --force-reinstall torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 
       - name: Install ffmpeg
