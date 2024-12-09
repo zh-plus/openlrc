@@ -74,7 +74,7 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
 
 3. Install latest [fast-whisper](https://github.com/guillaumekln/faster-whisper) from source:
    ```shell
-   pip install "faster-whisper @ https://github.com/SYSTRAN/faster-whisper/archive/d57c5b40b06e59ec44240d93485a95799548af50.tar.gz"
+   pip install "faster-whisper @ https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz"
    ```
 
 4. Install [ffmpeg](https://ffmpeg.org/download.html) and add `bin` directory
@@ -99,16 +99,25 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
 
 ## Usage 🐍
 
-### GUI
+[//]: # (### GUI)
 
-> [!NOTE]
-> We are migrating the GUI from streamlit to Gradio. The GUI is still under development.
+[//]: # ()
 
-```shell
-openlrc gui
-```
+[//]: # (> [!NOTE])
 
-![](https://github.com/zh-plus/openlrc/blob/master/resources/streamlit_app.jpg?raw=true)
+[//]: # (> We are migrating the GUI from streamlit to Gradio. The GUI is still under development.)
+
+[//]: # ()
+
+[//]: # (```shell)
+
+[//]: # (openlrc gui)
+
+[//]: # (```)
+
+[//]: # ()
+
+[//]: # (![]&#40;https://github.com/zh-plus/openlrc/blob/master/resources/streamlit_app.jpg?raw=true&#41;)
 
 ### Python code
 
@@ -198,8 +207,8 @@ and [Anthropic](https://docs.anthropic.com/claude/docs/models-overview#model-com
 
 | Model Name                   | Pricing for 1M Tokens <br/>(Input/Output) (USD) | Cost for 1 Hour Audio <br/>(USD) |
 |------------------------------|-------------------------------------------------|----------------------------------|
-| `gpt-3.5-turbo-0125`         | 0.5, 1.5                                        | 0.01                             |
 | `gpt-3.5-turbo`              | 0.5, 1.5                                        | 0.01                             |
+| `gpt-4o-mini`                | 0.5, 1.5                                        | 0.01                             |
 | `gpt-4-0125-preview`         | 10, 30                                          | 0.5                              |
 | `gpt-4-turbo-preview`        | 10, 30                                          | 0.5                              |
 | `gpt-4o`                     | 5, 15                                           | 0.25                             |
@@ -210,13 +219,14 @@ and [Anthropic](https://docs.anthropic.com/claude/docs/models-overview#model-com
 | `gemini-1.5-flash`           | 0.175, 2.1                                      | 0.01                             |
 | `gemini-1.0-pro`             | 0.5, 1.5                                        | 0.01                             |
 | `gemini-1.5-pro`             | 1.75, 21                                        | 0.1                              |
+| `deepseek-chat`              | 0.18, 2.2                                       | 0.01                             |
 
 **Note the cost is estimated based on the token count of the input and output text.
 The actual cost may vary due to the language and audio speed.**
 
 ### Recommended translation model
 
-For english audio, we recommend using `gpt-3.5-turbo` or `gemini-1.5-flash`.
+For english audio, we recommend using `deepseek-chat`, `gpt-4o-mini` or `gemini-1.5-flash`.
 
 For non-english audio, we recommend using `claude-3-5-sonnet-20240620`.
 
@@ -259,6 +269,10 @@ To maintain context between translation segments, the process is sequential for 
 - [x] [Feature] Add custom OpenAI & Anthropic endpoint support.
 - [ ] [Feature] Add local translation model support (e.g. [SakuraLLM](https://github.com/SakuraLLM/Sakura-13B-Galgame)).
 - [ ] [Quality] Construct translation quality benchmark test for each patch.
+- [ ] [Quality] Split subtitles using
+  LLM ([ref](https://github.com/Huanshere/VideoLingo/blob/ff520309e958dd3048586837d09ce37d3e9ebabd/core/prompts_storage.py#L6)).
+- [ ] [Quality] Trim extra long subtitle using
+  LLM ([ref](https://github.com/Huanshere/VideoLingo/blob/ff520309e958dd3048586837d09ce37d3e9ebabd/core/prompts_storage.py#L311)).
 - [ ] [Others] Add transcribed examples.
     - [ ] Song
     - [ ] Podcast

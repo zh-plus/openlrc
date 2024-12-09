@@ -40,7 +40,7 @@ class TestChatBot(unittest.TestCase):
             {'role': 'user', 'content': 'Hello'},
         ]
         fee = bot.estimate_fee(messages)
-        self.assertTrue(isclose(fee, 2.1e-06))
+        self.assertTrue(isclose(fee, 6e-05))
 
     def test_gpt_update_fee(self):
         bot = self.gpt_bot
@@ -55,7 +55,7 @@ class TestChatBot(unittest.TestCase):
         bot.api_fees += [0]
         response3 = OpenAIResponse(usage=OpenAIUsage(prompt_tokens=300, completion_tokens=600, total_tokens=900))
         bot.update_fee(response3)
-        self.assertListEqual(bot.api_fees, [0.000135, 0.00027, 0.000405])
+        self.assertListEqual(bot.api_fees, [0.0035, 0.007, 0.0105])
 
     def test_claude_update_fee(self):
         bot = self.claude_bot
@@ -125,11 +125,11 @@ class TestChatBot(unittest.TestCase):
         self.assertIn('hello', bot.get_content(results[0]).lower())
 
     def test_route_chatbot(self):
-        chatbot_model1 = 'openai: claude-3-haiku-20240307'
+        chatbot_model1 = 'openai: claude-3-5-haiku-20241022'
         chabot_cls1, model_name1 = route_chatbot(chatbot_model1)
         self.assertEqual(chabot_cls1, GPTBot)
         try:
-            _ = chabot_cls1(model=model_name1, temperature=1, top_p=1, retry=8, max_async=16)
+            _ = chabot_cls1(model_name=model_name1, temperature=1, top_p=1, retry=8, max_async=16)
         except Exception as e:
             self.fail(f"Failed to create chatbot model {chatbot_model1}: {e}")
 
@@ -137,7 +137,7 @@ class TestChatBot(unittest.TestCase):
         chabot_cls2, model_name2 = route_chatbot(chatbot_model2)
         self.assertEqual(chabot_cls2, ClaudeBot)
         try:
-            _ = chabot_cls2(model=model_name2, temperature=1, top_p=1, retry=8, max_async=16)
+            _ = chabot_cls2(model_name=model_name2, temperature=1, top_p=1, retry=8, max_async=16)
         except Exception as e:
             self.fail(f"Failed to create chatbot model {chatbot_model1}: {e}")
 
@@ -156,6 +156,18 @@ class TestChatBot(unittest.TestCase):
         self.assertEqual(chatbot2.temperature, 0)
         self.assertEqual(chatbot3.temperature, 1)
         self.assertEqual(chatbot4.temperature, 0)
+
+
+class TestThirdPartyBot(unittest.TestCase):
+    def test_beta_base_url(self):
+        bot = GPTBot(model_name='deepseek-chat', temperature=1, top_p=1, retry=8, max_async=16,
+                     base_url_config={'openai': 'https://api.deepseek.com/beta'})
+        self.assertTrue(bot.model_info.beta)
+
+    def test_non_beta_base_url(self):
+        bot = GPTBot(model_name='deepseek-chat', temperature=1, top_p=1, retry=8, max_async=16,
+                     base_url_config={'openai': 'https://api.deepseek.com'})
+        self.assertFalse(bot.model_info.beta)
 
 
 # TODO: Retry_bot testing

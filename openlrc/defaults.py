@@ -18,6 +18,7 @@ default_asr_options = {
     "compression_ratio_threshold": None,
     "log_prob_threshold": None,
     "no_speech_threshold": None,
+    "condition_on_previous_text": True,
 
     "initial_prompt": None,
     "prefix": None,
@@ -30,12 +31,18 @@ default_asr_options = {
     "append_punctuations": "\"'.。,，!！?？:：”)]}、",
     # "hallucination_silence_threshold": 2,
     "hotwords": None,
+
+    "chunk_length": None
 }
 
 # Check https://github.com/SYSTRAN/faster-whisper/blob/master/faster_whisper/transcribe.py#L123 for details
 default_vad_options = {
-    "vad_onset": 0.500,
-    "vad_offset": 0.363
+    "threshold": 0.500,
+    "neg_threshold": 0.363,
+    "min_speech_duration_ms": 0,
+    "max_speech_duration_s": float("inf"),
+    "min_silence_duration_ms": 2000,
+    "speech_pad_ms": 400
 }
 
 default_preprocess_options = {

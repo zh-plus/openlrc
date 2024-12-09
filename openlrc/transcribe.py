@@ -61,9 +61,14 @@ class Transcriber:
         self.continuous_scripted = ['ja', 'zh', 'zh-cn', 'th', 'vi', 'lo', 'km', 'my', 'bo']
         self.asr_options = asr_options or default_asr_options
         self.vad_options = vad_options or default_vad_options
+        self.use_vad_model = vad_filter
 
         model = WhisperModel(model_name, device, compute_type=compute_type, num_workers=1)
-        self.whisper_model = BatchedInferencePipeline(model, use_vad_model=vad_filter, **self.vad_options)
+        if self.asr_options['batch_size'] == 1:
+            self.whisper_model = model
+            del self.asr_options['batch_size']
+        else:
+            self.whisper_model = BatchedInferencePipeline(model)
 
     def transcribe(self, audio_path: Union[str, Path], language: Optional[str] = None):
         """
@@ -78,7 +83,10 @@ class Transcriber:
                 - list: List of transcribed segments.
                 - TranscriptionInfo: Information about the transcription.
         """
-        seg_gen, info = self.whisper_model.transcribe(str(audio_path), language=language, **self.asr_options)
+        seg_gen, info = self.whisper_model.transcribe(
+            str(audio_path), language=language, vad_filter=self.use_vad_model, vad_parameters=self.vad_options,
+            **self.asr_options
+        )
 
         segments = []  # [Segment(start, end, text, words=[Word(start, end, word, probability)])]
         timestamps = 0

@@ -193,7 +193,15 @@ def format_timestamp(seconds: float, fmt: str = 'lrc') -> str:
         str: A string representation of the timestamp in the specified format.
     """
     # Ensure that the timestamp is non-negative.
-    assert seconds >= 0, "non-negative timestamp expected"
+    # assert seconds >= 0, "non-negative timestamp expected"
+    if seconds < 0:
+        logger.warning(f"Negative timestamp: {seconds}")
+        if fmt == 'lrc':
+            return '0:00.00'
+        elif fmt == 'srt':
+            return '00:00:00,000'
+        else:
+            raise ValueError(f"Unsupported timestamp format: {fmt}")
 
     # Convert seconds into milliseconds.
     milliseconds = round(seconds * 1000.0)

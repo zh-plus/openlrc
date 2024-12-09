@@ -10,7 +10,7 @@ import openai
 from openlrc.translate import LLMTranslator
 from openlrc.utils import get_similarity
 
-test_models = ['gpt-4o-mini', 'claude-3-haiku-20240307']
+test_models = ['gpt-4o-mini', 'claude-3-5-haiku-20241022']
 
 
 class TestLLMTranslator(unittest.TestCase):

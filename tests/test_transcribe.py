@@ -14,12 +14,12 @@ return_tuple = ([
                         0, 0, 0, 3, 'hello world', [], 0.8, 0, 0, words=[
                             Word(0, 1.5, 'hello', probability=0.8),
                             Word(1.6, 3, ' world', probability=0.8)
-                        ]),
+                        ], temperature=1),
                     Segment(
                         0, 0, 3, 6, 'hello world', [], 0.8, 0, 0, words=[
                             Word(3, 4.5, 'hello', probability=0.8),
                             Word(4.6, 6, ' world', probability=0.8)
-                        ]),
+                        ], temperature=1),
                 ], TranscriptionInfo('en', 30, 30))
 
 

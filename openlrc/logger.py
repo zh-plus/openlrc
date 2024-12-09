@@ -1,3 +1,6 @@
+#  Copyright (C) 2024. Hao Zheng
+#  All rights reserved.
+
 import logging
 
 from colorlog import ColoredFormatter
@@ -18,9 +21,10 @@ formatter = ColoredFormatter(
     secondary_log_colors={},
     style='%'
 )
-
 handler.setFormatter(formatter)
+
 logger = logging.getLogger()
+logger.handlers.clear()  # Clear existing handlers
 logger.addHandler(handler)
 
 logger.setLevel('INFO')

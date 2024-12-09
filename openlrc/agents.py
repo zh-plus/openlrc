@@ -7,7 +7,7 @@ from typing import Optional, Tuple, List, Type, Union
 
 from json_repair import repair_json
 
-from openlrc.chatbot import route_chatbot, GPTBot, ClaudeBot
+from openlrc.chatbot import route_chatbot, GPTBot, ClaudeBot, GeminiBot
 from openlrc.context import TranslationContext, TranslateInfo
 from openlrc.logger import logger
 from openlrc.prompter import ChunkedTranslatePrompter, ContextReviewPrompter, ProofreaderPrompter, PROOFREAD_PREFIX, \
@@ -37,9 +37,9 @@ class Agent(abc.ABC):
         Returns:
             Union[ClaudeBot, GPTBot]: An instance of the appropriate chatbot class.
         """
-        chatbot_cls: Union[Type[ClaudeBot], Type[GPTBot]]
+        chatbot_cls: Union[Type[ClaudeBot], Type[GPTBot], Type[GeminiBot]]
         chatbot_cls, model_name = route_chatbot(chatbot_model)
-        return chatbot_cls(model=model_name, fee_limit=fee_limit, proxy=proxy, retry=3,
+        return chatbot_cls(model_name=model_name, fee_limit=fee_limit, proxy=proxy, retry=2,
                            temperature=self.TEMPERATURE, base_url_config=base_url_config)
 
 
@@ -301,7 +301,7 @@ class ContextReviewerAgent(Agent):
                 context = max(context_pool, key=len)
                 logger.info(f'Now using the longest context: {context}')
 
-        if forced_glossary:
+        if forced_glossary and glossary:
             context = self.add_external_glossary(context, glossary)
 
         return context

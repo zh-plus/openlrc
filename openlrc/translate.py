@@ -12,7 +12,6 @@ from typing import Union, List, Optional, Tuple
 import requests
 
 from openlrc.agents import ChunkedTranslatorAgent, ContextReviewerAgent
-from openlrc.chatbot import all_pricing
 from openlrc.context import TranslationContext, TranslateInfo
 from openlrc.logger import logger
 from openlrc.prompter import AtomicTranslatePrompter
@@ -24,16 +23,6 @@ class Translator(ABC):
     def translate(self, texts: Union[str, List[str]], src_lang: str, target_lang: str, info: TranslateInfo) \
             -> List[str]:
         pass
-
-
-def list_chatbot_models() -> List[str]:
-    """
-    List available chatbot models for translation.
-
-    Returns:
-        List[str]: List of available chatbot model names.
-    """
-    return list(all_pricing.keys())
 
 
 class LLMTranslator(Translator):

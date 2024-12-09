@@ -20,11 +20,11 @@ from openlrc.utils import extend_filename
                    Segment(
                        0, 0, 0, 3, 'hello world1', [], 0.8, 0, 0, words=[
                            Word(0, 1.5, 'hello', probability=0.8), Word(1.6, 3, ' world1', probability=0.8)
-                       ]),
+                       ], temperature=0),
                    Segment(
                        0, 0, 3, 6, 'hello world2', [], 0.8, 0, 0, words=[
                            Word(3, 4.5, 'hello', probability=0.8), Word(4.6, 6, ' world2', probability=0.8)
-                       ])
+                       ], temperature=0),
                ],
                TranscriptionInfo('en', 6.0, 6.0))))
 class TestLRCer(unittest.TestCase):

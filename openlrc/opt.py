@@ -198,6 +198,9 @@ class SubtitleOptimizer:
             else:
                 text = text.replace(eng, chn)
 
+        # replace number，number to number,number
+        text = re.sub(r'([0-9]+)，([0-9]+)', r'\1,\2', text)
+
         # Restore URLs
         for i, url in enumerate(urls):
             text = text.replace(f'URL_PLACEHOLDER_{i}', url)

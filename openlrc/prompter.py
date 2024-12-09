@@ -80,7 +80,7 @@ At the end of each set of translations, include a one or two line synopsis of th
 <summary>John and Sarah discuss their plan to locate a suspect, deducing that he is likely in the uptown area.</summary>
 Remember to end this tag with ``</summary>``.
 
-Also use the available information to add a short description of the current scene so far encapsulated in a <scene/> tag, for example:
+Also use the available information to add a short summary of the current scene so far encapsulated in a <scene/> tag, for example:
 <scene>John and Sarah are in their office analyzing data and planning their next steps. They deduce that the suspect is probably in the uptown area and decide to start their search there.</scene>
 Remember to end this tag with ``</scene>``.
 

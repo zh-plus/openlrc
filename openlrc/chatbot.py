@@ -24,34 +24,41 @@ from openai.types.chat import ChatCompletion
 
 from openlrc.exceptions import ChatBotException, LengthExceedException
 from openlrc.logger import logger
+from openlrc.models import Models, ModelInfo, ModelProvider
 from openlrc.utils import get_messages_token_number, get_text_token_number
 
 model2chatbot = {}
-all_pricing = {
-    # Third-party provider models from https://api.g4f.icu/pricing
-    'mixtral-8x7b-32768': (0.25, 1),
-    'llama2-70b-4096': (0.25, 1.25),
-
-    # https://platform.deepseek.com/api-docs/pricing/
-    'deepseek-chat': (0.14, 0.28)
-}
 
 
 def _register_chatbot(cls):
-    all_pricing.update(cls.pricing)
+    # Get model info from Models class
+    for model in Models.__dict__.values():
+        if not isinstance(model, ModelInfo):
+            continue
 
-    for model in cls.pricing:
-        model2chatbot[model] = cls
-
+        if model.provider in (ModelProvider.OPENAI, ModelProvider.THIRD_PARTY) and cls.__name__ == 'GPTBot':
+            model2chatbot[model.name] = cls
+            if model.latest_alias:
+                model2chatbot[model.latest_alias] = cls
+        elif model.provider == ModelProvider.ANTHROPIC and cls.__name__ == 'ClaudeBot':
+            model2chatbot[model.name] = cls
+            if model.latest_alias:
+                model2chatbot[model.latest_alias] = cls
+        elif model.provider == ModelProvider.GOOGLE and cls.__name__ == 'GeminiBot':
+            model2chatbot[model.name] = cls
+            if model.latest_alias:
+                model2chatbot[model.latest_alias] = cls
     return cls
 
 
-def route_chatbot(model):
+def route_chatbot(model) -> (type, str):
     if ':' in model:
         chatbot_type, chatbot_model = re.match(r'(.+):(.+)', model).groups()
         chatbot_type, chatbot_model = chatbot_type.strip().lower(), chatbot_model.strip()
 
-        if chatbot_model not in all_pricing:
+        try:
+            Models.get_model(chatbot_model)
+        except ValueError:
             raise ValueError(f'Invalid model {chatbot_model}.')
 
         if chatbot_type == 'openai':
@@ -68,11 +75,12 @@ def route_chatbot(model):
 
 
 class ChatBot:
-    pricing = None
-
-    def __init__(self, pricing, temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.8):
-        self.pricing = pricing
-        self._model = None
+    def __init__(self, model_name, temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.8, beta=False):
+        try:
+            self.model_info = Models.get_model(model_name, beta)
+            self.model_name = model_name
+        except ValueError:
+            raise ValueError(f'Invalid model {model_name}.')
 
         self.temperature = temperature
         self.top_p = top_p
@@ -82,16 +90,6 @@ class ChatBot:
 
         self.api_fees = []
 
-    @property
-    def model(self):
-        return self._model
-
-    @model.setter
-    def model(self, model):
-        if model not in all_pricing:
-            raise ValueError(f'Invalid model {model}.')
-        self._model = model
-
     def estimate_fee(self, messages: List[Dict]):
         """
         Estimate the total fee for the given messages.
@@ -100,9 +98,10 @@ class ChatBot:
         for message in messages:
             token_map[message['role']] += get_text_token_number(message['content'])
 
-        prompt_price, completion_price = all_pricing[self.model]
+        input_price = self.model_info.input_price
+        output_price = self.model_info.output_price
 
-        total_price = (sum(token_map.values()) * prompt_price + token_map['user'] * completion_price * 2) / 1000000
+        total_price = (sum(token_map.values()) * input_price + token_map['user'] * output_price * 2) / 1000000
 
         return total_price
 
@@ -169,30 +168,22 @@ class ChatBot:
         return results
 
     def __str__(self):
-        return f'ChatBot ({self.model})'
+        return f'ChatBot ({self.model_name})'
 
 
 @_register_chatbot
 class GPTBot(ChatBot):
-    # Pricing for 1M tokens, info from https://openai.com/pricing
-    pricing = {
-        'gpt-4o-mini': (0.15, 0.6),
-        'gpt-3.5-turbo-0125': (0.5, 1.5),
-        'gpt-3.5-turbo': (0.5, 1.5),
-        'gpt-4-0125-preview': (10, 30),
-        'gpt-4-turbo-preview': (10, 30),
-        'gpt-4-turbo': (10, 30),
-        'gpt-4-turbo-2024-04-09': (10, 30),
-        'gpt-4o': (5, 15),
-    }
-
-    def __init__(self, model='gpt-4o-mini', temperature=1, top_p=1, retry=8, max_async=16, json_mode=False,
+    def __init__(self, model_name='gpt-4o-mini', temperature=1, top_p=1, retry=8, max_async=16, json_mode=False,
                  fee_limit=0.05, proxy=None, base_url_config=None):
 
         # clamp temperature to 0-2
         temperature = max(0, min(2, temperature))
 
-        super().__init__(self.pricing, temperature, top_p, retry, max_async, fee_limit)
+        is_beta = False
+        if base_url_config and base_url_config['openai'] == 'https://api.deepseek.com/beta':
+            is_beta = True
+
+        super().__init__(model_name, temperature, top_p, retry, max_async, fee_limit, is_beta)
 
         self.async_client = AsyncGPTClient(
             api_key=os.environ['OPENAI_API_KEY'],
@@ -200,19 +191,18 @@ class GPTBot(ChatBot):
             base_url=base_url_config['openai'] if base_url_config and base_url_config['openai'] else None
         )
 
-        self.model = model
+        self.model_name = model_name
         self.json_mode = json_mode
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.async_client.close()
 
     def update_fee(self, response: ChatCompletion):
-        prompt_price, completion_price = all_pricing[self.model]
-
         prompt_tokens = response.usage.prompt_tokens
         completion_tokens = response.usage.completion_tokens
 
-        self.api_fees[-1] += (prompt_tokens * prompt_price + completion_tokens * completion_price) / 1000000
+        self.api_fees[-1] += (prompt_tokens * self.model_info.input_price +
+                              completion_tokens * self.model_info.output_price) / 1000000
 
     def get_content(self, response):
         return response.choices[0].message.content
@@ -228,7 +218,7 @@ class GPTBot(ChatBot):
         for i in range(self.retry):
             try:
                 response = await self.async_client.chat.completions.create(
-                    model=self.model,
+                    model=self.model_name,
                     messages=messages,
                     temperature=self.temperature,
                     top_p=self.top_p,
@@ -262,23 +252,17 @@ class GPTBot(ChatBot):
         else:
             return 15
 
+
 @_register_chatbot
 class ClaudeBot(ChatBot):
-    # Pricing for 1M tokens, info from https://docs.anthropic.com/claude/docs/models-overview#model-comparison
-    pricing = {
-        'claude-3-opus-20240229': (15, 75),
-        'claude-3-sonnet-20240229': (3, 15),
-        'claude-3-haiku-20240307': (0.25, 1.25),
-        'claude-3-5-sonnet-20240620': (3, 15),
-    }
-
-    def __init__(self, model='claude-3-sonnet-20240229', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.8,
+    def __init__(self, model_name='claude-3-5-sonnet-20241022', temperature=1, top_p=1, retry=8, max_async=16,
+                 fee_limit=0.8,
                  proxy=None, base_url_config=None):
 
         # clamp temperature to 0-1
         temperature = max(0, min(1, temperature))
 
-        super().__init__(self.pricing, temperature, top_p, retry, max_async, fee_limit)
+        super().__init__(model_name, temperature, top_p, retry, max_async, fee_limit)
 
         self.async_client = AsyncAnthropic(
             api_key=os.environ['ANTHROPIC_API_KEY'],
@@ -288,15 +272,17 @@ class ClaudeBot(ChatBot):
             base_url=base_url_config['anthropic'] if base_url_config and base_url_config['anthropic'] else None
         )
 
-        self.model = model
+        self.model_name = model_name
+        self.max_tokens = self.model_info.max_tokens
 
     def update_fee(self, response: Message):
-        prompt_price, completion_price = all_pricing[self.model]
+        model_info = self.model_info
 
         prompt_tokens = response.usage.input_tokens
         completion_tokens = response.usage.output_tokens
 
-        self.api_fees[-1] += (prompt_tokens * prompt_price + completion_tokens * completion_price) / 1000000
+        self.api_fees[-1] += (prompt_tokens * model_info.input_price +
+                              completion_tokens * model_info.output_price) / 1000000
 
     def get_content(self, response):
         return response.content[0].text
@@ -314,8 +300,8 @@ class ClaudeBot(ChatBot):
         for i in range(self.retry):
             try:
                 response = await self.async_client.messages.create(
-                    max_tokens=4096,
-                    model=self.model,
+                    max_tokens=8192,
+                    model=self.model_name,
                     messages=messages,
                     system=system_msg,
                     temperature=self.temperature,
@@ -332,7 +318,8 @@ class ClaudeBot(ChatBot):
 
                 break
             except (
-            anthropic.RateLimitError, anthropic.APITimeoutError, anthropic.APIConnectionError, anthropic.APIError) as e:
+                    anthropic.RateLimitError, anthropic.APITimeoutError, anthropic.APIConnectionError,
+                    anthropic.APIError) as e:
                 sleep_time = self._get_sleep_time(e)
                 logger.warning(f'{type(e).__name__}: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.')
                 time.sleep(sleep_time)
@@ -353,28 +340,15 @@ class ClaudeBot(ChatBot):
 
 @_register_chatbot
 class GeminiBot(ChatBot):
-    # Pricing for 1M tokens, info from https://ai.google.dev/pricing
-    # Note we consider the pricing for prompts longer than 128k
-    pricing = {
-        'gemini-1.0-pro-latest': (0.5, 1.5),
-        'gemini-1.0-pro': (0.5, 1.5),
-        'gemini-1.0-pro-001': (0.5, 1.5),
-        'gemini-1.5-flash-latest': (0.175, 2.1),
-        'gemini-1.5-flash': (0.175, 2.1),
-        'gemini-1.5-flash-001': (0.175, 2.1),
-        'gemini-1.5-pro-latest': (1.75, 21),
-        'gemini-1.5-pro': (1.75, 21),
-        'gemini-1.5-pro-001': (1.75, 21),
-    }
-
-    def __init__(self, model='gemini-1.5-flash', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.8,
+    def __init__(self, model_name='gemini-1.5-flash', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.8,
                  proxy=None, base_url_config=None):
         self.temperature = max(0, min(1, temperature))
 
-        super().__init__(self.pricing, temperature, top_p, retry, max_async, fee_limit)
+        super().__init__(model_name, temperature, top_p, retry, max_async, fee_limit)
+
+        self.model_name = model_name
 
         genai.configure(api_key=os.environ['GOOGLE_API_KEY'])
-        self.model = model
         self.config = GenerationConfig(temperature=self.temperature, top_p=self.top_p)
         # Should not block any translation-related content.
         self.safety_settings = {
@@ -391,12 +365,12 @@ class GeminiBot(ChatBot):
             logger.warning('Google Gemini SDK does not support changing base_url.')
 
     def update_fee(self, response: Union[GenerateContentResponse, AsyncGenerateContentResponse]):
-        prompt_price, completion_price = all_pricing[self.model]
-
+        model_info = self.model_info
         prompt_tokens = response.usage_metadata.prompt_token_count
         completion_tokens = response.usage_metadata.candidates_token_count
 
-        self.api_fees[-1] += (prompt_tokens * prompt_price + completion_tokens * completion_price) / 1000000
+        self.api_fees[-1] += (prompt_tokens * model_info.input_price +
+                              completion_tokens * model_info.output_price) / 1000000
 
     def get_content(self, response):
         return response.text
@@ -426,7 +400,7 @@ class GeminiBot(ChatBot):
             history_messages[i]['parts'] = [{'text': content}]
 
         self.config.stop_sequences = stop_sequences
-        generative_model = genai.GenerativeModel(model_name=self.model, safety_settings=self.safety_settings,
+        generative_model = genai.GenerativeModel(model_name=self.model_name, safety_settings=self.safety_settings,
                                                  generation_config=self.config, system_instruction=system_msg)
         client = genai.ChatSession(generative_model, history=history_messages)
 
@@ -445,7 +419,8 @@ class GeminiBot(ChatBot):
                     continue
 
                 break
-            except (genai.RateLimitError, genai.APITimeoutError, genai.APIConnectionError, genai.APIError) as e:
+            except (genai.types.BrokenResponseError, genai.types.IncompleteIterationError,
+                    genai.types.StopCandidateException) as e:
                 logger.warning(f'{type(e).__name__}: {e}. Retry num: {i + 1}.')
 
         if not response:
