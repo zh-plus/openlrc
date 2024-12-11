@@ -424,12 +424,19 @@ class LRCer:
             'segments': []
         }
 
-        for segment in segments:
+        if not segments:
             result['segments'].append({
-                'start': segment.start,
-                'end': segment.end,
-                'text': segment.text
+                'start': 0.0,
+                'end': 5.0,
+                'text': "no speech found"
             })
+        else:
+            for segment in segments:
+                result['segments'].append({
+                    'start': segment.start,
+                    'end': segment.end,
+                    'text': segment.text
+                })
 
         with open(name, 'w', encoding='utf-8') as f:
             json.dump(result, f, ensure_ascii=False, indent=4)
