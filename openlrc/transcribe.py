@@ -98,10 +98,12 @@ class Transcriber:
             if timestamps < info.duration:  # silence at the end of the audio
                 pbar.update(info.duration - timestamps)
 
-        assert segments, f'No voice found for {audio_path}'
-
-        with Timer('Sentence Segmentation'):
-            result = self.sentence_split(segments, info.language)
+        if not segments:
+            logger.warning(f'No speech found for {audio_path}')
+            result = []
+        else:
+            with Timer('Sentence Segmentation'):
+                result = self.sentence_split(segments, info.language)
 
         info = TranscriptionInfo(language=info.language, duration=get_audio_duration(audio_path),
                                  duration_after_vad=info.duration_after_vad)
