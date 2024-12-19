@@ -31,6 +31,7 @@ class TestLRCer(unittest.TestCase):
     def setUp(self) -> None:
         self.audio_path = Path('data/test_audio.wav')
         self.video_path = Path('data/test_video.mp4')
+        self.nospeech_video_path = Path('data/test_nospeech_video.mp4')
 
     def tearDown(self) -> None:
         def clear_paths(input_path):
@@ -76,6 +77,11 @@ class TestLRCer(unittest.TestCase):
     def test_video_file_transcription_translation(self):
         lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
         result = lrcer.run('data/test_video.mp4')
+        self.assertTrue(result)
+
+    def test_nospeech_video_file_transcription_translation(self):
+        lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
+        result = lrcer.run('data/test_nospeech_video.mp4')
         self.assertTrue(result)
 
     @patch('openlrc.translate.LLMTranslator.translate', MagicMock(side_effect=Exception('test exception')))
