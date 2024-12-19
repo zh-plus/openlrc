@@ -47,6 +47,25 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
     ```shell
     pip install "faster-whisper @ https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz"
     ```
+- 2024.12.19: Add `ModelConfig` for chat model routing, which is more flexible than model name string, The ModelConfig
+  can be ModelConfig(provider='<provider>', model_name='<model-name>', base_url='<url>', proxy='<proxy>'), e.g.:
+    ```python
+  
+    from openlrc import LRCer, ModelConfig, ModelProvider
+  
+    chatbot_model1 = ModelConfig(
+        provider=ModelProvider.OPENAI, 
+        name='deepseek-chat', 
+        base_url='https://api.deepseek.com/beta', 
+        api_key='sk-APIKEY'
+    )
+    chatbot_model2 = ModelConfig(
+        provider=ModelProvider.OPENAI, 
+        name='gpt-4o-mini', 
+        api_key='sk-APIKEY'
+    )
+    lrcer = LRCer(chatbot_model=chatbot_model1, retry_model=chatbot_model2)
+    ```
 
 ## Installation ⚙️
 

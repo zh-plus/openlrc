@@ -7,9 +7,10 @@ from typing import Optional, Tuple, List, Type, Union
 
 from json_repair import repair_json
 
-from openlrc.chatbot import route_chatbot, GPTBot, ClaudeBot, GeminiBot
+from openlrc.chatbot import route_chatbot, GPTBot, ClaudeBot, GeminiBot, provider2chatbot
 from openlrc.context import TranslationContext, TranslateInfo
 from openlrc.logger import logger
+from openlrc.models import ModelConfig, ModelProvider
 from openlrc.prompter import ChunkedTranslatePrompter, ContextReviewPrompter, ProofreaderPrompter, PROOFREAD_PREFIX, \
     ContextReviewerValidatePrompter, TranslationEvaluatorPrompter
 from openlrc.validators import POTENTIAL_PREFIX_COMBOS
@@ -24,12 +25,13 @@ class Agent(abc.ABC):
     """
     TEMPERATURE = 1
 
-    def _initialize_chatbot(self, chatbot_model: str, fee_limit: float, proxy: str, base_url_config: Optional[dict]):
+    def _initialize_chatbot(self, chatbot_model: Union[str, ModelConfig], fee_limit: float, proxy: str,
+                            base_url_config: Optional[dict]):
         """
         Initialize a chatbot instance based on the provided parameters.
 
         Args:
-            chatbot_model (str): The name of the chatbot model to use.
+            chatbot_model (Union[str, ModelConfig]): The name of the chatbot model or ModelConfig.
             fee_limit (float): The maximum fee allowed for API calls.
             proxy (str): Proxy server to use for API calls.
             base_url_config (Optional[dict]): Configuration for the base URL of the API.
@@ -37,10 +39,28 @@ class Agent(abc.ABC):
         Returns:
             Union[ClaudeBot, GPTBot]: An instance of the appropriate chatbot class.
         """
-        chatbot_cls: Union[Type[ClaudeBot], Type[GPTBot], Type[GeminiBot]]
-        chatbot_cls, model_name = route_chatbot(chatbot_model)
-        return chatbot_cls(model_name=model_name, fee_limit=fee_limit, proxy=proxy, retry=2,
-                           temperature=self.TEMPERATURE, base_url_config=base_url_config)
+
+        if isinstance(chatbot_model, str):
+            chatbot_cls: Union[Type[ClaudeBot], Type[GPTBot], Type[GeminiBot]]
+            chatbot_cls, model_name = route_chatbot(chatbot_model)
+            return chatbot_cls(model_name=model_name, fee_limit=fee_limit, proxy=proxy, retry=2,
+                               temperature=self.TEMPERATURE, base_url_config=base_url_config)
+        elif isinstance(chatbot_model, ModelConfig):
+            chatbot_cls = provider2chatbot[chatbot_model.provider]
+            proxy = chatbot_model.proxy or proxy
+
+            if chatbot_model.base_url:
+                if chatbot_model.provider == ModelProvider.OPENAI:
+                    base_url_config = {'openai': chatbot_model.base_url}
+                elif chatbot_model.provider == ModelProvider.ANTHROPIC:
+                    base_url_config = {'anthropic': chatbot_model.base_url}
+                else:
+                    base_url_config = None
+                    logger.warning(f'Unsupported base_url configuration for provider: {chatbot_model.provider}')
+
+            return chatbot_cls(model_name=chatbot_model.name, fee_limit=fee_limit, proxy=proxy, retry=2,
+                               temperature=self.TEMPERATURE, base_url_config=base_url_config,
+                               api_key=chatbot_model.api_key)
 
 
 class ChunkedTranslatorAgent(Agent):
@@ -56,7 +76,7 @@ class ChunkedTranslatorAgent(Agent):
     TEMPERATURE = 1.0
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
-                 chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.8, proxy: str = None,
+                 chatbot_model: Union[str, ModelConfig] = 'gpt-4o-mini', fee_limit: float = 0.8, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         """
         Initialize the ChunkedTranslatorAgent.
@@ -65,7 +85,7 @@ class ChunkedTranslatorAgent(Agent):
             src_lang (str): The source language.
             target_lang (str): The target language for translation.
             info (TranslateInfo): Additional translation information.
-            chatbot_model (str): The name of the chatbot model to use.
+            chatbot_model (Union[str, ModelConfig]): The name of the chatbot model or ModelConfig.
             fee_limit (float): The maximum fee allowed for API calls.
             proxy (str): Proxy server to use for API calls.
             base_url_config (Optional[dict]): Configuration for the base URL of the API.
@@ -193,7 +213,7 @@ class ContextReviewerAgent(Agent):
     TEMPERATURE = 0.6
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
-                 chatbot_model: str = 'gpt-4o-mini', retry_model=None,
+                 chatbot_model: Union[str, ModelConfig] = 'gpt-4o-mini', retry_model=None,
                  fee_limit: float = 0.8, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         """
@@ -203,8 +223,8 @@ class ContextReviewerAgent(Agent):
             src_lang (str): The source language.
             target_lang (str): The target language.
             info (TranslateInfo): Additional translation information.
-            chatbot_model (str): The name of the primary chatbot model to use.
-            retry_model (str): The name of the backup chatbot model to use for retries.
+            chatbot_model (Union[str, ModelConfig]): The name or ModelConfig of the primary chatbot model.
+            retry_model (Union[str, ModelConfig]): The name or ModelConfig of the backup chatbot model to use for retries.
             fee_limit (float): The maximum fee allowed for API calls.
             proxy (str): Proxy server to use for API calls.
             base_url_config (Optional[dict]): Configuration for the base URL of the API.
@@ -331,7 +351,7 @@ class ProofreaderAgent(Agent):
     TEMPERATURE = 0.8
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
-                 chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.8, proxy: str = None,
+                 chatbot_model: Union[str, ModelConfig] = 'gpt-4o-mini', fee_limit: float = 0.8, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         """
         Initialize the ProofreaderAgent.
@@ -340,7 +360,7 @@ class ProofreaderAgent(Agent):
             src_lang (str): The source language.
             target_lang (str): The target language.
             info (TranslateInfo): Additional translation information.
-            chatbot_model (str): The name of the chatbot model to use.
+            chatbot_model (Union[str, ModelConfig]): The name or ModelConfig of the chatbot model to use.
             fee_limit (float): The maximum fee allowed for API calls.
             proxy (str): Proxy server to use for API calls.
             base_url_config (Optional[dict]): Configuration for the base URL of the API.
@@ -404,13 +424,14 @@ class TranslationEvaluatorAgent(Agent):
 
     TEMPERATURE = 0.95
 
-    def __init__(self, chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.8, proxy: str = None,
+    def __init__(self, chatbot_model: Union[str, ModelConfig] = 'gpt-4o-mini', fee_limit: float = 0.8,
+                 proxy: str = None,
                  base_url_config: Optional[dict] = None):
         """
         Initialize the TranslationEvaluatorAgent.
 
         Args:
-            chatbot_model (str): The name of the chatbot model to use.
+            chatbot_model (Union[str, ModelConfig]): The name of the chatbot model or ModelConfig.
             fee_limit (float): The maximum fee allowed for API calls.
             proxy (str): Proxy server to use for API calls.
             base_url_config (Optional[dict]): Configuration for the base URL of the API.

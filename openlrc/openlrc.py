@@ -17,6 +17,7 @@ from faster_whisper.transcribe import Segment
 from openlrc.context import TranslateInfo
 from openlrc.defaults import default_asr_options, default_vad_options, default_preprocess_options
 from openlrc.logger import logger
+from openlrc.models import ModelConfig
 from openlrc.opt import SubtitleOptimizer
 from openlrc.preprocess import Preprocessor
 from openlrc.subtitle import Subtitle, BilingualSubtitle
@@ -36,7 +37,9 @@ class LRCer:
             ``float16`` or ``float32``. Default: ``float16``
             Note: ``default`` will keep the same quantization that was used during model conversion.
         device (str): The device to use for computation. Default: ``cuda``
-        chatbot_model (str): The chatbot model to use, check the available models using list_chatbot_models().
+        chatbot_model (Union[str, ModelConfig]): The chatbot model to use, check the available models using list_chatbot_models().
+            The string can be '<model-name>' or '<provider>:<model-name>'. e.g. 'gpt-4o-mini' or 'openai:gpt-4o-mini'.
+            The ModelConfig can be ModelConfig(model_name='<model-name>', provider='<provider>', base_url='<url>', proxy='<proxy>').
             Default: ``gpt-4o-mini``
         fee_limit (float): The maximum fee you are willing to pay for one translation call. Default: ``0.8``
         consumer_thread (int): To prevent exceeding the RPM and TPM limits set by OpenAI, the default is TPM/MAX_TOKEN.
@@ -50,16 +53,17 @@ class LRCer:
         glossary (Optional[Union[dict, str, Path]]): A dictionary mapping specific source words to their desired translations. 
             This is used to enforce custom translations that override the default behavior of the translation model. 
             Each key-value pair in the dictionary specifies a source word and its corresponding translation. Default: None.
-        retry_model (Optional[str]): The model to use when retrying the translation. Default: None.
+        retry_model (Optional[Union[str, ModelConfig]]): The model to use when retrying the translation. Default: None.
         is_force_glossary_used (bool): Whether to force the given glossary to be used in context. Default: False
     """
 
     def __init__(self, whisper_model: str = 'large-v3', compute_type: str = 'float16', device: str = 'cuda',
-                 chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.8, consumer_thread: int = 4,
+                 chatbot_model: Union[str, ModelConfig] = 'gpt-4o-mini', fee_limit: float = 0.8,
+                 consumer_thread: int = 4,
                  asr_options: Optional[dict] = None, vad_options: Optional[dict] = None,
                  preprocess_options: Optional[dict] = None, proxy: Optional[str] = None,
                  base_url_config: Optional[dict] = None, glossary: Optional[Union[dict, str, Path]] = None,
-                 retry_model: Optional[str] = None, is_force_glossary_used: bool = False):
+                 retry_model: Optional[Union[str, ModelConfig]] = None, is_force_glossary_used: bool = False):
         self.chatbot_model = chatbot_model
         self.fee_limit = fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
@@ -424,12 +428,19 @@ class LRCer:
             'segments': []
         }
 
-        for segment in segments:
+        if not segments:
             result['segments'].append({
-                'start': segment.start,
-                'end': segment.end,
-                'text': segment.text
+                'start': 0.0,
+                'end': 5.0,
+                'text': "no speech found"
             })
+        else:
+            for segment in segments:
+                result['segments'].append({
+                    'start': segment.start,
+                    'end': segment.end,
+                    'text': segment.text
+                })
 
         with open(name, 'w', encoding='utf-8') as f:
             json.dump(result, f, ensure_ascii=False, indent=4)

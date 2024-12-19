@@ -1,15 +1,17 @@
 #  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 import re
-from typing import Optional
+from typing import Optional, Union
 
 from pydantic import BaseModel
+
+from openlrc import ModelConfig
 
 
 class TranslationContext(BaseModel):
     summary: Optional[str] = ''
     scene: Optional[str] = ''
-    model: Optional[str] = None
+    model: Optional[Union[str, ModelConfig]] = None
     guideline: Optional[str] = None
 
     def update(self, **args):

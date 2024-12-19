@@ -14,6 +14,18 @@ class ModelProvider(Enum):
 
 
 @dataclass
+class ModelConfig:
+    provider: ModelProvider
+    name: str
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    proxy: Optional[str] = None
+
+    def __str__(self):
+        return f'{self.provider.value}:{self.name}'
+
+
+@dataclass
 class ModelInfo:
     name: str
     provider: ModelProvider

@@ -27,6 +27,7 @@ from openlrc.logger import logger
 from openlrc.models import Models, ModelInfo, ModelProvider
 from openlrc.utils import get_messages_token_number, get_text_token_number
 
+# The default mapping for model name to chatbot class.
 model2chatbot = {}
 
 
@@ -51,7 +52,7 @@ def _register_chatbot(cls):
     return cls
 
 
-def route_chatbot(model) -> (type, str):
+def route_chatbot(model: str) -> (type, str):
     if ':' in model:
         chatbot_type, chatbot_model = re.match(r'(.+):(.+)', model).groups()
         chatbot_type, chatbot_model = chatbot_type.strip().lower(), chatbot_model.strip()
@@ -174,7 +175,7 @@ class ChatBot:
 @_register_chatbot
 class GPTBot(ChatBot):
     def __init__(self, model_name='gpt-4o-mini', temperature=1, top_p=1, retry=8, max_async=16, json_mode=False,
-                 fee_limit=0.05, proxy=None, base_url_config=None):
+                 fee_limit=0.05, proxy=None, base_url_config=None, api_key=None):
 
         # clamp temperature to 0-2
         temperature = max(0, min(2, temperature))
@@ -186,7 +187,7 @@ class GPTBot(ChatBot):
         super().__init__(model_name, temperature, top_p, retry, max_async, fee_limit, is_beta)
 
         self.async_client = AsyncGPTClient(
-            api_key=os.environ['OPENAI_API_KEY'],
+            api_key=api_key or os.environ['OPENAI_API_KEY'],
             http_client=httpx.AsyncClient(proxy=proxy),
             base_url=base_url_config['openai'] if base_url_config and base_url_config['openai'] else None
         )
@@ -257,8 +258,7 @@ class GPTBot(ChatBot):
 @_register_chatbot
 class ClaudeBot(ChatBot):
     def __init__(self, model_name='claude-3-5-sonnet-20241022', temperature=1, top_p=1, retry=8, max_async=16,
-                 fee_limit=0.8,
-                 proxy=None, base_url_config=None):
+                 fee_limit=0.8, proxy=None, base_url_config=None, api_key=None):
 
         # clamp temperature to 0-1
         temperature = max(0, min(1, temperature))
@@ -266,7 +266,7 @@ class ClaudeBot(ChatBot):
         super().__init__(model_name, temperature, top_p, retry, max_async, fee_limit)
 
         self.async_client = AsyncAnthropic(
-            api_key=os.environ['ANTHROPIC_API_KEY'],
+            api_key=api_key or os.environ['ANTHROPIC_API_KEY'],
             http_client=httpx.AsyncClient(
                 proxy=proxy
             ),
@@ -342,14 +342,14 @@ class ClaudeBot(ChatBot):
 @_register_chatbot
 class GeminiBot(ChatBot):
     def __init__(self, model_name='gemini-1.5-flash', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.8,
-                 proxy=None, base_url_config=None):
+                 proxy=None, base_url_config=None, api_key=None):
         self.temperature = max(0, min(1, temperature))
 
         super().__init__(model_name, temperature, top_p, retry, max_async, fee_limit)
 
         self.model_name = model_name
 
-        genai.configure(api_key=os.environ['GOOGLE_API_KEY'])
+        genai.configure(api_key=api_key or os.environ['GOOGLE_API_KEY'])
         self.config = GenerationConfig(temperature=self.temperature, top_p=self.top_p)
         # Should not block any translation-related content.
         self.safety_settings = {
@@ -428,3 +428,10 @@ class GeminiBot(ChatBot):
             raise ChatBotException('Failed to create a chat.')
 
         return response
+
+
+provider2chatbot = {
+    ModelProvider.OPENAI: GPTBot,
+    ModelProvider.ANTHROPIC: ClaudeBot,
+    ModelProvider.GOOGLE: GeminiBot
+}

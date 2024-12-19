@@ -14,6 +14,7 @@ import requests
 from openlrc.agents import ChunkedTranslatorAgent, ContextReviewerAgent
 from openlrc.context import TranslationContext, TranslateInfo
 from openlrc.logger import logger
+from openlrc.models import ModelConfig
 from openlrc.prompter import AtomicTranslatePrompter
 
 
@@ -34,21 +35,22 @@ class LLMTranslator(Translator):
 
     CHUNK_SIZE = 30
 
-    def __init__(self, chatbot_model: str = 'gpt-4o-mini', fee_limit: float = 0.8, chunk_size: int = CHUNK_SIZE,
+    def __init__(self, chatbot_model: Union[str, ModelConfig] = 'gpt-4o-mini', fee_limit: float = 0.8,
+                 chunk_size: int = CHUNK_SIZE,
                  intercept_line: Optional[int] = None, proxy: Optional[str] = None,
                  base_url_config: Optional[dict] = None,
-                 retry_model: Optional[str] = None):
+                 retry_model: Optional[Union[str, ModelConfig]] = None):
         """
         Initialize the LLMTranslator with given parameters.
 
         Args:
-            chatbot_model (str): Name of the primary chatbot model to use for translation.
+            chatbot_model (Union[str, ModelConfig]): Name or ModelConfig of the primary chatbot model to use for translation.
             fee_limit (float): Maximum fee limit for API calls to prevent unexpected costs.
             chunk_size (int): Size of text chunks for processing, balancing efficiency and context.
             intercept_line (Optional[int]): Line number to intercept translation, useful for debugging.
             proxy (Optional[str]): Proxy server URL for API calls.
             base_url_config (Optional[dict]): Base URL configuration for API calls.
-            retry_model (Optional[str]): Model to use for retry attempts if primary model fails.
+            retry_model (Optional[Union[str, ModelConfig]]): Model to use for retry attempts if primary model fails.
         """
         self.chatbot_model = chatbot_model
         self.fee_limit = fee_limit
@@ -259,7 +261,7 @@ class LLMTranslator(Translator):
         return [{'chunk': chunk_id,
                  'idx': item[0] if item else 'N/A',
                  'method': 'atomic' if atomic else 'chunked',
-                 'model': context.model,
+                 'model': str(context.model),
                  'input': item[1] if item else 'N/A',
                  'output': trans if trans else 'N/A'}
                 for (item, trans) in zip_longest(chunk, translated)]
@@ -283,7 +285,8 @@ class LLMTranslator(Translator):
         with open(compare_path, 'w', encoding='utf-8') as f:
             json.dump(compare_results, f, indent=4, ensure_ascii=False)
 
-    def atomic_translate(self, chatbot_model: str, texts: List[str], src_lang: str, target_lang: str) -> List[str]:
+    def atomic_translate(self, chatbot_model: Union[str, ModelConfig], texts: List[str], src_lang: str,
+                         target_lang: str) -> List[str]:
         """
         Perform atomic translation for each text individually.
 
@@ -291,7 +294,7 @@ class LLMTranslator(Translator):
         each text separately, which can be slower but more reliable for problematic texts.
 
         Args:
-            chatbot_model (str): Name of the chatbot model to use.
+            chatbot_model (Union[str, ModelConfig]): Name or ModelConfig of the chatbot model to use.
             texts (List[str]): List of texts to translate.
             src_lang (str): Source language code.
             target_lang (str): Target language code.
