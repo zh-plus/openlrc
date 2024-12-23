@@ -341,7 +341,7 @@ class ClaudeBot(ChatBot):
 
 @_register_chatbot
 class GeminiBot(ChatBot):
-    def __init__(self, model_name='gemini-1.5-flash', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.8,
+    def __init__(self, model_name='gemini-2.0-flash-exp', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.8,
                  proxy=None, base_url_config=None, api_key=None):
         self.temperature = max(0, min(1, temperature))
 
@@ -356,7 +356,7 @@ class GeminiBot(ChatBot):
             HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
             HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
             HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE
         }
 
         if proxy:
@@ -423,6 +423,9 @@ class GeminiBot(ChatBot):
             except (genai.types.BrokenResponseError, genai.types.IncompleteIterationError,
                     genai.types.StopCandidateException) as e:
                 logger.warning(f'{type(e).__name__}: {e}. Retry num: {i + 1}.')
+            except genai.types.generation_types.BlockedPromptException as e:
+                logger.warning(f'Prompt blocked: {e}.\n Retry in 30s.')
+                time.sleep(30)
 
         if not response:
             raise ChatBotException('Failed to create a chat.')

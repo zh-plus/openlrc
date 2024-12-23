@@ -13,6 +13,7 @@ import requests
 
 from openlrc.agents import ChunkedTranslatorAgent, ContextReviewerAgent
 from openlrc.context import TranslationContext, TranslateInfo
+from openlrc.exceptions import ChatBotException
 from openlrc.logger import logger
 from openlrc.models import ModelConfig
 from openlrc.prompter import AtomicTranslatePrompter
@@ -107,12 +108,22 @@ class LLMTranslator(Translator):
         Returns:
             Tuple[List[str], TranslationContext]: Translated texts and updated context.
         """
+
         def handle_translation(agent: ChunkedTranslatorAgent) -> Tuple[List[str], TranslationContext]:
-            trans, updated_context = agent.translate_chunk(chunk_id, chunk, context)
+            trans, updated_context = None, None
+            try:
+                trans, updated_context = agent.translate_chunk(chunk_id, chunk, context)
+            except ChatBotException as e:
+                logger.error(f'Failed to translate chunk {chunk_id}.')
+
             if len(trans) != len(chunk) and agent.info.glossary:
                 logger.warning(
                     f'Agent {agent}: Removing glossary for chunk {chunk_id} due to inconsistent translation.')
-                trans, updated_context = agent.translate_chunk(chunk_id, chunk, context, use_glossary=False)
+                try:
+                    trans, updated_context = agent.translate_chunk(chunk_id, chunk, context, use_glossary=False)
+                except ChatBotException as e:
+                    logger.error(f'Failed to translate chunk {chunk_id}.')
+
             return trans, updated_context
 
         if self.use_retry_cnt == 0 or not retry_agent:
@@ -127,6 +138,9 @@ class LLMTranslator(Translator):
             logger.info(f'Using retry agent for chunk {chunk_id}, remaining retries: {self.use_retry_cnt}')
             translated, context = handle_translation(retry_agent)
             self.use_retry_cnt -= 1
+
+        if not translated:
+            raise ChatBotException(f'Failed to translate chunk {chunk_id}.')
 
         return translated, context
 

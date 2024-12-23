@@ -211,6 +211,17 @@ class Models:
         context_window=1048576
     )
 
+    GEMINI_2_0_FLASH_EXP = ModelInfo(
+        name="gemini-2.0-flash-exp",
+        provider=ModelProvider.GOOGLE,
+        input_price=0,
+        output_price=0,
+        max_tokens=8192,
+        context_window=1048576,
+        vision_support=True,
+        knowledge_cutoff="Aug 2024"
+    )
+
     # Third Party Models
     DEEPSEEK = ModelInfo(
         name="deepseek-chat",
