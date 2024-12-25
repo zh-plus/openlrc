@@ -60,7 +60,7 @@ class TestAtomicTranslateValidator(unittest.TestCase):
         self.assertTrue(result)
 
     def test_validate_returns_false_when_generated_content_not_matches_target_language(self):
-        validator = AtomicTranslateValidator(target_lang='zh-cn')
+        validator = AtomicTranslateValidator(target_lang='ja')
         user_input = "Hello"
         generated_content = "你好"
 
