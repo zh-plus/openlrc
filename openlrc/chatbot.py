@@ -1,4 +1,4 @@
-#  Copyright (C) 2024. Hao Zheng
+#  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
 import asyncio
@@ -17,8 +17,8 @@ from anthropic import AsyncAnthropic
 from anthropic._types import NOT_GIVEN
 from anthropic.types import Message
 from google.generativeai import GenerationConfig
-from google.generativeai.types import AsyncGenerateContentResponse, GenerateContentResponse, \
-    HarmCategory, HarmBlockThreshold
+from google.generativeai.types import AsyncGenerateContentResponse, GenerateContentResponse, HarmCategory, \
+    HarmBlockThreshold
 from openai import AsyncClient as AsyncGPTClient
 from openai.types.chat import ChatCompletion
 
@@ -401,15 +401,15 @@ class GeminiBot(ChatBot):
             history_messages[i]['parts'] = [{'text': content}]
 
         self.config.stop_sequences = stop_sequences
-        generative_model = genai.GenerativeModel(model_name=self.model_name, safety_settings=self.safety_settings,
-                                                 generation_config=self.config, system_instruction=system_msg)
+        generative_model = genai.GenerativeModel(model_name=self.model_name, generation_config=self.config,
+                                                 safety_settings=self.safety_settings, system_instruction=system_msg)
         client = genai.ChatSession(generative_model, history=history_messages)
 
         response = None
         for i in range(self.retry):
             try:
                 # send_message_async is buggy, so we use send_message instead as a workaround
-                response = client.send_message(user_msg)
+                response = client.send_message(user_msg, safety_settings=self.safety_settings)
                 self.update_fee(response)
                 if not output_checker(user_msg, response.text):
                     logger.warning(f'Invalid response format. Retry num: {i + 1}.')
