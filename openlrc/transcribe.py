@@ -1,4 +1,4 @@
-#  Copyright (C) 2024. Hao Zheng
+#  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
 from pathlib import Path
@@ -109,7 +109,7 @@ class Transcriber:
                                  duration_after_vad=info.duration_after_vad)
 
         logger.info(
-            f'VAD removed {format_timestamp(info.duration - info.duration_after_vad)}s of silence ({info.vad_ratio}%) ')
+            f'VAD removed {format_timestamp(info.duration - info.duration_after_vad)}s of silence ({info.vad_ratio * 100}%) ')
         if info.vad_ratio > 0.5:
             logger.warning(f'VAD ratio is too high, check your audio quality. '
                            f'VAD ratio: {info.vad_ratio}, duration: {format_timestamp(info.duration, fmt="srt")}, '

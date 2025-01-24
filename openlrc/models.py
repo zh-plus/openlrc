@@ -1,4 +1,4 @@
-#  Copyright (C) 2024. Hao Zheng
+#  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
 from dataclasses import dataclass
@@ -240,6 +240,16 @@ class Models:
         max_tokens=8192,
         context_window=32768,
         beta=True
+    )
+
+    DEEPSEEK_REASONER = ModelInfo(
+        name="deepseek-reasoner",
+        provider=ModelProvider.THIRD_PARTY,
+        input_price=0.14,
+        output_price=0.28,
+        max_tokens=8192,
+        context_window=65536,
+        beta=False
     )
 
     @classmethod

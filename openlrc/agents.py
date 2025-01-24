@@ -1,4 +1,4 @@
-#  Copyright (C) 2024. Hao Zheng
+#  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 import abc
 import json
@@ -26,7 +26,7 @@ class Agent(abc.ABC):
     TEMPERATURE = 1
 
     def _initialize_chatbot(self, chatbot_model: Union[str, ModelConfig], fee_limit: float, proxy: str,
-                            base_url_config: Optional[dict]):
+                            base_url_config: Optional[dict]) -> Union[ClaudeBot, GPTBot, GeminiBot]:
         """
         Initialize a chatbot instance based on the provided parameters.
 
@@ -213,8 +213,8 @@ class ContextReviewerAgent(Agent):
     TEMPERATURE = 0.6
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
-                 chatbot_model: Union[str, ModelConfig] = 'gpt-4o-mini', retry_model=None,
-                 fee_limit: float = 0.8, proxy: str = None,
+                 chatbot_model: Union[str, ModelConfig] = 'gpt-4o-mini',
+                 retry_model: Optional[Union[str, ModelConfig]] = None, fee_limit: float = 0.8, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         """
         Initialize the ContextReviewerAgent.
@@ -254,6 +254,9 @@ class ContextReviewerAgent(Agent):
         Returns:
             bool: True if the context is valid, False otherwise.
         """
+        if not context:
+            return False
+
         # Use the content to check first
         lowered_context = context.lower()
         keywords = ['glossary', 'characters', 'summary', 'tone and style', 'target audience']
@@ -286,10 +289,15 @@ class ContextReviewerAgent(Agent):
             {'role': 'system', 'content': self.prompter.system()},
             {'role': 'user', 'content': self.prompter.user(text_content, title=title, given_glossary=glossary)},
         ]
-        resp = self.chatbot.message(
-            messages_list, stop_sequences=[self.prompter.stop_sequence], output_checker=self.prompter.check_format
-        )[0]
-        context = self.chatbot.get_content(resp)
+
+        context = None
+        try:
+            resp = self.chatbot.message(
+                messages_list, stop_sequences=[self.prompter.stop_sequence], output_checker=self.prompter.check_format
+            )[0]
+            context = self.chatbot.get_content(resp)
+        except Exception as e:
+            logger.warning(f'Failed to generate context: {e} using {self.chatbot_model}')
 
         context_pool = [context]
         # Validate

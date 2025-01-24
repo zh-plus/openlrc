@@ -1,4 +1,4 @@
-#  Copyright (C) 2024. Hao Zheng
+#  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 import logging
 from concurrent.futures import ProcessPoolExecutor
@@ -127,11 +127,11 @@ class Preprocessor:
         """
         # Check if the preprocessed audio already exists.
         need_process = []
-        final_processed = []
+        final_processed_audios = []
         for audio_path, output_path in zip(self.audio_paths, self.output_paths):
             audio_name = audio_path.stem
             preprocessed_path = output_path / f'{audio_name}_preprocessed.wav'
-            final_processed.append(preprocessed_path)
+            final_processed_audios.append(preprocessed_path)
             if preprocessed_path.exists():
                 logger.info(f'Preprocessed audio already exists in {preprocessed_path}')
                 continue
@@ -143,10 +143,10 @@ class Preprocessor:
             ns_paths = self.noise_suppression(need_process)
         ln_paths: list[Path] = self.loudness_normalization(ns_paths)
 
-        for ln_path, audio_path in zip(ln_paths, need_process):
+        for path, audio_path in zip(ln_paths, need_process):
             audio_name = audio_path.stem
 
-            ln_path = ln_path.rename(ln_path.parent / f'{audio_name}_preprocessed.wav')
-            logger.info(f'Preprocessed audio saved to {ln_path}')
+            path = path.rename(path.parent / f'{audio_name}_preprocessed.wav')
+            logger.info(f'Preprocessed audio saved to {path}')
 
-        return final_processed
+        return final_processed_audios
