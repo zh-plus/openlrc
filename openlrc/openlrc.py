@@ -86,6 +86,9 @@ class LRCer:
         self.transcriber = Transcriber(model_name=whisper_model, compute_type=compute_type, device=device,
                                        asr_options=self.asr_options, vad_options=self.vad_options)
         self.transcribed_paths = []
+        
+        # Queue to store transcribed paths.
+        self.transcription_queue = Queue()
 
     @staticmethod
     def parse_glossary(glossary: Union[dict, str, Path]):
@@ -105,12 +108,27 @@ class LRCer:
 
         return glossary
 
-    def produce_transcriptions(self, transcription_queue, audio_paths, src_lang):
+    def add_existed_subtitles(self, src_subtitle_paths):
         """
         Sequentially produce transcriptions for given audio paths and put them in the queue.
 
         Args:
-            transcription_queue (Queue): Queue to store transcribed paths.
+            src_subtitle_paths (List[Path]): List of srt file paths to translate.
+
+        This method puts the path of the transcribed JSON file into the queue.
+        """
+        for subtitle_paths in src_subtitle_paths:
+            src_subtitle = Subtitle.from_file(subtitle_paths)
+            self.transcription_queue.put(src_subtitle.to_json()) # TODO: need to realize `to_json` method
+
+        self.transcription_queue.put(None)
+        logger.info('add existed subtitles finished.')
+
+    def produce_transcriptions(self, audio_paths, src_lang):
+        """
+        Sequentially produce transcriptions for given audio paths and put them in the queue.
+
+        Args:
             audio_paths (List[Path]): List of audio file paths to transcribe.
             src_lang (str): Source language for transcription. If None, language will be auto-detected.
 
@@ -132,18 +150,17 @@ class LRCer:
                 self.to_json(segments, name=transcribed_path, lang=info.language)  # xxx_transcribed.json
             else:
                 logger.info(f'Found transcribed json file: {transcribed_path}')
-            transcription_queue.put(transcribed_path)
+            self.transcription_queue.put(transcribed_path)
             # logger.info(f'Put transcription: {transcribed_path}')
 
-        transcription_queue.put(None)
+        self.transcription_queue.put(None)
         logger.info('Transcription producer finished.')
 
-    def consume_transcriptions(self, transcription_queue, target_lang, skip_trans, bilingual_sub):
+    def consume_transcriptions(self, target_lang, skip_trans, bilingual_sub):
         """
         Consume transcriptions from the queue using multiple threads for parallel processing.
 
         Args:
-            transcription_queue (Queue): Queue containing paths of transcribed files.
             target_lang (str): Target language for translation.
             skip_trans (bool): Whether to skip the translation process.
             bilingual_sub (bool): Whether to generate bilingual subtitles.
@@ -152,13 +169,13 @@ class LRCer:
         handling translation and subtitle generation.
         """
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = [executor.submit(self.translation_worker, transcription_queue, target_lang, skip_trans,
+            futures = [executor.submit(self.translation_worker, target_lang, skip_trans,
                                        bilingual_sub)
                        for _ in range(self.consumer_thread)]
             concurrent.futures.wait(futures)
         logger.info('Transcription consumer finished.')
 
-    def translation_worker(self, transcription_queue, target_lang, skip_trans, bilingual_sub):
+    def translation_worker(self, target_lang, skip_trans, bilingual_sub):
         """
         Worker function for parallel translation and subtitle processing.
 
@@ -216,10 +233,10 @@ class LRCer:
 
         while True:
             logger.debug('Translation worker waiting transcription...')
-            transcribed_path = transcription_queue.get()
+            transcribed_path = self.transcription_queue.get()
 
             if transcribed_path is None:
-                transcription_queue.put(None)
+                self.transcription_queue.put(None)
                 logger.debug('Translation worker finished.')
                 return
 
@@ -297,6 +314,55 @@ class LRCer:
 
         return final_subtitle
 
+    def translate(self, paths: Union[str, Path, List[Union[str, Path]]], src_lang: Optional[str] = None, target_lang='zh-cn',
+                  bilingual_sub=False, clear_temp=False) -> List[str]:
+        """
+        Run the translation process.
+
+        Args:
+            paths (Union[str, Path, List[Union[str, Path]]]): Subtitle paths, can be a list or a single path.
+            src_lang (Optional[str]): Language of the audio, default to auto-detect.
+            target_lang (str): Target language for translation, default to Mandarin Chinese ('zh-cn').
+            bilingual_sub (bool): Whether to generate bilingual subtitles. Default is False.
+            clear_temp (bool): Whether to clear all temporary files, including generated .wav from video.
+                               Set to False to keep intermediate results if errors occur. Default is False.
+
+        Returns:
+            List[str]: List of paths to the generated subtitle files.
+
+        Raises:
+            Exception: If an error occurs during the  translation process.
+        """
+        self.translated_paths = []
+
+        if not paths:
+            logger.warning('No subtitle file given. skip translate.')
+            return []
+        if isinstance(paths, str) or isinstance(paths, Path):
+            paths = [paths]
+
+        subtitle_paths = list(map(Path, paths))
+        logger.info(f'Working on {len(subtitle_paths)} subtitle files: {pformat(subtitle_paths)}')
+
+        with Timer('Transcription (Producer) and Translation (Consumer) process'):
+            consumer = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='Consumer') \
+                .submit(self.consume_transcriptions, target_lang, False, bilingual_sub)
+            producer = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='Producer') \
+                .submit(self.add_existed_subtitles, subtitle_paths, src_lang)
+
+            producer.result()
+            consumer.result()
+
+            if self.exception:
+                traceback.print_exception(type(self.exception), self.exception, self.exception.__traceback__)
+                raise self.exception
+
+        if clear_temp:
+            logger.info('Clearing temporary folder...')
+            self.clear_temp_files(subtitle_paths)
+
+        return self.translated_paths
+    
     def run(self, paths: Union[str, Path, List[Union[str, Path]]], src_lang: Optional[str] = None, target_lang='zh-cn',
             skip_trans=False, noise_suppress=False, bilingual_sub=False, clear_temp=False) -> List[str]:
         """
@@ -363,13 +429,11 @@ class LRCer:
 
         logger.info(f'Working on {len(audio_paths)} audio files: {pformat(audio_paths)}')
 
-        transcription_queue = Queue()
-
         with Timer('Transcription (Producer) and Translation (Consumer) process'):
             consumer = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='Consumer') \
-                .submit(self.consume_transcriptions, transcription_queue, target_lang, skip_trans, bilingual_sub)
+                .submit(self.consume_transcriptions, target_lang, skip_trans, bilingual_sub)
             producer = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='Producer') \
-                .submit(self.produce_transcriptions, transcription_queue, audio_paths, src_lang)
+                .submit(self.produce_transcriptions, audio_paths, src_lang)
 
             producer.result()
             consumer.result()

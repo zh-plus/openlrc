@@ -51,6 +51,10 @@ class Subtitle:
         return Subtitle(filename=filename, **content)
 
     @staticmethod
+    def to_json(filename):
+        raise NotImplementedError
+
+    @staticmethod
     def from_file(filename):
         filename = Path(filename)
         suffix = filename.suffix
