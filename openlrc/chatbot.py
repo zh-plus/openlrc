@@ -7,7 +7,8 @@ import random
 import re
 import time
 from copy import deepcopy
-from typing import List, Union, Dict, Callable, Optional
+from dataclasses import dataclass, field
+from typing import List, Set, Union, Dict, Callable, Optional
 
 import anthropic
 import google.generativeai as genai
@@ -75,8 +76,38 @@ def route_chatbot(model: str) -> (type, str):
     return model2chatbot[model], model
 
 
+
+@dataclass
+class ErrorGroup:
+    errs: Set[Exception]
+    sleep_time:  int | Callable[[], int] # TODO: define the whole retry model rather than only sleep time
+
+    def get_sleep_time(self):
+        if callable(self.sleep_time):
+            return self.sleep_time()
+        else:
+            return self.sleep_time
+
+@dataclass
+class ClassifiedErrors:
+    long_wait: ErrorGroup = field(default_factory=lambda: ErrorGroup(set(), lambda: random.randint(30, 60)))
+    short_wait: ErrorGroup = field(default_factory=lambda: ErrorGroup(set(), 3))
+    default: ErrorGroup = field(default_factory=lambda: ErrorGroup(set(), 1))
+
+    def get_sleep_time(self, err):
+        if err in self.long_wait.errs:
+            return self.long_wait.get_sleep_time()
+        elif err in self.short_wait.errs:
+            return self.short_wait.get_sleep_time()
+        else:
+            return self.default.get_sleep_time()
+
+default_chatbot_classified_errors = ClassifiedErrors()
+default_chatbot_classified_errors.long_wait.errs.add(openai.RateLimitError)
+default_chatbot_classified_errors.short_wait.errs.add(openai.APITimeoutError)
+
 class ChatBot:
-    def __init__(self, model_name, temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.8, beta=False):
+    def __init__(self, model_name, temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.8, beta=False, classified_errors=default_chatbot_classified_errors):
         try:
             self.model_info = Models.get_model(model_name, beta)
             self.model_name = model_name
@@ -88,9 +119,9 @@ class ChatBot:
         self.retry = retry
         self.max_async = max_async
         self.fee_limit = fee_limit
+        self.classified_errors = classified_errors
 
         self.api_fees = []
-
     def estimate_fee(self, messages: List[Dict]):
         """
         Estimate the total fee for the given messages.
@@ -171,11 +202,10 @@ class ChatBot:
     def __str__(self):
         return f'ChatBot ({self.model_name})'
 
-
 @_register_chatbot
 class GPTBot(ChatBot):
     def __init__(self, model_name='gpt-4o-mini', temperature=1, top_p=1, retry=8, max_async=16, json_mode=False,
-                 fee_limit=0.05, proxy=None, base_url_config=None, api_key=None):
+                 fee_limit=0.05, proxy=None, base_url_config=None, api_key=None, classified_errors=default_chatbot_classified_errors):
 
         # clamp temperature to 0-2
         temperature = max(0, min(2, temperature))
@@ -184,7 +214,7 @@ class GPTBot(ChatBot):
         if base_url_config and base_url_config['openai'] == 'https://api.deepseek.com/beta':
             is_beta = True
 
-        super().__init__(model_name, temperature, top_p, retry, max_async, fee_limit, is_beta)
+        super().__init__(model_name, temperature, top_p, retry, max_async, fee_limit, is_beta, classified_errors)
 
         self.async_client = AsyncGPTClient(
             api_key=api_key or os.environ['OPENAI_API_KEY'],
@@ -236,7 +266,7 @@ class GPTBot(ChatBot):
 
                 break
             except (openai.RateLimitError, openai.APITimeoutError, openai.APIConnectionError, openai.APIError) as e:
-                sleep_time = self._get_sleep_time(e)
+                sleep_time = self.classified_errors.get_sleep_time(e)
                 logger.warning(f'{type(e).__name__}: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.')
                 time.sleep(sleep_time)
 
@@ -245,25 +275,19 @@ class GPTBot(ChatBot):
 
         return response
 
-    @staticmethod
-    def _get_sleep_time(error):
-        if isinstance(error, openai.RateLimitError):
-            return random.randint(30, 60)
-        elif isinstance(error, openai.APITimeoutError):
-            return 3
-        else:
-            return 15
 
-
+default_claudebot_classified_errors = ClassifiedErrors()
+default_claudebot_classified_errors.long_wait.errs.add(anthropic.RateLimitError)
+default_claudebot_classified_errors.short_wait.errs.add(anthropic.APITimeoutError)
 @_register_chatbot
 class ClaudeBot(ChatBot):
     def __init__(self, model_name='claude-3-5-sonnet-20241022', temperature=1, top_p=1, retry=8, max_async=16,
-                 fee_limit=0.8, proxy=None, base_url_config=None, api_key=None):
+                 fee_limit=0.8, proxy=None, base_url_config=None, api_key=None, classified_errors=default_claudebot_classified_errors):
 
         # clamp temperature to 0-1
         temperature = max(0, min(1, temperature))
 
-        super().__init__(model_name, temperature, top_p, retry, max_async, fee_limit)
+        super().__init__(model_name, temperature, top_p, retry, max_async, fee_limit, classified_errors=classified_errors)
 
         self.async_client = AsyncAnthropic(
             api_key=api_key or os.environ['ANTHROPIC_API_KEY'],
@@ -321,7 +345,7 @@ class ClaudeBot(ChatBot):
             except (
                     anthropic.RateLimitError, anthropic.APITimeoutError, anthropic.APIConnectionError,
                     anthropic.APIError) as e:
-                sleep_time = self._get_sleep_time(e)
+                sleep_time = self.classified_errors.get_sleep_time(e)
                 logger.warning(f'{type(e).__name__}: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.')
                 time.sleep(sleep_time)
 
@@ -329,15 +353,6 @@ class ClaudeBot(ChatBot):
             raise ChatBotException('Failed to create a chat.')
 
         return response
-
-    def _get_sleep_time(self, error):
-        if isinstance(error, anthropic.RateLimitError):
-            return random.randint(30, 60)
-        elif isinstance(error, anthropic.APITimeoutError):
-            return 3
-        else:
-            return 15
-
 
 @_register_chatbot
 class GeminiBot(ChatBot):

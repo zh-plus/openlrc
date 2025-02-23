@@ -299,7 +299,7 @@ class LLMTranslator(Translator):
         with open(compare_path, 'w', encoding='utf-8') as f:
             json.dump(compare_results, f, indent=4, ensure_ascii=False)
 
-    def atomic_translate(self, chatbot_model: Union[str, ModelConfig], texts: List[str], src_lang: str,
+    def atomic_translate(self, texts: List[str], src_lang: str,
                          target_lang: str) -> List[str]:
         """
         Perform atomic translation for each text individually.
@@ -319,7 +319,7 @@ class LLMTranslator(Translator):
         Raises:
             AssertionError: If the number of translated texts doesn't match the input.
         """
-        chatbot = ChunkedTranslatorAgent(src_lang, target_lang, TranslateInfo(), chatbot_model, self.fee_limit,
+        chatbot = ChunkedTranslatorAgent(src_lang, target_lang, TranslateInfo(), self.chatbot_model, self.fee_limit,
                                          self.proxy,
                                          self.base_url_config).chatbot
 

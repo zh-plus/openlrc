@@ -11,7 +11,7 @@ from openlrc.translate import LLMTranslator
 from openlrc.utils import get_similarity
 
 test_models = ['gpt-4o-mini', 'claude-3-5-haiku-20241022']
-
+test_translators = [LLMTranslator(m) for m in test_models]
 
 class TestLLMTranslator(unittest.TestCase):
 
@@ -20,25 +20,22 @@ class TestLLMTranslator(unittest.TestCase):
         compare_path.unlink(missing_ok=True)
 
     def test_single_chunk_translation(self):
-        for chatbot_model in test_models:
+        for translator in test_translators:
             text = 'Hello, how are you?'
-            translator = LLMTranslator(chatbot_model)
             translation = translator.translate(text, 'en', 'es')[0]
 
             self.assertGreater(get_similarity(translation, 'Hola, ¿cómo estás?'), 0.5)
 
     def test_multiple_chunk_translation(self):
-        for chatbot_model in test_models:
+        for translator in test_translators:
             texts = ['Hello, how are you?', 'I am fine, thank you.']
-            translator = LLMTranslator(chatbot_model)
             translations = translator.translate(texts, 'en', 'es')
             self.assertGreater(get_similarity(translations[0], 'Hola, ¿cómo estás?'), 0.5)
             self.assertGreater(get_similarity(translations[1], 'Estoy bien, gracias.'), 0.5)
 
     def test_different_language_translation(self):
-        for chatbot_model in test_models:
+        for translator in test_translators:
             text = 'Hello, how are you?'
-            translator = LLMTranslator(chatbot_model)
             try:
                 translation = translator.translate(text, 'en', 'ja')[0]
                 self.assertTrue(
@@ -49,17 +46,15 @@ class TestLLMTranslator(unittest.TestCase):
                 pass
 
     def test_empty_text_list_translation(self):
-        for chatbot_model in test_models:
+        for translator in test_translators:
             texts = []
-            translator = LLMTranslator(chatbot_model)
             translations = translator.translate(texts, 'en', 'es')
             self.assertEqual(translations, [])
 
     def test_atomic_translate(self):
-        for chatbot_model in test_models:
+        for translator in test_translators:
             texts = ['Hello, how are you?', 'I am fine, thank you.']
-            translator = LLMTranslator(chatbot_model)
-            translations = translator.atomic_translate(chatbot_model, texts, 'en', 'zh')
+            translations = translator.atomic_translate( texts, 'en', 'zh')
             self.assertGreater(get_similarity(translations[0], '你好，你好吗？'), 0.5)
             self.assertGreater(get_similarity(translations[1], '我很好，谢谢。'), 0.5)
 
