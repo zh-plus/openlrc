@@ -11,7 +11,6 @@ from copy import deepcopy
 from typing import List, Union, Dict, Callable, Optional
 
 import anthropic
-import google.generativeai as genai
 import httpx
 import openai
 from anthropic import AsyncAnthropic
