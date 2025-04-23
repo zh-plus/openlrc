@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, List
 
+from openlrc.logger import logger
+
 
 class ModelProvider(Enum):
     ANTHROPIC = "anthropic"
@@ -15,6 +17,17 @@ class ModelProvider(Enum):
 
 @dataclass
 class ModelConfig:
+    """
+    Configuration for a specific model.
+
+    Attributes:
+        provider (ModelProvider): The provider of the model.
+        name (str): The name of the model.
+        base_url (Optional[str]): The base URL for the model API.
+        api_key (Optional[str]): The API key for authentication.
+        proxy (Optional[str]): The proxy server to use for requests.
+    """
+
     provider: ModelProvider
     name: str
     base_url: Optional[str] = None
@@ -85,6 +98,18 @@ class Models:
         vision_support=True,
         knowledge_cutoff="Apr 2024",
         latest_alias="claude-3-5-sonnet-latest"
+    )
+
+    CLAUDE_3_7_SONNET = ModelInfo(
+        name="claude-3-7-sonnet",
+        provider=ModelProvider.ANTHROPIC,
+        input_price=3.0,
+        output_price=15.0,
+        max_tokens=8192,
+        context_window=200000,
+        vision_support=True,
+        knowledge_cutoff="Apr 2024",
+        latest_alias="claude-3-7-sonnet-latest"
     )
 
     CLAUDE_3_5_HAIKU = ModelInfo(
@@ -211,6 +236,17 @@ class Models:
         context_window=1048576
     )
 
+    GEMINI_2_0_FLASH_LITE = ModelInfo(
+        name="gemini-2.0-flash-lite-preview-02-05",
+        provider=ModelProvider.GOOGLE,
+        input_price=0,
+        output_price=0,
+        max_tokens=8192,
+        context_window=2097152,
+        vision_support=True,
+        knowledge_cutoff="Aug 2024"
+    )
+
     GEMINI_2_0_FLASH_EXP = ModelInfo(
         name="gemini-2.0-flash-exp",
         provider=ModelProvider.GOOGLE,
@@ -220,6 +256,39 @@ class Models:
         context_window=1048576,
         vision_support=True,
         knowledge_cutoff="Aug 2024"
+    )
+
+    GEMINI_2_0_FLASH = ModelInfo(
+        name="gemini-2.0-flash",
+        provider=ModelProvider.GOOGLE,
+        input_price=0,
+        output_price=0,
+        max_tokens=8192,
+        context_window=1048576,
+        vision_support=True,
+        knowledge_cutoff="Aug 2024"
+    )
+
+    GEMINI_2_0_PRO_EXP = ModelInfo(
+        name="gemini-2.0-pro-exp-02-05",
+        provider=ModelProvider.GOOGLE,
+        input_price=0,
+        output_price=0,
+        max_tokens=8192,
+        context_window=2097152,
+        vision_support=True,
+        knowledge_cutoff="Aug 2024"
+    )
+
+    GEMINI_2_5_PRO_EXP = ModelInfo(
+        name="gemini-2.5-pro-exp-03-25",
+        provider=ModelProvider.GOOGLE,
+        input_price=0,
+        output_price=0,
+        max_tokens=8192,
+        context_window=1048576,
+        vision_support=True,
+        knowledge_cutoff="Jan 2025"
     )
 
     # Third Party Models
@@ -252,20 +321,97 @@ class Models:
         beta=False
     )
 
+    DEEPSEEK_REASONER_2 = ModelInfo(
+        name="deepseek-ai/DeepSeek-R1",
+        provider=ModelProvider.THIRD_PARTY,
+        input_price=0.14,
+        output_price=0.28,
+        max_tokens=8192,
+        context_window=65536,
+        beta=False
+    )
+
+    class DefaultOpenAIModelInfo(ModelInfo):
+
+        """Default configuration for unrecognized OpenAI models."""
+
+        def __init__(self, model_name: str):
+            super().__init__(
+                name=model_name,
+                provider=ModelProvider.OPENAI,
+                input_price=10.0,
+                output_price=30.0,
+                max_tokens=8192,
+                context_window=8192,
+                vision_support=False,
+                knowledge_cutoff=None,
+                latest_alias=None,
+            )
+
+    class DefaultAnthropicModelInfo(ModelInfo):
+        """Default configuration for unrecognized Anthropic models."""
+
+        def __init__(self, model_name: str):
+            super().__init__(
+                name=model_name,
+                provider=ModelProvider.ANTHROPIC,
+                input_price=8.0,
+                output_price=24.0,
+                max_tokens=4096,
+                context_window=100000,
+                vision_support=False,
+                knowledge_cutoff=None,
+                latest_alias=None,
+            )
+
+    class DefaultGeminiModelInfo(ModelInfo):
+        """Default configuration for unrecognized Google models."""
+
+        def __init__(self, model_name: str):
+            super().__init__(
+                name=model_name,
+                provider=ModelProvider.GOOGLE,
+                input_price=1.0,
+                output_price=3.0,
+                max_tokens=8192,
+                context_window=32768,
+                vision_support=False,
+                knowledge_cutoff=None,
+                latest_alias=None,
+            )
+
+    class DefaultThirdPartyModelInfo(ModelInfo):
+        """Default configuration for unrecognized third-party models."""
+
+        def __init__(self, model_name: str):
+            super().__init__(
+                name=model_name,
+                provider=ModelProvider.THIRD_PARTY,
+                input_price=1.0,
+                output_price=0.2,
+                max_tokens=4096,
+                context_window=32768,
+                vision_support=False,
+                knowledge_cutoff=None,
+                latest_alias=None,
+            )
+
     @classmethod
     def get_model(cls, model_name: str, beta: bool = False) -> ModelInfo:
         """Get model info by name and beta status
-        
+
         Args:
             model_name: Name or latest alias of the model
             beta: Whether to include beta models in search
-            
+
         Returns:
             ModelInfo: Information about the requested model
-            
-        Raises:
-            ValueError: If no matching model is found
+
+        Notes:
+            If the exact model is not found, it returns a default ModelInfo based
+            on the inferred provider, logging a warning rather than raising an error.
         """
+        # First try to find an exact match in our known models
         for model in cls.__dict__.values():
             if not isinstance(model, ModelInfo):
                 continue
@@ -276,7 +422,25 @@ class Models:
             if name_matches and beta_matches:
                 return model
 
-        raise ValueError(f"Model '{model_name}' not found" + (" (beta)" if beta else ""))
+        # If no exact match found, try to infer provider from model name
+        if any(name in model_name.lower() for name in ['gpt', 'openai', 'davinci', 'text-', 'curie']):
+            provider_name = "OpenAI"
+            default_model = cls.DefaultOpenAIModelInfo(model_name)
+        elif any(name in model_name.lower() for name in ['claude', 'anthropic']):
+            provider_name = "Anthropic"
+            default_model = cls.DefaultAnthropicModelInfo(model_name)
+        elif any(name in model_name.lower() for name in ['gemini', 'google', 'palm']):
+            provider_name = "Google"
+            default_model = cls.DefaultGeminiModelInfo(model_name)
+        else:
+            provider_name = "third-party"
+            default_model = cls.DefaultThirdPartyModelInfo(model_name)
+
+        logger.warning(f"Model '{model_name}' not found in predefined models" +
+                       (" (beta)" if beta else "") +
+                       f". Using with inferred {provider_name} provider and default parameters.")
+
+        return default_model
 
 
 def list_chatbot_models() -> List[str]:

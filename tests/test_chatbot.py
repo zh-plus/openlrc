@@ -143,8 +143,9 @@ class TestChatBot(unittest.TestCase):
 
     def test_route_chatbot_error(self):
         chatbot_model = 'openai: invalid_model_name'
-        with self.assertRaises(ValueError):
+        with self.assertLogs(level='WARNING') as cm:
             route_chatbot(chatbot_model + 'error')
+            self.assertIn('not found in predefined models', cm.output[0])
 
     def test_temperature_clamp(self):
         chatbot1 = GPTBot(temperature=10, top_p=1, retry=8, max_async=16)

@@ -1,4 +1,4 @@
-#  Copyright (C) 2024. Hao Zheng
+#  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
 import unittest
@@ -48,6 +48,7 @@ class TestTranslatorAgent(unittest.TestCase):
             chunk_id=1, chunk=[(1, 'Hello, how are you?'), (2, 'I am fine, thank you.')],
             context=TranslationContext(
                 summary='Example Summary',
+                previous_summaries=['s1', 's2'],
                 scene='Example Scene'
             )
         )

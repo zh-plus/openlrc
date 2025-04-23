@@ -43,7 +43,7 @@ class Agent(abc.ABC):
         if isinstance(chatbot_model, str):
             chatbot_cls: Union[Type[ClaudeBot], Type[GPTBot], Type[GeminiBot]]
             chatbot_cls, model_name = route_chatbot(chatbot_model)
-            return chatbot_cls(model_name=model_name, fee_limit=fee_limit, proxy=proxy, retry=2,
+            return chatbot_cls(model_name=model_name, fee_limit=fee_limit, proxy=proxy, retry=4,
                                temperature=self.TEMPERATURE, base_url_config=base_url_config)
         elif isinstance(chatbot_model, ModelConfig):
             chatbot_cls = provider2chatbot[chatbot_model.provider]
@@ -58,7 +58,7 @@ class Agent(abc.ABC):
                     base_url_config = None
                     logger.warning(f'Unsupported base_url configuration for provider: {chatbot_model.provider}')
 
-            return chatbot_cls(model_name=chatbot_model.name, fee_limit=fee_limit, proxy=proxy, retry=2,
+            return chatbot_cls(model_name=chatbot_model.name, fee_limit=fee_limit, proxy=proxy, retry=4,
                                temperature=self.TEMPERATURE, base_url_config=base_url_config,
                                api_key=chatbot_model.api_key)
 
@@ -190,7 +190,8 @@ class ChunkedTranslatorAgent(Agent):
         guideline = context.guideline if use_glossary else context.non_glossary_guideline
         messages_list = [
             {'role': 'system', 'content': self.prompter.system()},
-            {'role': 'user', 'content': self.prompter.user(chunk_id, user_input, context.summary, guideline)},
+            {'role': 'user',
+             'content': self.prompter.user(chunk_id, user_input, context.previous_summaries, guideline)},
         ]
         resp = self.chatbot.message(messages_list, output_checker=self.prompter.check_format)[0]
         translations, summary, scene = self._parse_responses(resp)
