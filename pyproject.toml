@@ -55,7 +55,6 @@ pandas = "^2.0.2"
 filetype = "^1.2.0"
 jaconvV2 = "^0.4"
 spacy = "^3.8.2"
-thinc = "8.3.3"
 pysbd = "^0.3.4"
 faster-whisper = { url = "https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz" }
 soundfile = "^0.12.1"
