@@ -55,8 +55,7 @@ dependencies = [
     "torch>=2.6.0",
     "torchvision>=0.21.0",
     "torchaudio>=2.0.0",
-    "pip>=25.1",
-    "numpy>=2.0.0"
+    "pip>=25.1"
 ]
 
 [project.urls]
