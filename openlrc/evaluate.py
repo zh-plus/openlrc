@@ -1,4 +1,4 @@
-#  Copyright (C) 2024. Hao Zheng
+#  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 import abc
 from typing import Union
@@ -26,7 +26,7 @@ class LLMTranslationEvaluator(TranslationEvaluator):
     Evaluate the translated texts using large language models.
     """
 
-    def __init__(self, chatbot_model: Union[str, ModelConfig] = 'gpt-4o-mini'):
+    def __init__(self, chatbot_model: Union[str, ModelConfig] = 'gpt-4.1-nano'):
         self.agenet = TranslationEvaluatorAgent(chatbot_model=chatbot_model)
 
     def evaluate(self, src_texts, target_texts, src_lang=None, target_lang=None):

@@ -1,7 +1,7 @@
-#  Copyright (C) 2024. Hao Zheng
+#  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 import re
-from typing import Optional, Union
+from typing import Optional, Union, List
 
 from pydantic import BaseModel
 
@@ -9,6 +9,7 @@ from openlrc import ModelConfig
 
 
 class TranslationContext(BaseModel):
+    previous_summaries: Optional[List[str]] = None
     summary: Optional[str] = ''
     scene: Optional[str] = ''
     model: Optional[Union[str, ModelConfig]] = None
