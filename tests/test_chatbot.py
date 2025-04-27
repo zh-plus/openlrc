@@ -141,11 +141,11 @@ class TestChatBot(unittest.TestCase):
         except Exception as e:
             self.fail(f"Failed to create chatbot model {chatbot_model1}: {e}")
 
-    def test_route_chatbot_error(self):
+    def test_route_chatbot_undefined(self):
         chatbot_model = 'openai: invalid_model_name'
-        with self.assertLogs(level='WARNING') as cm:
-            route_chatbot(chatbot_model + 'error')
-            self.assertIn('not found in predefined models', cm.output[0])
+        model_cls, model_name = route_chatbot(chatbot_model)
+        self.assertEqual(model_cls, GPTBot)
+        self.assertEqual(model_name, chatbot_model.split(':')[-1].strip())
 
     def test_temperature_clamp(self):
         chatbot1 = GPTBot(temperature=10, top_p=1, retry=8, max_async=16)
@@ -174,15 +174,15 @@ class TestThirdPartyBot(unittest.TestCase):
 # TODO: Retry_bot testing
 
 class TestGeminiBot(unittest.TestCase):
-    # def setUp(self):
-    #     import os
-    #     os.environ['HTTP_PROXY'] = 'http://127.0.0.1:7890'
-    #     os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:7890'
-    #
-    # def tearDown(self):
-    #     import os
-    #     os.environ.pop('HTTP_PROXY')
-    #     os.environ.pop('HTTPS_PROXY')
+    def setUp(self):
+        import os
+        os.environ['HTTP_PROXY'] = 'http://127.0.0.1:7897'
+        os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:7897'
+
+    def tearDown(self):
+        import os
+        os.environ.pop('HTTP_PROXY')
+        os.environ.pop('HTTPS_PROXY')
 
     def test_multi_turn(self):
         bot = GeminiBot()
