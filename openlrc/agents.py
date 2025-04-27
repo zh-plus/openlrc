@@ -61,6 +61,8 @@ class Agent(abc.ABC):
             return chatbot_cls(model_name=chatbot_model.name, fee_limit=fee_limit, proxy=proxy, retry=4,
                                temperature=self.TEMPERATURE, base_url_config=base_url_config,
                                api_key=chatbot_model.api_key)
+        else:
+            raise ValueError(f'Invalid chatbot model type: {type(chatbot_model)}. Expected str or ModelConfig.')
 
 
 class ChunkedTranslatorAgent(Agent):

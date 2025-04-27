@@ -5,8 +5,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, List
 
-from openlrc.logger import logger
-
 
 class ModelProvider(Enum):
     ANTHROPIC = "anthropic"
@@ -423,22 +421,15 @@ class Models:
                 return model
 
         # If no exact match found, try to infer provider from model name
+        # Note the model_provider is not vital for next processing
         if any(name in model_name.lower() for name in ['gpt', 'openai', 'davinci', 'text-', 'curie']):
-            provider_name = "OpenAI"
             default_model = cls.DefaultOpenAIModelInfo(model_name)
         elif any(name in model_name.lower() for name in ['claude', 'anthropic']):
-            provider_name = "Anthropic"
             default_model = cls.DefaultAnthropicModelInfo(model_name)
         elif any(name in model_name.lower() for name in ['gemini', 'google', 'palm']):
-            provider_name = "Google"
             default_model = cls.DefaultGeminiModelInfo(model_name)
         else:
-            provider_name = "third-party"
             default_model = cls.DefaultThirdPartyModelInfo(model_name)
-
-        logger.warning(f"Model '{model_name}' not found in predefined models" +
-                       (" (beta)" if beta else "") +
-                       f". Using with inferred {provider_name} provider and default parameters.")
 
         return default_model
 
