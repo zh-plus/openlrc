@@ -36,7 +36,7 @@ class LLMTranslator(Translator):
 
     CHUNK_SIZE = 30
 
-    def __init__(self, chatbot_model: Union[str, ModelConfig] = 'gpt-4o-mini', fee_limit: float = 0.8,
+    def __init__(self, chatbot_model: Union[str, ModelConfig] = 'gpt-4.1-nano', fee_limit: float = 0.8,
                  chunk_size: int = CHUNK_SIZE,
                  intercept_line: Optional[int] = None, proxy: Optional[str] = None,
                  base_url_config: Optional[dict] = None,

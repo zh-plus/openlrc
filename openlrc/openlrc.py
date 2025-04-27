@@ -1,4 +1,4 @@
-#  Copyright (C) 2024. Hao Zheng
+#  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
 import concurrent.futures
@@ -38,9 +38,9 @@ class LRCer:
             Note: ``default`` will keep the same quantization that was used during model conversion.
         device (str): The device to use for computation. Default: ``cuda``
         chatbot_model (Union[str, ModelConfig]): The chatbot model to use, check the available models using list_chatbot_models().
-            The string can be '<model-name>' or '<provider>:<model-name>'. e.g. 'gpt-4o-mini' or 'openai:gpt-4o-mini'.
+            The string can be '<model-name>' or '<provider>:<model-name>'. e.g. 'gpt-4.1-nano' or 'openai:gpt-4.1-nano'.
             The ModelConfig can be ModelConfig(model_name='<model-name>', provider='<provider>', base_url='<url>', proxy='<proxy>').
-            Default: ``gpt-4o-mini``
+            Default: ``gpt-4.1-nano``
         fee_limit (float): The maximum fee you are willing to pay for one translation call. Default: ``0.8``
         consumer_thread (int): To prevent exceeding the RPM and TPM limits set by OpenAI, the default is TPM/MAX_TOKEN.
         asr_options (Optional[dict]): Parameters for whisper model.
@@ -58,7 +58,7 @@ class LRCer:
     """
 
     def __init__(self, whisper_model: str = 'large-v3', compute_type: str = 'float16', device: str = 'cuda',
-                 chatbot_model: Union[str, ModelConfig] = 'gpt-4o-mini', fee_limit: float = 0.8,
+                 chatbot_model: Union[str, ModelConfig] = 'gpt-4.1-nano', fee_limit: float = 0.8,
                  consumer_thread: int = 4,
                  asr_options: Optional[dict] = None, vad_options: Optional[dict] = None,
                  preprocess_options: Optional[dict] = None, proxy: Optional[str] = None,

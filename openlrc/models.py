@@ -205,6 +205,36 @@ class Models:
         latest_alias="gpt-3.5-turbo"
     )
 
+    GPT_41_NANO = ModelInfo(
+        name="gpt-4.1-nano",
+        provider=ModelProvider.OPENAI,
+        input_price=0.1,
+        output_price=0.4,
+        max_tokens=32768,
+        context_window=1047576,
+        knowledge_cutoff="Jun 01, 2024",
+    )
+
+    GPT_41_MINI = ModelInfo(
+        name="gpt-4.1-mini",
+        provider=ModelProvider.OPENAI,
+        input_price=0.4,
+        output_price=1.6,
+        max_tokens=32768,
+        context_window=1047576,
+        knowledge_cutoff="Jun 01, 2024",
+    )
+
+    GPT_41 = ModelInfo(
+        name="gpt-4.1",
+        provider=ModelProvider.OPENAI,
+        input_price=2.0,
+        output_price=8.0,
+        max_tokens=32768,
+        context_window=1047576,
+        knowledge_cutoff="Jun 01, 2024",
+    )
+
     # Gemini Models
     GEMINI_PRO = ModelInfo(
         name="gemini-1.5-pro",

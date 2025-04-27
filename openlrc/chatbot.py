@@ -171,7 +171,7 @@ class ChatBot:
 
 @_register_chatbot
 class GPTBot(ChatBot):
-    def __init__(self, model_name='gpt-4o-mini', temperature=1, top_p=1, retry=8, max_async=16, json_mode=False,
+    def __init__(self, model_name='gpt-4.1-nano', temperature=1, top_p=1, retry=8, max_async=16, json_mode=False,
                  fee_limit=0.05, proxy=None, base_url_config=None, api_key=None):
 
         # clamp temperature to 0-2
@@ -341,7 +341,8 @@ class ClaudeBot(ChatBot):
 
 @_register_chatbot
 class GeminiBot(ChatBot):
-    def __init__(self, model_name='gemini-2.0-flash-exp', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.8,
+    def __init__(self, model_name='gemini-2.5-flash-preview-04-17', temperature=1, top_p=1, retry=8, max_async=16,
+                 fee_limit=0.8,
                  proxy=None, base_url_config=None, api_key=None):
         self.temperature = max(0, min(1, temperature))
 

@@ -12,7 +12,7 @@ from openlrc.translate import LLMTranslator
 from openlrc.utils import get_similarity
 
 test_model_config = ModelConfig(provider=ModelProvider.OPENAI, name='gpt-4.1-nano')
-test_models = ['gpt-4o-mini', 'claude-3-5-haiku-latest', test_model_config]
+test_models = ['claude-3-5-haiku-latest', test_model_config]
 
 
 class TestLLMTranslator(unittest.TestCase):
