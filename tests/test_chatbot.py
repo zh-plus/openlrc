@@ -174,15 +174,15 @@ class TestThirdPartyBot(unittest.TestCase):
 # TODO: Retry_bot testing
 
 class TestGeminiBot(unittest.TestCase):
-    def setUp(self):
-        import os
-        os.environ['HTTP_PROXY'] = 'http://127.0.0.1:7897'
-        os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:7897'
-
-    def tearDown(self):
-        import os
-        os.environ.pop('HTTP_PROXY')
-        os.environ.pop('HTTPS_PROXY')
+    # def setUp(self):
+    #     import os
+    #     os.environ['HTTP_PROXY'] = 'http://127.0.0.1:7897'
+    #     os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:7897'
+    #
+    # def tearDown(self):
+    #     import os
+    #     os.environ.pop('HTTP_PROXY')
+    #     os.environ.pop('HTTPS_PROXY')
 
     def test_multi_turn(self):
         bot = GeminiBot()
