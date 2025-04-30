@@ -1,6 +1,11 @@
 ## 1.6.1
 
-Hot fix for missed mp3 files issue.
+Replace poetry with uv package manager. Fix #69.
+
+### Other Changes:
+
+- Hot fix for missed mp3 files issue.
+- Allow un-recorded (not in models.py) model name.
 
 ## 1.6.0
 
