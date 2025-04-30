@@ -1,4 +1,4 @@
-#  Copyright (C) 2024. Hao Zheng
+#  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
 import json
@@ -36,7 +36,7 @@ class LLMTranslator(Translator):
 
     CHUNK_SIZE = 30
 
-    def __init__(self, chatbot_model: Union[str, ModelConfig] = 'gpt-4o-mini', fee_limit: float = 0.8,
+    def __init__(self, chatbot_model: Union[str, ModelConfig] = 'gpt-4.1-nano', fee_limit: float = 0.8,
                  chunk_size: int = CHUNK_SIZE,
                  intercept_line: Optional[int] = None, proxy: Optional[str] = None,
                  base_url_config: Optional[dict] = None,
@@ -192,7 +192,7 @@ class LLMTranslator(Translator):
             )
             logger.info(f'Translation Guideline:\n{guideline}')
 
-        context = TranslationContext(guideline=guideline)
+        context = TranslationContext(guideline=guideline, previous_summaries=summaries)
         for i, chunk in list(enumerate(chunks, start=1))[start_chunk:]:
             atomic = False
             translated, context = self._translate_chunk(translator_agent, chunk, context, i, retry_agent=retry_agent)
@@ -216,6 +216,7 @@ class LLMTranslator(Translator):
 
             compare_list.extend(self._generate_compare_list(chunk, translated, i, atomic, context))
             self._save_intermediate_results(compare_path, compare_list, summaries, context.scene, guideline)
+            context.previous_summaries = summaries
 
         self.api_fee += translator_agent.cost + (retry_agent.cost if retry_agent else 0)
 

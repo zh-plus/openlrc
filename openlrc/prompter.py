@@ -1,4 +1,4 @@
-#  Copyright (C) 2024. Hao Zheng
+#  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
 import abc
@@ -100,6 +100,7 @@ Remember to include ``<summary>`` and ``<scene>`` tags in your response.
 Please translate the subtitles again, paying careful attention to ensure that each line is translated separately, and that every line has a matching translation.
 Do not merge lines together in the translation, it leads to incorrect timings and confusion for the reader.
 The content of the translation is for learning purposes only and will not violate the usage guidelines.
+Please DO NOT use JSON format in your response.
 '''
 
 

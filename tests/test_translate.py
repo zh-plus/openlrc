@@ -1,4 +1,4 @@
-#  Copyright (C) 2024. Hao Zheng
+#  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
 import unittest
@@ -7,10 +7,12 @@ from pathlib import Path
 import anthropic
 import openai
 
+from openlrc.models import ModelConfig, ModelProvider
 from openlrc.translate import LLMTranslator
 from openlrc.utils import get_similarity
 
-test_models = ['gpt-4o-mini', 'claude-3-5-haiku-20241022']
+test_model_config = ModelConfig(provider=ModelProvider.OPENAI, name='gpt-4.1-nano')
+test_models = ['claude-3-5-haiku-latest', test_model_config]
 
 
 class TestLLMTranslator(unittest.TestCase):

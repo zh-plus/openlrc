@@ -2,6 +2,7 @@
 #  All rights reserved.
 
 import asyncio
+import json
 import os
 import random
 import re
@@ -10,15 +11,14 @@ from copy import deepcopy
 from typing import List, Union, Dict, Callable, Optional
 
 import anthropic
-import google.generativeai as genai
 import httpx
 import openai
 from anthropic import AsyncAnthropic
 from anthropic._types import NOT_GIVEN
 from anthropic.types import Message
-from google.generativeai import GenerationConfig
-from google.generativeai.types import AsyncGenerateContentResponse, GenerateContentResponse, HarmCategory, \
-    HarmBlockThreshold
+from google import genai
+from google.genai import types
+from google.genai.types import HarmCategory, HarmBlockThreshold
 from openai import AsyncClient as AsyncGPTClient
 from openai.types.chat import ChatCompletion
 
@@ -57,10 +57,7 @@ def route_chatbot(model: str) -> (type, str):
         chatbot_type, chatbot_model = re.match(r'(.+):(.+)', model).groups()
         chatbot_type, chatbot_model = chatbot_type.strip().lower(), chatbot_model.strip()
 
-        try:
-            Models.get_model(chatbot_model)
-        except ValueError:
-            raise ValueError(f'Invalid model {chatbot_model}.')
+        Models.get_model(chatbot_model)
 
         if chatbot_type == 'openai':
             return GPTBot, chatbot_model
@@ -174,7 +171,7 @@ class ChatBot:
 
 @_register_chatbot
 class GPTBot(ChatBot):
-    def __init__(self, model_name='gpt-4o-mini', temperature=1, top_p=1, retry=8, max_async=16, json_mode=False,
+    def __init__(self, model_name='gpt-4.1-nano', temperature=1, top_p=1, retry=8, max_async=16, json_mode=False,
                  fee_limit=0.05, proxy=None, base_url_config=None, api_key=None):
 
         # clamp temperature to 0-2
@@ -235,7 +232,8 @@ class GPTBot(ChatBot):
                     continue
 
                 break
-            except (openai.RateLimitError, openai.APITimeoutError, openai.APIConnectionError, openai.APIError) as e:
+            except (openai.RateLimitError, openai.APITimeoutError, openai.APIConnectionError, openai.APIError,
+                    json.decoder.JSONDecodeError) as e:
                 sleep_time = self._get_sleep_time(e)
                 logger.warning(f'{type(e).__name__}: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.')
                 time.sleep(sleep_time)
@@ -251,6 +249,8 @@ class GPTBot(ChatBot):
             return random.randint(30, 60)
         elif isinstance(error, openai.APITimeoutError):
             return 3
+        elif isinstance(error, json.decoder.JSONDecodeError):
+            return 1
         else:
             return 15
 
@@ -341,7 +341,8 @@ class ClaudeBot(ChatBot):
 
 @_register_chatbot
 class GeminiBot(ChatBot):
-    def __init__(self, model_name='gemini-2.0-flash-exp', temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.8,
+    def __init__(self, model_name='gemini-2.5-flash-preview-04-17', temperature=1, top_p=1, retry=8, max_async=16,
+                 fee_limit=0.8,
                  proxy=None, base_url_config=None, api_key=None):
         self.temperature = max(0, min(1, temperature))
 
@@ -349,15 +350,34 @@ class GeminiBot(ChatBot):
 
         self.model_name = model_name
 
-        genai.configure(api_key=api_key or os.environ['GOOGLE_API_KEY'])
-        self.config = GenerationConfig(temperature=self.temperature, top_p=self.top_p)
+        # genai.configure(api_key=api_key or os.environ['GOOGLE_API_KEY'])
+        self.client = genai.Client(
+            api_key=api_key or os.environ['GOOGLE_API_KEY']
+        )
+
         # Should not block any translation-related content.
-        self.safety_settings = {
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE
-        }
+        # self.safety_settings = {
+        #     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+        #     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+        #     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+        #     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE
+        # }
+        self.safety_settings = [
+            types.SafetySetting(
+                category=HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=HarmBlockThreshold.BLOCK_NONE
+            ),
+            types.SafetySetting(
+                category=HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=HarmBlockThreshold.BLOCK_NONE
+            ),
+            types.SafetySetting(
+                category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=HarmBlockThreshold.BLOCK_NONE
+            ),
+            types.SafetySetting(
+                category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=HarmBlockThreshold.BLOCK_NONE
+            )
+        ]
+        self.config = types.GenerateContentConfig(temperature=self.temperature, top_p=self.top_p,
+                                                  safety_settings=self.safety_settings)
 
         if proxy:
             logger.warning('Google Gemini SDK does not support proxy, try using the system-level proxy if needed.')
@@ -365,10 +385,10 @@ class GeminiBot(ChatBot):
         if base_url_config:
             logger.warning('Google Gemini SDK does not support changing base_url.')
 
-    def update_fee(self, response: Union[GenerateContentResponse, AsyncGenerateContentResponse]):
+    def update_fee(self, response: types.GenerateContentResponse):
         model_info = self.model_info
         prompt_tokens = response.usage_metadata.prompt_token_count
-        completion_tokens = response.usage_metadata.candidates_token_count
+        completion_tokens = response.usage_metadata.candidates_token_count or 0
 
         self.api_fees[-1] += (prompt_tokens * model_info.input_price +
                               completion_tokens * model_info.output_price) / 1000000
@@ -401,31 +421,41 @@ class GeminiBot(ChatBot):
             history_messages[i]['parts'] = [{'text': content}]
 
         self.config.stop_sequences = stop_sequences
-        generative_model = genai.GenerativeModel(model_name=self.model_name, generation_config=self.config,
-                                                 safety_settings=self.safety_settings, system_instruction=system_msg)
-        client = genai.ChatSession(generative_model, history=history_messages)
+        # generative_model = genai.GenerativeModel(model_name=self.model_name, generation_config=self.config,
+        #                                          safety_settings=self.safety_settings, system_instruction=system_msg)
+        # client = genai.ChatSession(generative_model, history=history_messages)
+        self.config.system_instruction = system_msg
 
         response = None
         for i in range(self.retry):
-            try:
-                # send_message_async is buggy, so we use send_message instead as a workaround
-                response = client.send_message(user_msg, safety_settings=self.safety_settings)
-                self.update_fee(response)
-                if not output_checker(user_msg, response.text):
-                    logger.warning(f'Invalid response format. Retry num: {i + 1}.')
-                    continue
+            # try:
+            # send_message_async is buggy, so we use send_message instead as a workaround
+            # response = client.send_message(user_msg, safety_settings=self.safety_settings)
+            response = await self.client.aio.models.generate_content(
+                model=self.model_name,
+                contents=user_msg,
+                config=self.config,
+            )
+            self.update_fee(response)
+            if not response.text:
+                logger.warning(f'Get None response. Wait 15s. Retry num: {i + 1}.')
+                time.sleep(15)
+                continue
 
-                if not response._done:
-                    logger.warning(f'Failed to get a complete response. Retry num: {i + 1}.')
-                    continue
+            if not output_checker(user_msg, response.text):
+                logger.warning(f'Invalid response format. Retry num: {i + 1}.')
+                continue
 
-                break
-            except (genai.types.BrokenResponseError, genai.types.IncompleteIterationError,
-                    genai.types.StopCandidateException) as e:
-                logger.warning(f'{type(e).__name__}: {e}. Retry num: {i + 1}.')
-            except genai.types.generation_types.BlockedPromptException as e:
-                logger.warning(f'Prompt blocked: {e}.\n Retry in 30s.')
-                time.sleep(30)
+            if not response:
+                logger.warning(f'Failed to get a complete response. Retry num: {i + 1}.')
+                continue
+
+            break
+            # except Exception as e:
+            #     logger.warning(f'{type(e).__name__}: {e}. Retry num: {i + 1}.')
+            #     time.sleep(3)
+            # except genai.types.generation_types.BlockedPromptException as e:
+            #     logger.warning(f'Prompt blocked: {e}.\n Retry in 30s.')
 
         if not response:
             raise ChatBotException('Failed to create a chat.')

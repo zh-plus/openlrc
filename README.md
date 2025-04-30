@@ -263,6 +263,30 @@ To maintain context between translation segments, the process is sequential for 
 
 [//]: # (## Comparison to https://microsoft.github.io/autogen/docs/notebooks/agentchat_video_transcript_translate_with_whisper/)
 
+## Development Guide
+
+I'm using [uv](https://github.com/astral-sh/uv) for package management.
+Install uv with our standalone installers:
+
+#### On macOS and Linux.
+
+```shell
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+#### On Windows.
+
+```shell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+### Install deps
+
+```shell
+uv venv
+uv sync
+```
+
 ## Todo
 
 - [x] [Efficiency] Batched translate/polish for GPT request (enable contextual ability).

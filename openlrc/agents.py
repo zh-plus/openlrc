@@ -43,7 +43,7 @@ class Agent(abc.ABC):
         if isinstance(chatbot_model, str):
             chatbot_cls: Union[Type[ClaudeBot], Type[GPTBot], Type[GeminiBot]]
             chatbot_cls, model_name = route_chatbot(chatbot_model)
-            return chatbot_cls(model_name=model_name, fee_limit=fee_limit, proxy=proxy, retry=2,
+            return chatbot_cls(model_name=model_name, fee_limit=fee_limit, proxy=proxy, retry=4,
                                temperature=self.TEMPERATURE, base_url_config=base_url_config)
         elif isinstance(chatbot_model, ModelConfig):
             chatbot_cls = provider2chatbot[chatbot_model.provider]
@@ -58,9 +58,11 @@ class Agent(abc.ABC):
                     base_url_config = None
                     logger.warning(f'Unsupported base_url configuration for provider: {chatbot_model.provider}')
 
-            return chatbot_cls(model_name=chatbot_model.name, fee_limit=fee_limit, proxy=proxy, retry=2,
+            return chatbot_cls(model_name=chatbot_model.name, fee_limit=fee_limit, proxy=proxy, retry=4,
                                temperature=self.TEMPERATURE, base_url_config=base_url_config,
                                api_key=chatbot_model.api_key)
+        else:
+            raise ValueError(f'Invalid chatbot model type: {type(chatbot_model)}. Expected str or ModelConfig.')
 
 
 class ChunkedTranslatorAgent(Agent):
@@ -76,7 +78,7 @@ class ChunkedTranslatorAgent(Agent):
     TEMPERATURE = 1.0
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
-                 chatbot_model: Union[str, ModelConfig] = 'gpt-4o-mini', fee_limit: float = 0.8, proxy: str = None,
+                 chatbot_model: Union[str, ModelConfig] = 'gpt-4.1-nano', fee_limit: float = 0.8, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         """
         Initialize the ChunkedTranslatorAgent.
@@ -190,7 +192,8 @@ class ChunkedTranslatorAgent(Agent):
         guideline = context.guideline if use_glossary else context.non_glossary_guideline
         messages_list = [
             {'role': 'system', 'content': self.prompter.system()},
-            {'role': 'user', 'content': self.prompter.user(chunk_id, user_input, context.summary, guideline)},
+            {'role': 'user',
+             'content': self.prompter.user(chunk_id, user_input, context.previous_summaries, guideline)},
         ]
         resp = self.chatbot.message(messages_list, output_checker=self.prompter.check_format)[0]
         translations, summary, scene = self._parse_responses(resp)
@@ -213,7 +216,7 @@ class ContextReviewerAgent(Agent):
     TEMPERATURE = 0.6
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
-                 chatbot_model: Union[str, ModelConfig] = 'gpt-4o-mini',
+                 chatbot_model: Union[str, ModelConfig] = 'gpt-4.1-nano',
                  retry_model: Optional[Union[str, ModelConfig]] = None, fee_limit: float = 0.8, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         """
@@ -359,7 +362,7 @@ class ProofreaderAgent(Agent):
     TEMPERATURE = 0.8
 
     def __init__(self, src_lang, target_lang, info: TranslateInfo = TranslateInfo(),
-                 chatbot_model: Union[str, ModelConfig] = 'gpt-4o-mini', fee_limit: float = 0.8, proxy: str = None,
+                 chatbot_model: Union[str, ModelConfig] = 'gpt-4.1-nano', fee_limit: float = 0.8, proxy: str = None,
                  base_url_config: Optional[dict] = None):
         """
         Initialize the ProofreaderAgent.
@@ -432,7 +435,7 @@ class TranslationEvaluatorAgent(Agent):
 
     TEMPERATURE = 0.95
 
-    def __init__(self, chatbot_model: Union[str, ModelConfig] = 'gpt-4o-mini', fee_limit: float = 0.8,
+    def __init__(self, chatbot_model: Union[str, ModelConfig] = 'gpt-4.1-nano', fee_limit: float = 0.8,
                  proxy: str = None,
                  base_url_config: Optional[dict] = None):
         """
