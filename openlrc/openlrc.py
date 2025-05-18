@@ -26,6 +26,8 @@ from openlrc.translate import LLMTranslator
 from openlrc.utils import Timer, extend_filename, get_audio_duration, format_timestamp, extract_audio, \
     get_file_type
 
+from openlrc.video_bot import videoBot
+
 
 class LRCer:
     """
@@ -86,6 +88,7 @@ class LRCer:
         self.transcriber = Transcriber(model_name=whisper_model, compute_type=compute_type, device=device,
                                        asr_options=self.asr_options, vad_options=self.vad_options)
         self.transcribed_paths = []
+        self.transcribed_origin_paths = []
 
     @staticmethod
     def parse_glossary(glossary: Union[dict, str, Path]):
@@ -119,6 +122,7 @@ class LRCer:
         """
         for audio_path in audio_paths:
             transcribed_path = extend_filename(audio_path, '_transcribed').with_suffix('.json')
+            self.transcribed_origin_paths.append(transcribed_path)
             if not transcribed_path.exists():
                 with Timer('Transcription process'):
                     logger.info(
@@ -218,6 +222,8 @@ class LRCer:
             logger.debug('Translation worker waiting transcription...')
             transcribed_path = transcription_queue.get()
 
+            logger.info(f'Got transcription: {transcribed_path}')
+
             if transcribed_path is None:
                 transcription_queue.put(None)
                 logger.debug('Translation worker finished.')
@@ -298,7 +304,7 @@ class LRCer:
         return final_subtitle
 
     def run(self, paths: Union[str, Path, List[Union[str, Path]]], src_lang: Optional[str] = None, target_lang='zh-cn',
-            skip_trans=False, noise_suppress=False, bilingual_sub=False, clear_temp=False) -> List[str]:
+            skip_trans=False, noise_suppress=False, bilingual_sub=False, clear_temp=False,video_understanding=False,sampling_frequency=0) -> List[str]:
         """
         Run the entire transcription and translation process.
 
@@ -357,6 +363,8 @@ class LRCer:
         if isinstance(paths, str) or isinstance(paths, Path):
             paths = [paths]
 
+        video_path = paths
+
         paths = list(map(Path, paths))
 
         audio_paths = self.pre_process(paths, noise_suppress=noise_suppress)
@@ -383,6 +391,15 @@ class LRCer:
         if clear_temp:
             logger.info('Clearing temporary folder...')
             self.clear_temp_files(audio_paths)
+
+        
+            
+        if video_understanding:
+            assert sampling_frequency > 0, f"sampling_frequency should be greater than 0"
+            assert len(video_path) == len(self.transcribed_origin_paths), f"the number of video files and transcribed files do not match"
+            for i in range(len(video_path)):
+                Bot = videoBot(video_path[i],self.transcribed_origin_paths[i],sampling_frequency)
+                Bot.inference()
 
         return self.transcribed_paths
 
