@@ -1,4 +1,4 @@
-#  Copyright (C) 2024. Hao Zheng
+#  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
 import re
@@ -292,3 +292,16 @@ def merge_subtitle(video_path, subtitle_path, output_path):
         shell=True)
 
     logger.info(f'Subtitled video saved to {output_path}')
+
+
+def remove_stop(text, stop_sequences):
+    """
+    Remove stop sequences from the text.
+    """
+    if not text or not stop_sequences:
+        return text
+
+    for stop_seq in stop_sequences:
+        text = text.rstrip(stop_seq)
+
+    return text.strip()

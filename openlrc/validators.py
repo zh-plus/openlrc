@@ -1,4 +1,4 @@
-#  Copyright (C) 2024. Hao Zheng
+#  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 import abc
 import json
@@ -163,7 +163,7 @@ class ContextReviewerValidateValidator(BaseValidator):
         if re.search(r'\b(?:true|false)\b', generated_content, re.IGNORECASE):
             return True
         else:
-            logger.warning(f'Context reviewer validation failed: {generated_content}.')
+            logger.warning(f'Context reviewer validation failed: {generated_content}')
 
         return False
 

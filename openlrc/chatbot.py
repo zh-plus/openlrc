@@ -25,7 +25,7 @@ from openai.types.chat import ChatCompletion
 from openlrc.exceptions import ChatBotException, LengthExceedException
 from openlrc.logger import logger
 from openlrc.models import Models, ModelInfo, ModelProvider
-from openlrc.utils import get_messages_token_number, get_text_token_number
+from openlrc.utils import get_messages_token_number, get_text_token_number, remove_stop
 
 # The default mapping for model name to chatbot class.
 model2chatbot = {}
@@ -227,7 +227,10 @@ class GPTBot(ChatBot):
                 self.update_fee(response)
                 if response.choices[0].finish_reason == 'length':
                     raise LengthExceedException(response)
-                if not output_checker(messages[-1]['content'], response.choices[0].message.content):
+
+                response_text = remove_stop(self.get_content(response), stop_sequences)
+
+                if not output_checker(messages[-1]['content'], response_text):
                     logger.warning(f'Invalid response format. Retry num: {i + 1}.')
                     continue
 
@@ -313,7 +316,10 @@ class ClaudeBot(ChatBot):
 
                 if response.stop_reason == 'max_tokens':
                     raise LengthExceedException(response)
-                if not output_checker(messages[-1]['content'], response.content[-1].text):
+
+                response_text = remove_stop(self.get_content(response), stop_sequences)
+
+                if not output_checker(messages[-1]['content'], response_text):
                     logger.warning(f'Invalid response format. Retry num: {i + 1}.')
                     continue
 
@@ -442,7 +448,9 @@ class GeminiBot(ChatBot):
                 time.sleep(15)
                 continue
 
-            if not output_checker(user_msg, response.text):
+            response_text = remove_stop(response.text, stop_sequences)
+
+            if not output_checker(user_msg, response_text):
                 logger.warning(f'Invalid response format. Retry num: {i + 1}.')
                 continue
 

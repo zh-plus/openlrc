@@ -270,7 +270,8 @@ class ContextReviewerAgent(Agent):
             {'role': 'system', 'content': self.validate_prompter.system()},
             {'role': 'user', 'content': self.validate_prompter.user(context)},
         ]
-        resp = self.chatbot.message(messages_list, output_checker=self.validate_prompter.check_format)[0]
+        resp = self.chatbot.message(messages_list, stop_sequences=[self.prompter.stop_sequence],
+                                    output_checker=self.validate_prompter.check_format)[0]
         return 'true' in self.chatbot.get_content(resp).lower()
 
     def build_context(self, texts, title='', glossary: Optional[dict] = None, forced_glossary=False) -> str:
@@ -299,6 +300,8 @@ class ContextReviewerAgent(Agent):
                 messages_list, stop_sequences=[self.prompter.stop_sequence], output_checker=self.prompter.check_format
             )[0]
             context = self.chatbot.get_content(resp)
+            if context:
+                context = context.rstrip(self.prompter.stop_sequence)  # remove the stop sequence if present
         except Exception as e:
             logger.warning(f'Failed to generate context: {e} using {self.chatbot_model}')
 
@@ -308,7 +311,8 @@ class ContextReviewerAgent(Agent):
             validated = False
             if self.retry_chatbot:
                 logger.info(f'Failed to validate the context using {self.chatbot}, retrying with {self.retry_chatbot}')
-                resp = self.retry_chatbot.message(messages_list, output_checker=self.validate_prompter.check_format)[0]
+                resp = self.retry_chatbot.message(messages_list, stop_sequences=[self.prompter.stop_sequence],
+                                                  output_checker=self.prompter.check_format)[0]
                 context = self.retry_chatbot.get_content(resp)
                 context_pool.append(context)
                 if self._validate_context(context):
@@ -319,7 +323,8 @@ class ContextReviewerAgent(Agent):
             if not validated:
                 for i in range(2, 4):
                     logger.warning(f'Retry to generate the context using {self.chatbot} at {i} reties.')
-                    resp = self.chatbot.message(messages_list, output_checker=self.validate_prompter.check_format)[0]
+                    resp = self.chatbot.message(messages_list, stop_sequences=[self.prompter.stop_sequence],
+                                                output_checker=self.prompter.check_format)[0]
                     context = self.chatbot.get_content(resp)
                     context_pool.append(context)
                     if self._validate_context(context):
