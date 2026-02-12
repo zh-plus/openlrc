@@ -52,6 +52,29 @@ def extract_audio(path: Path) -> Path:
     return audio_path
 
 
+def get_preprocessed_path(audio_path: Union[str, Path]) -> Path:
+    """
+    Get the expected preprocessed audio file path for a given input.
+
+    This function returns the path where the preprocessed audio file would be
+    stored after preprocessing. It is useful when you need to check if
+    preprocessing has already been done, or when running preprocessing and
+    transcription in separate stages.
+
+    Args:
+        audio_path (Union[str, Path]): Original audio file path.
+
+    Returns:
+        Path: Expected path of the preprocessed audio file.
+
+    Example:
+        >>> get_preprocessed_path('/data/audio.mp3')
+        PosixPath('/data/preprocessed/audio_preprocessed.wav')
+    """
+    audio_path = Path(audio_path)
+    return audio_path.parent / 'preprocessed' / f'{audio_path.stem}_preprocessed.wav'
+
+
 def get_file_type(path: Path) -> str:
     if path.suffix == '.ts':
         return 'video'

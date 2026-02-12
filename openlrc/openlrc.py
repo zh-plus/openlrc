@@ -24,7 +24,7 @@ from openlrc.subtitle import Subtitle, BilingualSubtitle
 from openlrc.transcribe import Transcriber
 from openlrc.translate import LLMTranslator
 from openlrc.utils import Timer, extend_filename, get_audio_duration, format_timestamp, extract_audio, \
-    get_file_type
+    get_file_type, get_preprocessed_path
 
 
 class LRCer:
@@ -298,7 +298,8 @@ class LRCer:
         return final_subtitle
 
     def run(self, paths: Union[str, Path, List[Union[str, Path]]], src_lang: Optional[str] = None, target_lang='zh-cn',
-            skip_trans=False, noise_suppress=False, bilingual_sub=False, clear_temp=False) -> List[str]:
+            skip_trans=False, noise_suppress=False, bilingual_sub=False, clear_temp=False,
+            skip_preprocess=False) -> List[str]:
         """
         Run the entire transcription and translation process.
 
@@ -336,6 +337,10 @@ class LRCer:
             bilingual_sub (bool): Whether to generate bilingual subtitles. Default is False.
             clear_temp (bool): Whether to clear all temporary files, including generated .wav from video.
                                Set to False to keep intermediate results if errors occur. Default is False.
+            skip_preprocess (bool): Whether to skip the preprocessing step. When True, assumes that
+                               preprocessed files already exist at the expected locations (as returned by
+                               get_preprocessed_path()). This is useful when preprocessing and transcription
+                               are run in separate stages. Default is False.
 
         Returns:
             List[str]: List of paths to the generated subtitle files.
@@ -359,7 +364,17 @@ class LRCer:
 
         paths = list(map(Path, paths))
 
-        audio_paths = self.pre_process(paths, noise_suppress=noise_suppress)
+        if skip_preprocess:
+            # Use preprocessed files directly without running preprocessing
+            audio_paths = [get_preprocessed_path(p) for p in paths]
+            for p in audio_paths:
+                if not p.exists():
+                    raise FileNotFoundError(
+                        f'Preprocessed file not found: {p}. '
+                        f'Run pre_process() first or set skip_preprocess=False.'
+                    )
+        else:
+            audio_paths = self.pre_process(paths, noise_suppress=noise_suppress)
 
         logger.info(f'Working on {len(audio_paths)} audio files: {pformat(audio_paths)}')
 
