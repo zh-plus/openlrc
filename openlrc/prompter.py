@@ -1,4 +1,4 @@
-#  Copyright (C) 2025. Hao Zheng
+#  Copyright (C) 2026. Hao Zheng
 #  All rights reserved.
 
 import abc
@@ -250,7 +250,7 @@ The target audience is adult viewers with an interest in crime dramas. They are 
 </example>
 
 Note:
-There was an issue with the previous translation. 
+There was an issue with the previous review. 
 
 DO NOT add the translated sample text in the response.
 DO NOT include any translation segment.
@@ -260,7 +260,8 @@ Remember to include the glossary, characters, summary, tone and style, and targe
 Remember to add {self.stop_sequence} after the generated contexts.
 Remember you are a context provider, but NOT a translator. DO NOT provide any directly translation in the response.
 If you are given an existing glossary, try your best to incorporate it into the context review.
-Stop generating as soon as possible if you have generated a workable guideline (only include the glossary, characters, summary, tone and style, and target audience).'''
+Stop generating as soon as possible if you have generated a workable guideline (only include the glossary, characters, summary, tone and style, and target audience).
+I may give you a glossary. Please provide me with a new glossary that does not overlap with the one I give you.'''
 
     def user(self, text, title='', given_glossary: Optional[dict] = None):
         glossary_text = f'Given glossary: {given_glossary}' if given_glossary else ''
