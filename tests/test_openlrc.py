@@ -74,11 +74,15 @@ class TestLRCer(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             lrcer.run('data/invalid.mp3')
 
+    @patch('openlrc.translate.LLMTranslator.translate',
+           MagicMock(return_value=['test translation1', 'test translation2']))
     def test_video_file_transcription_translation(self):
         lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
         result = lrcer.run('data/test_video.mp4')
         self.assertTrue(result)
 
+    @patch('openlrc.translate.LLMTranslator.translate',
+           MagicMock(return_value=['test translation1', 'test translation2']))
     def test_nospeech_video_file_transcription_translation(self):
         lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
         result = lrcer.run('data/test_nospeech_video.mp4')

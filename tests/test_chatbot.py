@@ -1,11 +1,14 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
+import os
 import unittest
 from typing import Union
 
 from pydantic import BaseModel
 
 from openlrc.chatbot import GPTBot, ClaudeBot, route_chatbot, GeminiBot
+
+LIVE_API = os.environ.get('OPENLRC_TEST_LIVE_API', '').lower() in ('1', 'true', 'yes')
 
 
 class Usage(BaseModel):
@@ -29,8 +32,8 @@ class OpenAIResponse(BaseModel):
 
 class TestChatBot(unittest.TestCase):
     def setUp(self):
-        self.gpt_bot = GPTBot(temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.05)
-        self.claude_bot = ClaudeBot(temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.05)
+        self.gpt_bot = GPTBot(temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.05, api_key='test-dummy')
+        self.claude_bot = ClaudeBot(temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.05, api_key='test-dummy')
 
     def test_estimate_fee(self):
         bot = self.gpt_bot
@@ -72,6 +75,7 @@ class TestChatBot(unittest.TestCase):
 
         self.assertIsNotNone(bot.api_fees)
 
+    @unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1')
     def test_gpt_message_async(self):
         bot = self.gpt_bot
         messages_list = [
@@ -86,6 +90,7 @@ class TestChatBot(unittest.TestCase):
 
         self.assertTrue(all(['hello' in bot.get_content(r).lower() for r in results]))
 
+    @unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1')
     def test_claude_message_async(self):
         bot = self.claude_bot
         messages_list = [
@@ -100,6 +105,7 @@ class TestChatBot(unittest.TestCase):
 
         self.assertTrue(all(['hello' in bot.get_content(r).lower() for r in results]))
 
+    @unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1')
     def test_gpt_message_seq(self):
         bot = self.gpt_bot
         messages_list = [
@@ -111,6 +117,7 @@ class TestChatBot(unittest.TestCase):
 
         self.assertIn('hello', bot.get_content(results[0]).lower())
 
+    @unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1')
     def test_claude_message_seq(self):
         bot = self.claude_bot
         messages_list = [
@@ -128,7 +135,7 @@ class TestChatBot(unittest.TestCase):
         chabot_cls1, model_name1 = route_chatbot(chatbot_model1)
         self.assertEqual(chabot_cls1, GPTBot)
         try:
-            _ = chabot_cls1(model_name=model_name1, temperature=1, top_p=1, retry=8, max_async=16)
+            _ = chabot_cls1(model_name=model_name1, temperature=1, top_p=1, retry=8, max_async=16, api_key='test-dummy')
         except Exception as e:
             self.fail(f"Failed to create chatbot model {chatbot_model1}: {e}")
 
@@ -136,7 +143,7 @@ class TestChatBot(unittest.TestCase):
         chabot_cls2, model_name2 = route_chatbot(chatbot_model2)
         self.assertEqual(chabot_cls2, ClaudeBot)
         try:
-            _ = chabot_cls2(model_name=model_name2, temperature=1, top_p=1, retry=8, max_async=16)
+            _ = chabot_cls2(model_name=model_name2, temperature=1, top_p=1, retry=8, max_async=16, api_key='test-dummy')
         except Exception as e:
             self.fail(f"Failed to create chatbot model {chatbot_model1}: {e}")
 
@@ -147,10 +154,10 @@ class TestChatBot(unittest.TestCase):
         self.assertEqual(model_name, chatbot_model.split(':')[-1].strip())
 
     def test_temperature_clamp(self):
-        chatbot1 = GPTBot(temperature=10, top_p=1, retry=8, max_async=16)
-        chatbot2 = GPTBot(temperature=-1, top_p=1, retry=8, max_async=16)
-        chatbot3 = ClaudeBot(temperature=2, top_p=1, retry=8, max_async=16)
-        chatbot4 = ClaudeBot(temperature=-1, top_p=1, retry=8, max_async=16)
+        chatbot1 = GPTBot(temperature=10, top_p=1, retry=8, max_async=16, api_key='test-dummy')
+        chatbot2 = GPTBot(temperature=-1, top_p=1, retry=8, max_async=16, api_key='test-dummy')
+        chatbot3 = ClaudeBot(temperature=2, top_p=1, retry=8, max_async=16, api_key='test-dummy')
+        chatbot4 = ClaudeBot(temperature=-1, top_p=1, retry=8, max_async=16, api_key='test-dummy')
 
         self.assertEqual(chatbot1.temperature, 2)
         self.assertEqual(chatbot2.temperature, 0)
@@ -161,17 +168,18 @@ class TestChatBot(unittest.TestCase):
 class TestThirdPartyBot(unittest.TestCase):
     def test_beta_base_url(self):
         bot = GPTBot(model_name='deepseek-chat', temperature=1, top_p=1, retry=8, max_async=16,
-                     base_url_config={'openai': 'https://api.deepseek.com/beta'})
+                     base_url_config={'openai': 'https://api.deepseek.com/beta'}, api_key='test-dummy')
         self.assertTrue(bot.model_info.beta)
 
     def test_non_beta_base_url(self):
         bot = GPTBot(model_name='deepseek-chat', temperature=1, top_p=1, retry=8, max_async=16,
-                     base_url_config={'openai': 'https://api.deepseek.com'})
+                     base_url_config={'openai': 'https://api.deepseek.com'}, api_key='test-dummy')
         self.assertFalse(bot.model_info.beta)
 
 
 # TODO: Retry_bot testing
 
+@unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1 and valid API keys')
 class TestGeminiBot(unittest.TestCase):
     # def setUp(self):
     #     import os
