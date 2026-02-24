@@ -95,3 +95,32 @@ class TestLRCer(unittest.TestCase):
         lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
         result = lrcer.run('data/test_video.mp4', skip_trans=True)
         self.assertTrue(result)
+
+    @patch('openlrc.translate.LLMTranslator.translate',
+           MagicMock(return_value=['test translation1', 'test translation2']))
+    def test_skip_preprocess(self):
+        lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
+
+        # Stage 1: Run preprocessing only
+        lrcer.pre_process([self.audio_path])
+
+        # Verify preprocessed file exists
+        from openlrc.utils import get_preprocessed_path
+        preprocessed_path = get_preprocessed_path(self.audio_path)
+        self.assertTrue(preprocessed_path.exists())
+
+        # Stage 2: Run transcription with skip_preprocess=True
+        result = lrcer.run(self.audio_path, skip_preprocess=True)
+        self.assertTrue(result)
+
+    def test_skip_preprocess_file_not_found(self):
+        lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
+
+        # Ensure no preprocessed file exists
+        from openlrc.utils import get_preprocessed_path
+        preprocessed_path = get_preprocessed_path(self.audio_path)
+        preprocessed_path.unlink(missing_ok=True)
+
+        # Should raise FileNotFoundError when skip_preprocess=True but file doesn't exist
+        with self.assertRaises(FileNotFoundError):
+            lrcer.run(self.audio_path, skip_preprocess=True)

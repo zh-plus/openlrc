@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from openlrc.defaults import default_preprocess_options
 from openlrc.logger import logger
-from openlrc.utils import release_memory
+from openlrc.utils import release_memory, get_preprocessed_path
 
 
 def loudness_norm_single(audio_path: Path, ln_path: Path):
@@ -129,8 +129,7 @@ class Preprocessor:
         need_process = []
         final_processed_audios = []
         for audio_path, output_path in zip(self.audio_paths, self.output_paths):
-            audio_name = audio_path.stem
-            preprocessed_path = output_path / f'{audio_name}_preprocessed.wav'
+            preprocessed_path = get_preprocessed_path(audio_path)
             final_processed_audios.append(preprocessed_path)
             if preprocessed_path.exists():
                 logger.info(f'Preprocessed audio already exists in {preprocessed_path}')
@@ -144,9 +143,8 @@ class Preprocessor:
         ln_paths: list[Path] = self.loudness_normalization(ns_paths)
 
         for path, audio_path in zip(ln_paths, need_process):
-            audio_name = audio_path.stem
-
-            path = path.rename(path.parent / f'{audio_name}_preprocessed.wav')
-            logger.info(f'Preprocessed audio saved to {path}')
+            final_path = get_preprocessed_path(audio_path)
+            path.rename(final_path)
+            logger.info(f'Preprocessed audio saved to {final_path}')
 
         return final_processed_audios
