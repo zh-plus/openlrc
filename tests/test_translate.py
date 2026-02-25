@@ -1,6 +1,7 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
+import os
 import unittest
 from pathlib import Path
 
@@ -11,10 +12,13 @@ from openlrc.models import ModelConfig, ModelProvider
 from openlrc.translate import LLMTranslator
 from openlrc.utils import get_similarity
 
+LIVE_API = os.environ.get('OPENLRC_TEST_LIVE_API', '').lower() in ('1', 'true', 'yes')
+
 test_model_config = ModelConfig(provider=ModelProvider.OPENAI, name='gpt-4.1-nano')
 test_models = ['claude-3-5-haiku-latest', test_model_config]
 
 
+@unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1 and valid API keys')
 class TestLLMTranslator(unittest.TestCase):
 
     def tearDown(self) -> None:
