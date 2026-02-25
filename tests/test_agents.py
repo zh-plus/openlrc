@@ -1,6 +1,7 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
+import os
 import unittest
 import os
 from typing import List
@@ -21,6 +22,7 @@ OPENROUTER_CHEAP_MODEL = ModelConfig(
     base_url=OPENROUTER_BASE_URL,
     api_key=OPENROUTER_API_KEY
 )
+LIVE_API = os.environ.get('OPENLRC_TEST_LIVE_API', '').lower() in ('1', 'true', 'yes')
 
 
 class DummyMessage(BaseModel):
@@ -47,6 +49,7 @@ class TestTranslatorAgent(unittest.TestCase):
                        )]
                )
            ]))
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-dummy'})
     def test_translate_chunk_success(self):
         agent = ChunkedTranslatorAgent(
             src_lang='en', target_lang='fr', info=TranslateInfo(
@@ -76,6 +79,7 @@ class TestTranslatorAgent(unittest.TestCase):
     @patch('openlrc.chatbot.GPTBot.get_content',
            MagicMock(
                return_value='<summary>Example Summary</summary>\n<scene>Example Scene</scene>\n#1\nOriginal>xxx\nTranslation>\nBonjour, comment ça va?\n#2\nOriginal>xxx\nTranslation>\nJe vais bien, merci.\n'))
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-dummy'})
     def test_parse_response_success(self):
         agent = ChunkedTranslatorAgent(src_lang='en', target_lang='fr')
         translations, summary, scene = agent._parse_responses('dummy_response')
@@ -103,6 +107,7 @@ class TestTranslatorAgent(unittest.TestCase):
         self.assertEqual(formatted_glossary, expected_output)
 
 
+@unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1 and valid API keys')
 class TestContextReviewerAgent(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

@@ -1,5 +1,6 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
+import os
 import unittest
 import os
 from typing import Union
@@ -15,6 +16,8 @@ OPENROUTER_MODELS = {
     'claude': 'anthropic/claude-haiku-4.5',
     'gemini': 'google/gemini-2.5-flash-lite',
 }
+
+LIVE_API = os.environ.get('OPENLRC_TEST_LIVE_API', '').lower() in ('1', 'true', 'yes')
 
 
 class Usage(BaseModel):
@@ -110,6 +113,7 @@ class TestChatBot(unittest.TestCase):
 
         self.assertIsNotNone(bot.api_fees)
 
+    @unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1')
     def test_gpt_message_async(self):
         if not OPENROUTER_API_KEY:
             raise unittest.SkipTest('OPENROUTER_API_KEY is required for LLM integration tests.')
@@ -126,6 +130,7 @@ class TestChatBot(unittest.TestCase):
 
         self.assertTrue(all(['hello' in bot.get_content(r).lower() for r in results]))
 
+    @unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1')
     def test_claude_message_async(self):
         if not OPENROUTER_API_KEY:
             raise unittest.SkipTest('OPENROUTER_API_KEY is required for LLM integration tests.')
@@ -142,6 +147,7 @@ class TestChatBot(unittest.TestCase):
 
         self.assertTrue(all(['hello' in bot.get_content(r).lower() for r in results]))
 
+    @unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1')
     def test_gpt_message_seq(self):
         if not OPENROUTER_API_KEY:
             raise unittest.SkipTest('OPENROUTER_API_KEY is required for LLM integration tests.')
@@ -155,6 +161,7 @@ class TestChatBot(unittest.TestCase):
 
         self.assertIn('hello', bot.get_content(results[0]).lower())
 
+    @unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1')
     def test_claude_message_seq(self):
         if not OPENROUTER_API_KEY:
             raise unittest.SkipTest('OPENROUTER_API_KEY is required for LLM integration tests.')
@@ -234,6 +241,7 @@ class TestThirdPartyBot(unittest.TestCase):
 
 # TODO: Retry_bot testing
 
+@unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1 and valid API keys')
 class TestGeminiBot(unittest.TestCase):
     # def setUp(self):
     #     import os

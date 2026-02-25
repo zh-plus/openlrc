@@ -34,8 +34,13 @@ test_models = [
         api_key=OPENROUTER_API_KEY
     ),
 ]
+LIVE_API = os.environ.get('OPENLRC_TEST_LIVE_API', '').lower() in ('1', 'true', 'yes')
+
+test_model_config = ModelConfig(provider=ModelProvider.OPENAI, name='gpt-4.1-nano')
+test_models = ['claude-3-5-haiku-latest', test_model_config]
 
 
+@unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1 and valid API keys')
 class TestLLMTranslator(unittest.TestCase):
 
     @classmethod

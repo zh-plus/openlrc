@@ -22,6 +22,12 @@ jobs:
         shell: bash
 
     runs-on: ${{ matrix.os }}
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENLRC_TEST_LIVE_API: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -44,15 +50,6 @@ jobs:
       - name: Install ffmpeg
         uses: FedericoCarboni/setup-ffmpeg@v2
         id: setup-ffmpeg
-
-      - name: Add OpenAI key to environment variables
-        run: echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> $GITHUB_ENV
-
-      - name: Add ANTHROPIC API Key to environment variables
-        run: echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> $GITHUB_ENV
-
-      - name: Add Google API Key to environment variables
-        run: echo "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}" >> $GITHUB_ENV
 
       - name: Test with unittest
         working-directory: ./tests
