@@ -3,6 +3,7 @@
 
 import os
 import unittest
+import os
 from typing import List
 from unittest.mock import patch, MagicMock
 
@@ -10,8 +11,17 @@ from pydantic import BaseModel
 
 from openlrc.agents import ChunkedTranslatorAgent, TranslationContext, ContextReviewerAgent
 from openlrc.context import TranslateInfo
+from openlrc.models import ModelConfig, ModelProvider
 from openlrc.prompter import ChunkedTranslatePrompter
 
+OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
+OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
+OPENROUTER_CHEAP_MODEL = ModelConfig(
+    provider=ModelProvider.OPENAI,
+    name='google/gemini-2.5-flash-lite',
+    base_url=OPENROUTER_BASE_URL,
+    api_key=OPENROUTER_API_KEY
+)
 LIVE_API = os.environ.get('OPENLRC_TEST_LIVE_API', '').lower() in ('1', 'true', 'yes')
 
 
@@ -99,6 +109,11 @@ class TestTranslatorAgent(unittest.TestCase):
 
 @unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1 and valid API keys')
 class TestContextReviewerAgent(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if not OPENROUTER_API_KEY:
+            raise unittest.SkipTest('OPENROUTER_API_KEY is required for LLM integration tests.')
+
     def test_generates_valid_context(self):
         texts = ["John and Sarah discuss their plan to locate a suspect",
                  "John: 'As a 10 years experienced detector, my advice is we should start our search in the uptown area.'",
@@ -107,7 +122,7 @@ class TestContextReviewerAgent(unittest.TestCase):
         title = "The Detectors"
         glossary = {"suspect": "嫌疑人", "uptown": "市中心"}
 
-        agent = ContextReviewerAgent('en', 'zh')
+        agent = ContextReviewerAgent('en', 'zh', chatbot_model=OPENROUTER_CHEAP_MODEL)
         context = agent.build_context(texts, title, glossary)
 
         self.assertIsNotNone(context)

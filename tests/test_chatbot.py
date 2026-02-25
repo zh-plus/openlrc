@@ -2,11 +2,20 @@
 #  All rights reserved.
 import os
 import unittest
+import os
 from typing import Union
 
 from pydantic import BaseModel
 
-from openlrc.chatbot import GPTBot, ClaudeBot, route_chatbot, GeminiBot
+from openlrc.chatbot import GPTBot, ClaudeBot, route_chatbot
+
+OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
+OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
+OPENROUTER_MODELS = {
+    'gpt': 'openai/gpt-5-nano',
+    'claude': 'anthropic/claude-haiku-4.5',
+    'gemini': 'google/gemini-2.5-flash-lite',
+}
 
 LIVE_API = os.environ.get('OPENLRC_TEST_LIVE_API', '').lower() in ('1', 'true', 'yes')
 
@@ -32,8 +41,37 @@ class OpenAIResponse(BaseModel):
 
 class TestChatBot(unittest.TestCase):
     def setUp(self):
-        self.gpt_bot = GPTBot(temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.05, api_key='test-dummy')
-        self.claude_bot = ClaudeBot(temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.05, api_key='test-dummy')
+        self.gpt_bot = GPTBot(
+            model_name=OPENROUTER_MODELS['gpt'],
+            temperature=1,
+            top_p=1,
+            retry=8,
+            max_async=16,
+            fee_limit=0.05,
+            base_url_config={'openai': OPENROUTER_BASE_URL},
+            api_key=OPENROUTER_API_KEY or 'test-key'
+        )
+        self.claude_bot = ClaudeBot(
+            model_name='claude-3-5-sonnet-20241022',
+            temperature=1,
+            top_p=1,
+            retry=8,
+            max_async=16,
+            fee_limit=0.05,
+            api_key='test-key'
+        )
+
+    def _make_openrouter_bot(self, model_name: str):
+        return GPTBot(
+            model_name=model_name,
+            temperature=1,
+            top_p=1,
+            retry=8,
+            max_async=16,
+            fee_limit=0.05,
+            base_url_config={'openai': OPENROUTER_BASE_URL},
+            api_key=OPENROUTER_API_KEY
+        )
 
     def test_estimate_fee(self):
         bot = self.gpt_bot
@@ -77,7 +115,9 @@ class TestChatBot(unittest.TestCase):
 
     @unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1')
     def test_gpt_message_async(self):
-        bot = self.gpt_bot
+        if not OPENROUTER_API_KEY:
+            raise unittest.SkipTest('OPENROUTER_API_KEY is required for LLM integration tests.')
+        bot = self._make_openrouter_bot(OPENROUTER_MODELS['gpt'])
         messages_list = [
             [
                 {'role': 'user', 'content': 'Echo hello:'}
@@ -92,7 +132,9 @@ class TestChatBot(unittest.TestCase):
 
     @unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1')
     def test_claude_message_async(self):
-        bot = self.claude_bot
+        if not OPENROUTER_API_KEY:
+            raise unittest.SkipTest('OPENROUTER_API_KEY is required for LLM integration tests.')
+        bot = self._make_openrouter_bot(OPENROUTER_MODELS['claude'])
         messages_list = [
             [
                 {'role': 'user', 'content': 'Echo hello:'}
@@ -107,7 +149,9 @@ class TestChatBot(unittest.TestCase):
 
     @unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1')
     def test_gpt_message_seq(self):
-        bot = self.gpt_bot
+        if not OPENROUTER_API_KEY:
+            raise unittest.SkipTest('OPENROUTER_API_KEY is required for LLM integration tests.')
+        bot = self._make_openrouter_bot(OPENROUTER_MODELS['gpt'])
         messages_list = [
             [
                 {'role': 'user', 'content': 'Echo hello:'}
@@ -119,7 +163,9 @@ class TestChatBot(unittest.TestCase):
 
     @unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1')
     def test_claude_message_seq(self):
-        bot = self.claude_bot
+        if not OPENROUTER_API_KEY:
+            raise unittest.SkipTest('OPENROUTER_API_KEY is required for LLM integration tests.')
+        bot = self._make_openrouter_bot(OPENROUTER_MODELS['claude'])
         messages_list = [
             [
                 {'role': 'user', 'content': 'Echo hello:'}
@@ -135,7 +181,14 @@ class TestChatBot(unittest.TestCase):
         chabot_cls1, model_name1 = route_chatbot(chatbot_model1)
         self.assertEqual(chabot_cls1, GPTBot)
         try:
-            _ = chabot_cls1(model_name=model_name1, temperature=1, top_p=1, retry=8, max_async=16, api_key='test-dummy')
+            _ = chabot_cls1(
+                model_name=model_name1,
+                temperature=1,
+                top_p=1,
+                retry=8,
+                max_async=16,
+                api_key='test-key'
+            )
         except Exception as e:
             self.fail(f"Failed to create chatbot model {chatbot_model1}: {e}")
 
@@ -143,7 +196,14 @@ class TestChatBot(unittest.TestCase):
         chabot_cls2, model_name2 = route_chatbot(chatbot_model2)
         self.assertEqual(chabot_cls2, ClaudeBot)
         try:
-            _ = chabot_cls2(model_name=model_name2, temperature=1, top_p=1, retry=8, max_async=16, api_key='test-dummy')
+            _ = chabot_cls2(
+                model_name=model_name2,
+                temperature=1,
+                top_p=1,
+                retry=8,
+                max_async=16,
+                api_key='test-key'
+            )
         except Exception as e:
             self.fail(f"Failed to create chatbot model {chatbot_model1}: {e}")
 
@@ -154,10 +214,10 @@ class TestChatBot(unittest.TestCase):
         self.assertEqual(model_name, chatbot_model.split(':')[-1].strip())
 
     def test_temperature_clamp(self):
-        chatbot1 = GPTBot(temperature=10, top_p=1, retry=8, max_async=16, api_key='test-dummy')
-        chatbot2 = GPTBot(temperature=-1, top_p=1, retry=8, max_async=16, api_key='test-dummy')
-        chatbot3 = ClaudeBot(temperature=2, top_p=1, retry=8, max_async=16, api_key='test-dummy')
-        chatbot4 = ClaudeBot(temperature=-1, top_p=1, retry=8, max_async=16, api_key='test-dummy')
+        chatbot1 = GPTBot(temperature=10, top_p=1, retry=8, max_async=16, api_key='test-key')
+        chatbot2 = GPTBot(temperature=-1, top_p=1, retry=8, max_async=16, api_key='test-key')
+        chatbot3 = ClaudeBot(temperature=2, top_p=1, retry=8, max_async=16, api_key='test-key')
+        chatbot4 = ClaudeBot(temperature=-1, top_p=1, retry=8, max_async=16, api_key='test-key')
 
         self.assertEqual(chatbot1.temperature, 2)
         self.assertEqual(chatbot2.temperature, 0)
@@ -168,12 +228,14 @@ class TestChatBot(unittest.TestCase):
 class TestThirdPartyBot(unittest.TestCase):
     def test_beta_base_url(self):
         bot = GPTBot(model_name='deepseek-chat', temperature=1, top_p=1, retry=8, max_async=16,
-                     base_url_config={'openai': 'https://api.deepseek.com/beta'}, api_key='test-dummy')
+                     base_url_config={'openai': 'https://api.deepseek.com/beta'},
+                     api_key='test-key')
         self.assertTrue(bot.model_info.beta)
 
     def test_non_beta_base_url(self):
         bot = GPTBot(model_name='deepseek-chat', temperature=1, top_p=1, retry=8, max_async=16,
-                     base_url_config={'openai': 'https://api.deepseek.com'}, api_key='test-dummy')
+                     base_url_config={'openai': 'https://api.deepseek.com'},
+                     api_key='test-key')
         self.assertFalse(bot.model_info.beta)
 
 
@@ -192,7 +254,13 @@ class TestGeminiBot(unittest.TestCase):
     #     os.environ.pop('HTTPS_PROXY')
 
     def test_multi_turn(self):
-        bot = GeminiBot()
+        if not OPENROUTER_API_KEY:
+            raise unittest.SkipTest('OPENROUTER_API_KEY is required for LLM integration tests.')
+        bot = GPTBot(
+            model_name=OPENROUTER_MODELS['gemini'],
+            base_url_config={'openai': OPENROUTER_BASE_URL},
+            api_key=OPENROUTER_API_KEY
+        )
         result = bot.message([
             {'role': 'system', 'content': 'You are a echo machine, echo each word from input.'},
             {'role': 'user', 'content': 'How are you?'},

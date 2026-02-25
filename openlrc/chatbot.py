@@ -1,4 +1,4 @@
-#  Copyright (C) 2025. Hao Zheng
+#  Copyright (C) 2026. Hao Zheng
 #  All rights reserved.
 
 import asyncio
@@ -183,14 +183,53 @@ class GPTBot(ChatBot):
 
         super().__init__(model_name, temperature, top_p, retry, max_async, fee_limit, is_beta)
 
+        resolved_api_key, resolved_base_url = self._resolve_client_settings(
+            api_key=api_key, base_url_config=base_url_config
+        )
+
         self.async_client = AsyncGPTClient(
-            api_key=api_key or os.environ['OPENAI_API_KEY'],
+            api_key=resolved_api_key,
             http_client=httpx.AsyncClient(proxy=proxy),
-            base_url=base_url_config['openai'] if base_url_config and base_url_config['openai'] else None
+            base_url=resolved_base_url
         )
 
         self.model_name = model_name
         self.json_mode = json_mode
+
+    @staticmethod
+    def _resolve_client_settings(api_key: Optional[str], base_url_config: Optional[dict]) -> tuple[str, Optional[str]]:
+        """
+        Resolve API key and base URL, auto-switching to OpenRouter when needed.
+        """
+        openai_base_url = None
+        if base_url_config:
+            openai_base_url = base_url_config.get('openai')
+
+        if api_key:
+            return api_key, openai_base_url
+
+        is_openrouter = bool(openai_base_url and 'openrouter.ai' in openai_base_url.lower())
+        openai_api_key = os.environ.get('OPENAI_API_KEY')
+        openrouter_api_key = os.environ.get('OPENROUTER_API_KEY')
+
+        if is_openrouter:
+            if openrouter_api_key:
+                return openrouter_api_key, openai_base_url
+            if openai_api_key:
+                return openai_api_key, openai_base_url
+            raise ValueError(
+                'OPENROUTER_API_KEY is required when using OpenRouter base_url. '
+                'Set OPENROUTER_API_KEY or pass api_key explicitly.'
+            )
+
+        if openai_api_key:
+            return openai_api_key, openai_base_url
+
+        if openrouter_api_key:
+            logger.info('OPENAI_API_KEY not found, fallback to OPENROUTER_API_KEY with OpenRouter endpoint.')
+            return openrouter_api_key, 'https://openrouter.ai/api/v1'
+
+        raise ValueError('No API key found. Set OPENAI_API_KEY or pass api_key explicitly.')
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.async_client.close()
@@ -235,6 +274,9 @@ class GPTBot(ChatBot):
                     continue
 
                 break
+            except openai.AuthenticationError as e:
+                # Authentication errors are deterministic and should not be retried.
+                raise ChatBotException(f'Authentication failed: {e}') from e
             except (openai.RateLimitError, openai.APITimeoutError, openai.APIConnectionError, openai.APIError,
                     json.decoder.JSONDecodeError) as e:
                 sleep_time = self._get_sleep_time(e)

@@ -5,14 +5,14 @@
 [![Downloads](https://static.pepy.tech/badge/openlrc)](https://pepy.tech/project/openlrc)
 ![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/zh-plus/Open-Lyrics/ci.yml)
 
-Open-Lyrics is a Python library that transcribes voice files using
-[faster-whisper](https://github.com/guillaumekln/faster-whisper), and translates/polishes the resulting text
-into `.lrc` files in the desired language using LLM,
-e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](https://github.com/anthropics/anthropic-sdk-python).
+Open-Lyrics is a Python library that transcribes audio with
+[faster-whisper](https://github.com/guillaumekln/faster-whisper), then translates/polishes the text
+into `.lrc` subtitles with LLMs such as
+[OpenAI](https://github.com/openai/openai-python) and [Anthropic](https://github.com/anthropics/anthropic-sdk-python).
 
-#### Key Features:
+#### Key Features
 
-- Well preprocessed audio to reduce hallucination (Loudness Norm & optional Noise Suppression).
+- Audio preprocessing to reduce hallucinations (loudness normalization and optional noise suppression).
 - Context-aware translation to improve translation quality.
   Check [prompt](https://github.com/zh-plus/openlrc/blob/master/openlrc/prompter.py) for details.
 - Check [here](#how-it-works) for an overview of the architecture.
@@ -20,24 +20,24 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
 ## New 🚨
 
 - 2024.5.7:
-    - Add custom endpoint (base_url) support for OpenAI & Anthropic:
+    - Added custom endpoint (`base_url`) support for OpenAI and Anthropic:
         ```python
         lrcer = LRCer(base_url_config={'openai': 'https://api.chatanywhere.tech',
                                        'anthropic': 'https://example/api'})
         ```
-    - Generating bilingual subtitles
+    - Added bilingual subtitle generation:
         ```python
         lrcer.run('./data/test.mp3', target_lang='zh-cn', bilingual_sub=True)
         ``` 
-- 2024.5.11: Add glossary into prompt, which is confirmed to improve domain specific translation.
+- 2024.5.11: Added glossary support in prompts to improve domain-specific translation.
   Check [here](#glossary) for details.
-- 2024.5.17: You can route model to arbitrary Chatbot SDK (either OpenAI or Anthropic) by setting `chatbot_model` to
-  `provider: model_name` together with base_url_config:
+- 2024.5.17: You can route models to arbitrary chatbot SDKs (OpenAI or Anthropic) by setting `chatbot_model` to
+  `provider: model_name` together with `base_url_config`:
     ```python
     lrcer = LRCer(chatbot_model='openai: claude-3-haiku-20240307',
                   base_url_config={'openai': 'https://api.g4f.icu/v1/'})
     ```
-- 2024.6.25: Support Gemini as translation engine LLM, try using `gemini-1.5-flash`:
+- 2024.6.25: Added Gemini as a translation model (for example, `gemini-1.5-flash`):
     ```python
     lrcer = LRCer(chatbot_model='gemini-1.5-flash')
     ```
@@ -47,8 +47,8 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
     ```shell
     pip install "faster-whisper @ https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz"
     ```
-- 2024.12.19: Add `ModelConfig` for chat model routing, which is more flexible than model name string, The ModelConfig
-  can be ModelConfig(provider='<provider>', model_name='<model-name>', base_url='<url>', proxy='<proxy>'), e.g.:
+- 2024.12.19: Added `ModelConfig` for model routing. It is more flexible than plain model-name strings.
+  `ModelConfig` can be `ModelConfig(provider='<provider>', name='<model-name>', base_url='<url>', proxy='<proxy>')`, e.g.:
     ```python
   
     from openlrc import LRCer, ModelConfig, ModelProvider
@@ -69,14 +69,14 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
 
 ## Installation ⚙️
 
-1. Please install CUDA 11.x and [cuDNN 8 for CUDA 11](https://developer.nvidia.com/cudnn) first according
+1. Install CUDA 11.x and [cuDNN 8 for CUDA 11](https://developer.nvidia.com/cudnn) first according
    to https://opennmt.net/CTranslate2/installation.html to enable `faster-whisper`.
 
    `faster-whisper` also needs [cuBLAS for CUDA 11](https://developer.nvidia.com/cublas) installed.
    <details>
    <summary>For Windows Users (click to expand)</summary> 
 
-   (For Windows Users only) Windows user can Download the libraries from Purfview's repository:
+   (Windows only) You can download the libraries from Purfview's repository:
 
    Purfview's [whisper-standalone-win](https://github.com/Purfview/whisper-standalone-win) provides the required NVIDIA
    libraries for Windows in a [single archive](https://github.com/Purfview/whisper-standalone-win/releases/tag/libs).
@@ -85,11 +85,12 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
    </details>
 
 
-2. Add LLM API keys, you can either:
-    - Add your [OpenAI API key](https://platform.openai.com/account/api-keys) to environment variable `OPENAI_API_KEY`.
+2. Add LLM API keys (recommended for most users: `OPENROUTER_API_KEY`):
+   - Add your [OpenAI API key](https://platform.openai.com/account/api-keys) to environment variable `OPENAI_API_KEY`.
    - Add your [Anthropic API key](https://console.anthropic.com/settings/keys) to environment variable
      `ANTHROPIC_API_KEY`.
    - Add your [Google API Key](https://aistudio.google.com/app/apikey) to environment variable `GOOGLE_API_KEY`.
+   - Add your [OpenRouter API key](https://openrouter.ai/keys) to environment variable `OPENROUTER_API_KEY`.
 
 3. Install [ffmpeg](https://ffmpeg.org/download.html) and add `bin` directory
    to your `PATH`.
@@ -106,7 +107,7 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
     pip install git+https://github.com/zh-plus/openlrc
     ```
 
-5. Install latest [fast-whisper](https://github.com/guillaumekln/faster-whisper) from source:
+5. Install the latest [faster-whisper](https://github.com/guillaumekln/faster-whisper) from source:
    ```shell
    pip install "faster-whisper @ https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz"
    ```
@@ -146,7 +147,8 @@ e.g. [OpenAI-GPT](https://github.com/openai/openai-python), [Anthropic-Claude](h
 ### Python code
 
 ```python
-from openlrc import LRCer
+import os
+from openlrc import LRCer, ModelConfig, ModelProvider
 
 if __name__ == '__main__':
     lrcer = LRCer()
@@ -169,7 +171,7 @@ if __name__ == '__main__':
     # To skip translation process
     lrcer.run('./data/test.mp3', target_lang='en', skip_trans=True)
 
-    # Change asr_options or vad_options, check openlrc.defaults for details
+    # Change asr_options or vad_options (see openlrc.defaults for details)
     vad_options = {"threshold": 0.1}
     lrcer = LRCer(vad_options=vad_options)
     lrcer.run('./data/test.mp3', target_lang='zh-cn')
@@ -177,20 +179,27 @@ if __name__ == '__main__':
     # Enhance the audio using noise suppression (consume more time).
     lrcer.run('./data/test.mp3', target_lang='zh-cn', noise_suppress=True)
 
-    # Change the LLM model for translation
+    # Change the translation model
     lrcer = LRCer(chatbot_model='claude-3-sonnet-20240229')
     lrcer.run('./data/test.mp3', target_lang='zh-cn')
 
     # Clear temp folder after processing done
     lrcer.run('./data/test.mp3', target_lang='zh-cn', clear_temp=True)
 
-    # Change base_url
-    lrcer = LRCer(base_url_config={'openai': 'https://api.g4f.icu/v1',
-                                   'anthropic': 'https://example/api'})
-
-    # Route model to arbitrary Chatbot SDK
-    lrcer = LRCer(chatbot_model='openai: claude-3-sonnet-20240229',
-                  base_url_config={'openai': 'https://api.g4f.icu/v1/'})
+    # Use OpenRouter via ModelConfig (custom base_url + routed model name)
+    openrouter_model = ModelConfig(
+        provider=ModelProvider.OPENAI,
+        name='anthropic/claude-3.5-haiku',
+        base_url='https://openrouter.ai/api/v1',
+        api_key=os.getenv('OPENROUTER_API_KEY')
+    )
+    fallback_model = ModelConfig(
+        provider=ModelProvider.OPENAI,
+        name='openai/gpt-4.1-nano',
+        base_url='https://openrouter.ai/api/v1',
+        api_key=os.getenv('OPENROUTER_API_KEY')
+    )
+    lrcer = LRCer(chatbot_model=openrouter_model, retry_model=fallback_model)
 
     # Bilingual subtitle
     lrcer.run('./data/test.mp3', target_lang='zh-cn', bilingual_sub=True)
@@ -250,9 +259,9 @@ The actual cost may vary due to the language and audio speed.**
 
 ### Recommended translation model
 
-For english audio, we recommend using `deepseek-chat`, `gpt-4o-mini` or `gemini-1.5-flash`.
+For English audio, we recommend `deepseek-chat`, `gpt-4o-mini`, or `gemini-1.5-flash`.
 
-For non-english audio, we recommend using `claude-3-5-sonnet-20240620`.
+For non-English audio, we recommend `claude-3-5-sonnet-20240620`.
 
 ## How it works
 
@@ -265,26 +274,32 @@ To maintain context between translation segments, the process is sequential for 
 
 ## Development Guide
 
-I'm using [uv](https://github.com/astral-sh/uv) for package management.
-Install uv with our standalone installers:
+This project uses [uv](https://github.com/astral-sh/uv) for package management.
+Install `uv` with the standalone installer:
 
-#### On macOS and Linux.
+#### On macOS and Linux
 
 ```shell
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-#### On Windows.
+#### On Windows
 
 ```shell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-### Install deps
+### Install dependencies
 
 ```shell
 uv venv
 uv sync
+```
+
+For live translation testing as a developer (and for CI usage), set:
+
+```shell
+export OPENROUTER_API_KEY="your-openrouter-api-key"
 ```
 
 ## Todo
