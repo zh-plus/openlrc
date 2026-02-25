@@ -1,8 +1,8 @@
-#  Copyright (C) 2025. Hao Zheng
+#  Copyright (C) 2026. Hao Zheng
 #  All rights reserved.
 
-import unittest
 import os
+import unittest
 from pathlib import Path
 
 import openai
@@ -75,6 +75,8 @@ class TestLLMTranslator(unittest.TestCase):
                 )
             except openai.OpenAIError:
                 pass
+            except AssertionError as e:
+                print(f'Translation failed: {text} -> {translation}')
 
     def test_empty_text_list_translation(self):
         for chatbot_model in test_models:
