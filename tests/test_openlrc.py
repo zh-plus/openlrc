@@ -128,3 +128,21 @@ class TestLRCer(unittest.TestCase):
         # Should raise FileNotFoundError when skip_preprocess=True but file doesn't exist
         with self.assertRaises(FileNotFoundError):
             lrcer.run(self.audio_path, skip_preprocess=True)
+
+    @patch('openlrc.translate.LLMTranslator.translate')
+    @patch('openlrc.openlrc.LRCer.post_process', wraps=LRCer.post_process)
+    def test_skip_trans_skips_translate_but_calls_post_process(self, mock_post_process, mock_translate):
+        """skip_trans=True should skip translation but still post-process transcription."""
+        lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
+        lrcer.run(self.audio_path, skip_trans=True)
+        mock_translate.assert_not_called()
+        mock_post_process.assert_called()
+        
+    @patch('openlrc.translate.LLMTranslator.translate')
+    def test_normal_run_calls_translate(self, mock_translate):
+        """skip_trans=False (default) should invoke LLMTranslator.translate."""
+        mock_translate.return_value = ['test translation1', 'test translation2']
+        lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
+        lrcer.run(self.audio_path)
+        mock_translate.assert_called()
+        
