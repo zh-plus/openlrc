@@ -137,7 +137,7 @@ class TestLRCer(unittest.TestCase):
         lrcer.run(self.audio_path, skip_trans=True)
         mock_translate.assert_not_called()
         mock_post_process.assert_called()
-        
+
     @patch('openlrc.translate.LLMTranslator.translate')
     def test_normal_run_calls_translate(self, mock_translate):
         """skip_trans=False (default) should invoke LLMTranslator.translate."""
@@ -145,4 +145,39 @@ class TestLRCer(unittest.TestCase):
         lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
         lrcer.run(self.audio_path)
         mock_translate.assert_called()
-        
+
+    @patch('openlrc.translate.LLMTranslator.translate')
+    def test_transcribe_returns_json_paths(self, mock_translate):
+        """transcribe() should return transcribed JSON paths without triggering translation."""
+        lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
+        result = lrcer.transcribe(self.audio_path)
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result[0].exists())
+        self.assertTrue(result[0].name.endswith('_transcribed.json'))
+        mock_translate.assert_not_called()
+
+    @patch('openlrc.translate.LLMTranslator.translate')
+    def test_translate_processes_transcribed_json(self, mock_translate):
+        """translate() should process transcribed JSON files and produce subtitle output."""
+        mock_translate.return_value = ['test translation1', 'test translation2']
+        lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
+
+        # Stage 1: transcribe to get JSON paths
+        transcribed = lrcer.transcribe(self.audio_path)
+        self.assertEqual(len(transcribed), 1)
+        mock_translate.assert_not_called()
+
+        # Stage 2: translate the transcribed JSON
+        result = lrcer.translate(transcribed, target_lang='zh-cn')
+        self.assertTrue(result)
+        self.assertEqual(len(result), 1)
+        mock_translate.assert_called_once()
+
+    @patch('openlrc.translate.LLMTranslator.translate',
+           MagicMock(return_value=['test translation1', 'test translation2']))
+    def test_run_full_pipeline(self):
+        """run() with default args should produce subtitle output (full pipeline)."""
+        lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
+        result = lrcer.run(self.audio_path)
+        self.assertTrue(result)
+        self.assertEqual(len(result), 1)

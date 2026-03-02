@@ -105,6 +105,32 @@ class LRCer:
 
         return glossary
 
+    def _transcribe_single(self, audio_path: Path, src_lang: Optional[str] = None) -> Path:
+        """
+        Transcribe a single audio file and return the path to the transcribed JSON.
+
+        If a transcribed JSON file already exists for the given audio, it is reused.
+
+        Args:
+            audio_path (Path): Path to the preprocessed audio file.
+            src_lang (Optional[str]): Source language. If None, language will be auto-detected.
+
+        Returns:
+            Path: Path to the transcribed JSON file.
+        """
+        transcribed_path = extend_filename(audio_path, '_transcribed').with_suffix('.json')
+        if not transcribed_path.exists():
+            with Timer('Transcription process'):
+                logger.info(
+                    f'Audio length: {audio_path}: {format_timestamp(get_audio_duration(audio_path), fmt="srt")}')
+                segments, info = self.transcriber.transcribe(audio_path, language=src_lang)
+                logger.info(f'Detected language: {info.language}')
+
+            self.to_json(segments, name=transcribed_path, lang=info.language)
+        else:
+            logger.info(f'Found transcribed json file: {transcribed_path}')
+        return transcribed_path
+
     def produce_transcriptions(self, transcription_queue, audio_paths, src_lang):
         """
         Sequentially produce transcriptions for given audio paths and put them in the queue.
@@ -118,25 +144,196 @@ class LRCer:
         and puts the path of the transcribed JSON file into the queue.
         """
         for audio_path in audio_paths:
-            transcribed_path = extend_filename(audio_path, '_transcribed').with_suffix('.json')
-            if not transcribed_path.exists():
-                with Timer('Transcription process'):
-                    logger.info(
-                        f'Audio length: {audio_path}: {format_timestamp(get_audio_duration(audio_path), fmt="srt")}')
-                    segments, info = self.transcriber.transcribe(audio_path, language=src_lang)
-                    logger.info(f'Detected language: {info.language}')
-
-                    # [Segment(start, end, text, words=[Word(start, end, word, probability)])]
-
-                # Save the transcribed json
-                self.to_json(segments, name=transcribed_path, lang=info.language)  # xxx_transcribed.json
-            else:
-                logger.info(f'Found transcribed json file: {transcribed_path}')
+            transcribed_path = self._transcribe_single(audio_path, src_lang)
             transcription_queue.put(transcribed_path)
-            # logger.info(f'Put transcription: {transcribed_path}')
 
         transcription_queue.put(None)
         logger.info('Transcription producer finished.')
+
+    def transcribe(self, paths: Union[str, Path, List[Union[str, Path]]], src_lang: Optional[str] = None,
+                   noise_suppress: bool = False, skip_preprocess: bool = False) -> List[Path]:
+        """
+        Transcribe audio/video files and return paths to the transcribed JSON files.
+
+        This method runs only the preprocessing and transcription stages, without
+        any translation. It can be used independently when translation is not needed,
+        or to produce transcription files that can later be passed to translate().
+
+        Args:
+            paths (Union[str, Path, List[Union[str, Path]]]): Audio/Video paths.
+            src_lang (Optional[str]): Language of the audio, default to auto-detect.
+            noise_suppress (bool): Whether to suppress noise in the audio. Default is False.
+            skip_preprocess (bool): Whether to skip the preprocessing step. Default is False.
+
+        Returns:
+            List[Path]: List of paths to the transcribed JSON files.
+        """
+        if not paths:
+            logger.warning('No audio/video file given. Skip transcription.')
+            return []
+
+        if isinstance(paths, (str, Path)):
+            paths = [paths]
+
+        paths = list(map(Path, paths))
+
+        if skip_preprocess:
+            audio_paths = [get_preprocessed_path(p) for p in paths]
+            for p in audio_paths:
+                if not p.exists():
+                    raise FileNotFoundError(
+                        f'Preprocessed file not found: {p}. '
+                        f'Run pre_process() first or set skip_preprocess=False.'
+                    )
+        else:
+            audio_paths = self.pre_process(paths, noise_suppress=noise_suppress)
+
+        logger.info(f'Transcribing {len(audio_paths)} audio files: {pformat(audio_paths)}')
+
+        return [self._transcribe_single(p, src_lang) for p in audio_paths]
+
+    @staticmethod
+    def _get_base_name(transcribed_path: Path) -> str:
+        """Extract the original audio base name from a transcribed JSON path."""
+        return transcribed_path.stem.replace('_preprocessed_transcribed', '')
+
+    def _build_final_subtitle(self, base_name, target_lang, transcribed_opt_sub, skip_trans):
+        """
+        Build the final subtitle object for a single transcription.
+
+        If skip_trans is True, copies the transcription as the final output.
+        Otherwise, performs LLM translation via _translate().
+
+        Args:
+            base_name (str): Original audio base name.
+            target_lang (str): Target language for translation.
+            transcribed_opt_sub (Subtitle): Post-processed transcription subtitle.
+            skip_trans (bool): Whether to skip translation.
+
+        Returns:
+            Subtitle: The final subtitle (translated or copied), or None on error.
+        """
+        translated_path = extend_filename(transcribed_opt_sub.filename, '_translated')
+        final_json_path = translated_path.with_name(f'{base_name}.json')
+
+        if final_json_path.exists():
+            return Subtitle.from_json(final_json_path)
+
+        if skip_trans:
+            shutil.copy(transcribed_opt_sub.filename, final_json_path)
+            transcribed_opt_sub.filename = final_json_path
+            return transcribed_opt_sub
+
+        try:
+            with Timer('Translation process'):
+                return self._translate(base_name, target_lang, transcribed_opt_sub, translated_path)
+        except Exception as e:
+            self.exception = e
+            return None
+
+    def _generate_subtitle_files(self, subtitle, base_name, subtitle_format):
+        """
+        Generate subtitle file (.lrc or .srt) and move it to the output directory.
+
+        Args:
+            subtitle (Subtitle): The subtitle object to export.
+            base_name (str): Original audio base name.
+            subtitle_format (str): Output format, either 'lrc' or 'srt'.
+        """
+        subtitle_path = getattr(subtitle, f'to_{subtitle_format}')()
+        result_path = subtitle_path.parent.parent / f'{base_name}.{subtitle_format}'
+        shutil.move(subtitle_path, result_path)
+        self.transcribed_paths.append(result_path)
+
+    def _handle_bilingual_subtitles(self, transcribed_path, base_name, transcribed_opt_sub, subtitle_format):
+        """
+        Generate bilingual subtitles and a non-translated subtitle file.
+
+        Args:
+            transcribed_path (Path): Path to the transcribed JSON file.
+            base_name (str): Original audio base name.
+            transcribed_opt_sub (Subtitle): Post-processed transcription subtitle.
+            subtitle_format (str): Output format, either 'lrc' or 'srt'.
+        """
+        bilingual_subtitle = BilingualSubtitle.from_preprocessed(transcribed_path.parent, base_name)
+        bilingual_optimizer = SubtitleOptimizer(bilingual_subtitle)
+        bilingual_optimizer.extend_time()
+
+        bilingual_path = getattr(bilingual_subtitle, f'to_{subtitle_format}')()
+        shutil.move(bilingual_path, bilingual_path.parent.parent / bilingual_path.name)
+
+        non_translated_subtitle = transcribed_opt_sub
+        optimizer = SubtitleOptimizer(non_translated_subtitle)
+        optimizer.extend_time()
+        non_translated_path = getattr(non_translated_subtitle, f'to_{subtitle_format}')()
+        shutil.move(
+            non_translated_path,
+            non_translated_path.parent.parent / f'{base_name}_nontrans.{subtitle_format}'
+        )
+
+    def _process_transcribed_file(self, transcribed_path: Path, target_lang: Optional[str],
+                                   skip_trans: bool = False, bilingual_sub: bool = False):
+        """
+        Process a single transcribed JSON file through post-processing, translation
+        (or copy when skip_trans=True), and subtitle generation.
+
+        This is the shared pipeline used by translate(), translation_worker(), and
+        the skip_trans branch of run().
+
+        Args:
+            transcribed_path (Path): Path to the transcribed JSON file.
+            target_lang (Optional[str]): Target language for translation.
+            skip_trans (bool): Whether to skip translation.
+            bilingual_sub (bool): Whether to generate bilingual subtitles.
+        """
+        base_name = self._get_base_name(transcribed_path)
+        subtitle_format = 'srt' if transcribed_path.parent.parent / base_name in self.from_video else 'lrc'
+
+        transcribed_sub = Subtitle.from_json(transcribed_path)
+        transcribed_opt_sub = self.post_process(transcribed_sub, update_name=True)
+
+        final_subtitle = self._build_final_subtitle(base_name, target_lang, transcribed_opt_sub, skip_trans)
+
+        self._generate_subtitle_files(final_subtitle, base_name, subtitle_format)
+
+        if not skip_trans and bilingual_sub:
+            self._handle_bilingual_subtitles(transcribed_path, base_name, transcribed_opt_sub, subtitle_format)
+
+    def translate(self, transcribed_paths: Union[Path, List[Path]], target_lang: str = 'zh-cn',
+                  bilingual_sub: bool = False) -> List[Path]:
+        """
+        Translate previously transcribed JSON files and generate subtitle files.
+
+        This method runs only the translation and subtitle generation stages.
+        It can be used independently on transcription files produced by transcribe(),
+        without needing the original audio files or the whisper model.
+
+        Args:
+            transcribed_paths (Union[Path, List[Path]]): Path(s) to transcribed JSON files.
+            target_lang (str): Target language for translation. Default is 'zh-cn'.
+            bilingual_sub (bool): Whether to generate bilingual subtitles. Default is False.
+
+        Returns:
+            List[Path]: List of paths to the generated subtitle files.
+        """
+        self.transcribed_paths = []
+        self.exception = None
+
+        if isinstance(transcribed_paths, Path):
+            transcribed_paths = [transcribed_paths]
+
+        logger.info(f'Translating {len(transcribed_paths)} transcribed files: {pformat(transcribed_paths)}')
+
+        for transcribed_path in transcribed_paths:
+            self._process_transcribed_file(transcribed_path, target_lang, bilingual_sub=bilingual_sub)
+
+            if self.exception:
+                traceback.print_exception(type(self.exception), self.exception, self.exception.__traceback__)
+                raise self.exception
+
+        logger.info(f'Total API fee used: {self.api_fee:.4f} USD')
+
+        return self.transcribed_paths
 
     def consume_transcriptions(self, transcription_queue, target_lang, skip_trans, bilingual_sub):
         """
@@ -171,49 +368,6 @@ class LRCer:
         This method continuously processes transcriptions from the queue, handling translation,
         subtitle generation, and bilingual subtitle creation if required.
         """
-
-        def process_translation(base_name, target_lang, transcribed_opt_sub, skip_trans):
-            translated_path = extend_filename(transcribed_opt_sub.filename, '_translated')
-            final_json_path = translated_path.with_name(f'{base_name}.json')
-
-            if final_json_path.exists():
-                return Subtitle.from_json(final_json_path)
-
-            if skip_trans:
-                shutil.copy(transcribed_opt_sub.filename, final_json_path)
-                transcribed_opt_sub.filename = final_json_path
-                return transcribed_opt_sub
-
-            try:
-                with Timer('Translation process'):
-                    return self._translate(base_name, target_lang, transcribed_opt_sub, translated_path)
-            except Exception as e:
-                self.exception = e
-                return None
-
-        def generate_subtitle_files(subtitle, base_name, subtitle_format):
-            subtitle_path = getattr(subtitle, f'to_{subtitle_format}')()
-            result_path = subtitle_path.parent.parent / f'{base_name}.{subtitle_format}'
-            shutil.move(subtitle_path, result_path)
-            self.transcribed_paths.append(result_path)
-
-        def handle_bilingual_subtitles(transcribed_path, base_name, transcribed_opt_sub, subtitle_format):
-            bilingual_subtitle = BilingualSubtitle.from_preprocessed(transcribed_path.parent, base_name)
-            bilingual_optimizer = SubtitleOptimizer(bilingual_subtitle)
-            bilingual_optimizer.extend_time()
-
-            bilingual_path = getattr(bilingual_subtitle, f'to_{subtitle_format}')()
-            shutil.move(bilingual_path, bilingual_path.parent.parent / bilingual_path.name)
-
-            non_translated_subtitle = transcribed_opt_sub
-            optimizer = SubtitleOptimizer(non_translated_subtitle)
-            optimizer.extend_time()
-            non_translated_path = getattr(non_translated_subtitle, f'to_{subtitle_format}')()
-            shutil.move(
-                non_translated_path,
-                non_translated_path.parent.parent / f'{base_name}_nontrans.{subtitle_format}'
-            )
-
         while True:
             logger.debug('Translation worker waiting transcription...')
             transcribed_path = transcription_queue.get()
@@ -225,23 +379,7 @@ class LRCer:
 
             logger.info(f'Got transcription: {transcribed_path}')
 
-            # Extract base name and determine subtitle format
-            base_name = transcribed_path.stem.replace('_preprocessed_transcribed', '')
-            subtitle_format = 'srt' if transcribed_path.parent.parent / base_name in self.from_video else 'lrc'
-
-            # Process transcription
-            transcribed_sub = Subtitle.from_json(transcribed_path)
-            transcribed_opt_sub = self.post_process(transcribed_sub, update_name=True)
-
-            # Handle translation
-            final_subtitle = process_translation(base_name, target_lang, transcribed_opt_sub, skip_trans)
-
-            # Generate and move subtitle files
-            generate_subtitle_files(final_subtitle, base_name, subtitle_format)
-
-            # Handle bilingual subtitles if needed
-            if not skip_trans and bilingual_sub:
-                handle_bilingual_subtitles(transcribed_path, base_name, transcribed_opt_sub, subtitle_format)
+            self._process_transcribed_file(transcribed_path, target_lang, skip_trans, bilingual_sub)
 
             logger.info(f'Translation fee til now: {self.api_fee:.4f} USD')
 
@@ -375,6 +513,20 @@ class LRCer:
                     )
         else:
             audio_paths = self.pre_process(paths, noise_suppress=noise_suppress)
+
+        if skip_trans:
+            # Transcribe-only: no translation threads needed
+            transcribed_paths = self.transcribe(
+                paths, src_lang=src_lang, skip_preprocess=True,
+            )
+            for transcribed_path in transcribed_paths:
+                self._process_transcribed_file(transcribed_path, target_lang=None, skip_trans=True)
+
+            if clear_temp:
+                logger.info('Clearing temporary folder...')
+                self.clear_temp_files(audio_paths)
+
+            return self.transcribed_paths
 
         logger.info(f'Working on {len(audio_paths)} audio files: {pformat(audio_paths)}')
 
