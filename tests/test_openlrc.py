@@ -175,6 +175,28 @@ class TestLRCer(unittest.TestCase):
 
     @patch('openlrc.translate.LLMTranslator.translate',
            MagicMock(return_value=['test translation1', 'test translation2']))
+    def test_translate_independent_video_transcription_outputs_srt(self):
+        """translate() should keep video-origin output as .srt even on a fresh LRCer."""
+        lrcer_transcribe = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
+        transcribed = lrcer_transcribe.transcribe(self.video_path)
+        self.assertEqual(len(transcribed), 1)
+
+        lrcer_translate = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
+        result = lrcer_translate.translate(transcribed, target_lang='zh-cn')
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].suffix, '.srt')
+
+    @patch('openlrc.translate.LLMTranslator.translate')
+    def test_run_skip_trans_deduplicates_duplicate_inputs(self, mock_translate):
+        """run(skip_trans=True) should transcribe duplicate input paths only once."""
+        lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
+        result = lrcer.run([self.audio_path, self.audio_path], skip_trans=True)
+        self.assertTrue(result)
+        self.assertEqual(len(result), 1)
+        mock_translate.assert_not_called()
+
+    @patch('openlrc.translate.LLMTranslator.translate',
+           MagicMock(return_value=['test translation1', 'test translation2']))
     def test_run_full_pipeline(self):
         """run() with default args should produce subtitle output (full pipeline)."""
         lrcer = LRCer(whisper_model='tiny', device='cpu', compute_type='default')
