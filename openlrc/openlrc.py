@@ -175,7 +175,8 @@ class LRCer:
         if isinstance(paths, (str, Path)):
             paths = [paths]
 
-        paths = list(map(Path, paths))
+        # Keep behavior aligned with pre_process(): de-duplicate repeated inputs.
+        paths = [Path(p) for p in set(paths)]
 
         if skip_preprocess:
             audio_paths = [get_preprocessed_path(p) for p in paths]
@@ -196,6 +197,21 @@ class LRCer:
     def _get_base_name(transcribed_path: Path) -> str:
         """Extract the original audio base name from a transcribed JSON path."""
         return transcribed_path.stem.replace('_preprocessed_transcribed', '')
+
+    def _is_video_transcription(self, transcribed_path: Path, base_name: str) -> bool:
+        """
+        Determine whether a transcribed file originated from a video source.
+
+        In normal run() flows, self.from_video is populated during preprocessing.
+        For standalone translate() usage, infer from an existing source file next to
+        the output directory when possible.
+        """
+        source_stem = transcribed_path.parent.parent / base_name
+        if source_stem in self.from_video:
+            return True
+
+        video_suffixes = ('.mp4', '.mkv', '.mov', '.avi', '.webm', '.ts', '.m4v', '.flv', '.wmv')
+        return any(source_stem.with_suffix(suffix).exists() for suffix in video_suffixes)
 
     def _build_final_subtitle(self, base_name, target_lang, transcribed_opt_sub, skip_trans):
         """
@@ -287,7 +303,7 @@ class LRCer:
             bilingual_sub (bool): Whether to generate bilingual subtitles.
         """
         base_name = self._get_base_name(transcribed_path)
-        subtitle_format = 'srt' if transcribed_path.parent.parent / base_name in self.from_video else 'lrc'
+        subtitle_format = 'srt' if self._is_video_transcription(transcribed_path, base_name) else 'lrc'
 
         transcribed_sub = Subtitle.from_json(transcribed_path)
         transcribed_opt_sub = self.post_process(transcribed_sub, update_name=True)
