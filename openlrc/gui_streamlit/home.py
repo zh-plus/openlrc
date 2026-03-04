@@ -10,7 +10,7 @@ from st_pages import Page, show_pages
 from streamlit_extras.bottom_container import bottom
 from streamlit_extras.mention import mention
 
-from openlrc import LRCer
+from openlrc import LRCer, TranscriptionConfig, TranslationConfig
 from openlrc.gui_streamlit.utils import get_asr_options, get_vad_options, get_preprocess_options, zip_files
 
 show_pages([
@@ -173,19 +173,25 @@ if submitted:
     src_lang = None if src_lang == 'Auto Detect' else src_lang
 
     with st.spinner('Running...'):
-        lrcer = LRCer(whisper_model=whisper_model, compute_type=compute_type, chatbot_model=chatbot_model,
-                      fee_limit=fee_limit, consumer_thread=consumer_thread,
-                      asr_options=get_asr_options(
-                          beam_size, best_of, patience, length_penalty, repetition_penalty, no_repeat_ngram_size,
-                          temperature, compression_ratio_threshold, log_prob_threshold, no_speech_threshold,
-                          condition_on_previous_text, initial_prompt, prefix, suppress_blank, suppress_tokens,
-                          without_timestamps, max_initial_timestamp, word_timestamps, prepend_punctuations,
-                          append_punctuations, hallucination_silence_threshold),
-                      vad_options=get_vad_options(
-                          threshold, min_speech_duration_ms, max_speech_duration_s, min_silence_duration_ms,
-                          window_size_samples, speech_pad_ms),
-                      preprocess_options=get_preprocess_options(atten_lim_db),
-                      proxy=proxy, )
+        lrcer = LRCer(
+            transcription=TranscriptionConfig(
+                whisper_model=whisper_model, compute_type=compute_type,
+                asr_options=get_asr_options(
+                    beam_size, best_of, patience, length_penalty, repetition_penalty, no_repeat_ngram_size,
+                    temperature, compression_ratio_threshold, log_prob_threshold, no_speech_threshold,
+                    condition_on_previous_text, initial_prompt, prefix, suppress_blank, suppress_tokens,
+                    without_timestamps, max_initial_timestamp, word_timestamps, prepend_punctuations,
+                    append_punctuations, hallucination_silence_threshold),
+                vad_options=get_vad_options(
+                    threshold, min_speech_duration_ms, max_speech_duration_s, min_silence_duration_ms,
+                    window_size_samples, speech_pad_ms),
+                preprocess_options=get_preprocess_options(atten_lim_db),
+            ),
+            translation=TranslationConfig(
+                chatbot_model=chatbot_model, fee_limit=fee_limit,
+                consumer_thread=consumer_thread, proxy=proxy,
+            ),
+        )
         results = lrcer.run(paths, src_lang=src_lang, target_lang=target_lang,
                             skip_trans=skip_trans, noise_suppress=noise_suppress, bilingual_sub=bilingual_sub)
     print(paths)

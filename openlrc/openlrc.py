@@ -5,12 +5,14 @@ import concurrent.futures
 import json
 import shutil
 import traceback
+import warnings
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
 from pprint import pformat
 from queue import Queue
 from threading import Lock
-from typing import List, Union, Optional
+from typing import Any, List, Union, Optional
 
 from faster_whisper.transcribe import Segment
 
@@ -26,66 +28,164 @@ from openlrc.translate import LLMTranslator
 from openlrc.utils import Timer, extend_filename, get_audio_duration, format_timestamp, extract_audio, \
     get_file_type, get_preprocessed_path
 
+_SENTINEL = object()
+
+
+@dataclass
+class TranscriptionConfig:
+    """
+    Configuration for the transcription stage.
+
+    Args:
+        whisper_model: Name of whisper model. Default: ``large-v3``
+        compute_type: Computation type (``default``, ``int8``, ``int8_float16``,
+            ``int16``, ``float16``, ``float32``). Default: ``float16``
+        device: Device for computation. Default: ``cuda``
+        asr_options: Parameters for whisper model.
+        vad_options: Parameters for VAD model.
+        preprocess_options: Options for audio preprocessing.
+    """
+    whisper_model: str = 'large-v3'
+    compute_type: str = 'float16'
+    device: str = 'cuda'
+    asr_options: Optional[dict] = None
+    vad_options: Optional[dict] = None
+    preprocess_options: Optional[dict] = None
+
+
+@dataclass
+class TranslationConfig:
+    """
+    Configuration for the translation stage.
+
+    Args:
+        chatbot_model: The chatbot model to use. Can be a string like
+            ``'gpt-4.1-nano'`` or ``'provider:model-name'``, or a ``ModelConfig``
+            instance. Default: ``gpt-4.1-nano``
+        fee_limit: Maximum fee per translation call in USD. Default: ``0.8``
+        consumer_thread: Number of parallel translation threads. Default: ``4``
+        proxy: Proxy for API requests. e.g. ``'http://127.0.0.1:7890'``
+        base_url_config: Base URL dict for OpenAI & Anthropic.
+        glossary: Dictionary or path mapping source words to translations.
+        retry_model: Fallback model for translation retries.
+        is_force_glossary_used: Force glossary usage in context. Default: ``False``
+    """
+    chatbot_model: Union[str, ModelConfig] = 'gpt-4.1-nano'
+    fee_limit: float = 0.8
+    consumer_thread: int = 4
+    proxy: Optional[str] = None
+    base_url_config: Optional[dict] = None
+    glossary: Optional[Union[dict, str, Path]] = None
+    retry_model: Optional[Union[str, ModelConfig]] = None
+    is_force_glossary_used: bool = False
+
 
 class LRCer:
     """
-    Args:
-        whisper_model (str): Name of whisper model (tiny, tiny.en, base, base.en, small, small.en, medium,
-            medium.en, large-v1, large-v2, large-v3, distill-large-v3) When a size is configured,
-            the converted model is downloaded from the Hugging Face Hub. Default: ``large-v3``
-        compute_type (str): The type of computation to use. Can be ``default``, ``int8``, ``int8_float16``, ``int16``,
-            ``float16`` or ``float32``. Default: ``float16``
-            Note: ``default`` will keep the same quantization that was used during model conversion.
-        device (str): The device to use for computation. Default: ``cuda``
-        chatbot_model (Union[str, ModelConfig]): The chatbot model to use, check the available models using list_chatbot_models().
-            The string can be '<model-name>' or '<provider>:<model-name>'. e.g. 'gpt-4.1-nano' or 'openai:gpt-4.1-nano'.
-            The ModelConfig can be ModelConfig(model_name='<model-name>', provider='<provider>', base_url='<url>', proxy='<proxy>').
-            Default: ``gpt-4.1-nano``
-        fee_limit (float): The maximum fee you are willing to pay for one translation call. Default: ``0.8``
-        consumer_thread (int): To prevent exceeding the RPM and TPM limits set by OpenAI, the default is TPM/MAX_TOKEN.
-        asr_options (Optional[dict]): Parameters for whisper model.
-        vad_options (Optional[dict]): Parameters for VAD model.
-        preprocess_options (Optional[dict]): Options for audio preprocessing.
-        proxy (Optional[str]): Proxy for openai requests. e.g. 'http://127.0.0.1:7890'
-        base_url_config (Optional[dict]): Base URL dict for OpenAI & Anthropic.
-            e.g. {'openai': 'https://openai.justsong.cn/', 'anthropic': 'https://api.g4f.icu'}
-            Default: ``None``
-        glossary (Optional[Union[dict, str, Path]]): A dictionary mapping specific source words to their desired translations. 
-            This is used to enforce custom translations that override the default behavior of the translation model. 
-            Each key-value pair in the dictionary specifies a source word and its corresponding translation. Default: None.
-        retry_model (Optional[Union[str, ModelConfig]]): The model to use when retrying the translation. Default: None.
-        is_force_glossary_used (bool): Whether to force the given glossary to be used in context. Default: False
+    Orchestrator for audio/video transcription and translation.
+
+    Preferred usage (config objects)::
+
+        lrcer = LRCer(
+            transcription=TranscriptionConfig(whisper_model='large-v3', device='cuda'),
+            translation=TranslationConfig(chatbot_model='gpt-4.1-nano', fee_limit=1.0),
+        )
+
+    Legacy keyword arguments are still accepted but deprecated and will be
+    removed in a future release::
+
+        # Deprecated — emits DeprecationWarning
+        lrcer = LRCer(whisper_model='large-v3', chatbot_model='gpt-4.1-nano')
     """
 
-    def __init__(self, whisper_model: str = 'large-v3', compute_type: str = 'float16', device: str = 'cuda',
-                 chatbot_model: Union[str, ModelConfig] = 'gpt-4.1-nano', fee_limit: float = 0.8,
-                 consumer_thread: int = 4,
-                 asr_options: Optional[dict] = None, vad_options: Optional[dict] = None,
-                 preprocess_options: Optional[dict] = None, proxy: Optional[str] = None,
-                 base_url_config: Optional[dict] = None, glossary: Optional[Union[dict, str, Path]] = None,
-                 retry_model: Optional[Union[str, ModelConfig]] = None, is_force_glossary_used: bool = False):
-        self.chatbot_model = chatbot_model
-        self.fee_limit = fee_limit
+    def __init__(self, *,
+                 transcription: Optional[TranscriptionConfig] = None,
+                 translation: Optional[TranslationConfig] = None,
+                 # Legacy keyword arguments — deprecated
+                 whisper_model: Any = _SENTINEL, compute_type: Any = _SENTINEL,
+                 device: Any = _SENTINEL, chatbot_model: Any = _SENTINEL,
+                 fee_limit: Any = _SENTINEL, consumer_thread: Any = _SENTINEL,
+                 asr_options: Any = _SENTINEL, vad_options: Any = _SENTINEL,
+                 preprocess_options: Any = _SENTINEL, proxy: Any = _SENTINEL,
+                 base_url_config: Any = _SENTINEL, glossary: Any = _SENTINEL,
+                 retry_model: Any = _SENTINEL, is_force_glossary_used: Any = _SENTINEL):
+
+        # Detect whether any legacy keyword was explicitly passed.
+        legacy_kwargs = {
+            'whisper_model': whisper_model, 'compute_type': compute_type, 'device': device,
+            'chatbot_model': chatbot_model, 'fee_limit': fee_limit, 'consumer_thread': consumer_thread,
+            'asr_options': asr_options, 'vad_options': vad_options, 'preprocess_options': preprocess_options,
+            'proxy': proxy, 'base_url_config': base_url_config, 'glossary': glossary,
+            'retry_model': retry_model, 'is_force_glossary_used': is_force_glossary_used,
+        }
+        legacy_used = {k: v for k, v in legacy_kwargs.items() if v is not _SENTINEL}
+
+        if legacy_used:
+            warnings.warn(
+                "Passing keyword arguments directly to LRCer() is deprecated and will be removed in a future "
+                "release. Use TranscriptionConfig / TranslationConfig instead. "
+                "See https://github.com/zh-plus/openlrc/issues/81 for migration details.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+        if legacy_used and (transcription is not None or translation is not None):
+            raise ValueError(
+                "Cannot mix legacy keyword arguments with TranscriptionConfig/TranslationConfig. "
+                "Use one style or the other."
+            )
+
+        if legacy_used:
+            # Build config objects from legacy kwargs, using dataclass defaults for unset values.
+            transcription_fields = {k: v for k, v in legacy_used.items()
+                                    if k in ('whisper_model', 'compute_type', 'device',
+                                             'asr_options', 'vad_options', 'preprocess_options')}
+            translation_fields = {k: v for k, v in legacy_used.items()
+                                  if k in ('chatbot_model', 'fee_limit', 'consumer_thread', 'proxy',
+                                           'base_url_config', 'glossary', 'retry_model',
+                                           'is_force_glossary_used')}
+            transcription = TranscriptionConfig(**transcription_fields)
+            translation = TranslationConfig(**translation_fields)
+
+        self._transcription_config = transcription or TranscriptionConfig()
+        self._translation_config = translation or TranslationConfig()
+
+        # Translation state
+        self.chatbot_model = self._translation_config.chatbot_model
+        self.fee_limit = self._translation_config.fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
         self.from_video = set()
-        self.proxy = proxy
-        self.base_url_config = base_url_config
-        self.glossary = self.parse_glossary(glossary)
-        self.retry_model = retry_model
-        self.is_force_glossary_used = is_force_glossary_used
+        self.proxy = self._translation_config.proxy
+        self.base_url_config = self._translation_config.base_url_config
+        self.glossary = self.parse_glossary(self._translation_config.glossary)
+        self.retry_model = self._translation_config.retry_model
+        self.is_force_glossary_used = self._translation_config.is_force_glossary_used
 
         self._lock = Lock()
         self.exception = None
-        self.consumer_thread = consumer_thread
+        self.consumer_thread = self._translation_config.consumer_thread
 
         # Merge default options with provided options
-        self.asr_options = {**default_asr_options, **(asr_options or {})}
-        self.vad_options = {**default_vad_options, **(vad_options or {})}
-        self.preprocess_options = {**default_preprocess_options, **(preprocess_options or {})}
+        self.asr_options = {**default_asr_options, **(self._transcription_config.asr_options or {})}
+        self.vad_options = {**default_vad_options, **(self._transcription_config.vad_options or {})}
+        self.preprocess_options = {**default_preprocess_options, **(self._transcription_config.preprocess_options or {})}
 
-        self.transcriber = Transcriber(model_name=whisper_model, compute_type=compute_type, device=device,
-                                       asr_options=self.asr_options, vad_options=self.vad_options)
+        # Lazy initialization: Transcriber is created on first access via the property.
+        self._transcriber = None
         self.transcribed_paths = []
+
+    @property
+    def transcriber(self) -> Transcriber:
+        """Lazily initialize and return the Transcriber instance."""
+        if self._transcriber is None:
+            self._transcriber = Transcriber(
+                model_name=self._transcription_config.whisper_model,
+                compute_type=self._transcription_config.compute_type,
+                device=self._transcription_config.device,
+                asr_options=self.asr_options,
+                vad_options=self.vad_options,
+            )
+        return self._transcriber
 
     @staticmethod
     def parse_glossary(glossary: Union[dict, str, Path]):
