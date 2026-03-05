@@ -1,11 +1,17 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
+from __future__ import annotations
+
 import re
 import subprocess
 import time
+import unicodedata
 from pathlib import Path
-from typing import List, Dict, Any, Union
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from spacy.language import Language as SpacyLanguage
 
 import audioread
 import ffmpeg
@@ -13,9 +19,9 @@ import filetype
 import jaconvV2
 import langcodes
 import spacy
+import spacy.cli
 import tiktoken
 import torch
-import unicodedata
 from lingua import LanguageDetectorBuilder
 
 from openlrc.defaults import supported_languages_lingua
@@ -28,31 +34,33 @@ def extract_audio(path: Path) -> Path:
     :return: Audio path
     """
     file_type = get_file_type(path)
-    if file_type == 'audio':
+    if file_type == "audio":
         return path
 
     probe = ffmpeg.probe(path)
-    audio_streams = next((stream for stream in probe['streams'] if stream['codec_type'] == 'audio'), None)
-    sample_rate = audio_streams['sample_rate']
-    logger.info(f'File {path}: Audio sample rate: {sample_rate}')
+    audio_streams = next((stream for stream in probe["streams"] if stream["codec_type"] == "audio"), None)
+    if audio_streams is None:
+        raise RuntimeError(f"No audio stream found in {path}")
+    sample_rate = audio_streams["sample_rate"]
+    logger.info(f"File {path}: Audio sample rate: {sample_rate}")
 
     audio, err = (
-        ffmpeg.input(path).
-        output("pipe:", format='wav', acodec='pcm_s16le', ar=sample_rate, loglevel='quiet').
-        run(capture_stdout=True)
+        ffmpeg.input(path)
+        .output("pipe:", format="wav", acodec="pcm_s16le", ar=sample_rate, loglevel="quiet")
+        .run(capture_stdout=True)
     )
 
     if err:
-        raise RuntimeError(f'ffmpeg error: {err}')
+        raise RuntimeError(f"ffmpeg error: {err}")
 
-    audio_path = path.with_suffix('.wav')
-    with open(audio_path, 'wb') as f:
+    audio_path = path.with_suffix(".wav")
+    with open(audio_path, "wb") as f:
         f.write(audio)
 
     return audio_path
 
 
-def get_preprocessed_path(audio_path: Union[str, Path]) -> Path:
+def get_preprocessed_path(audio_path: str | Path) -> Path:
     """
     Get the expected preprocessed audio file path for a given input.
 
@@ -72,25 +80,28 @@ def get_preprocessed_path(audio_path: Union[str, Path]) -> Path:
         PosixPath('/data/preprocessed/audio_preprocessed.wav')
     """
     audio_path = Path(audio_path)
-    return audio_path.parent / 'preprocessed' / f'{audio_path.stem}_preprocessed.wav'
+    return audio_path.parent / "preprocessed" / f"{audio_path.stem}_preprocessed.wav"
 
 
 def get_file_type(path: Path) -> str:
-    if path.suffix == '.ts':
-        return 'video'
+    if path.suffix == ".ts":
+        return "video"
 
     try:
-        file_type = filetype.guess(path).mime.split('/')[0]
+        guess = filetype.guess(path)
+        if guess is None:
+            raise RuntimeError(f"File {path} is not a valid file.")
+        file_type = guess.mime.split("/")[0]
     except (TypeError, AttributeError) as e:
-        raise RuntimeError(f'File {path} is not a valid file.') from e
+        raise RuntimeError(f"File {path} is not a valid file.") from e
 
-    if file_type not in ['audio', 'video']:
-        raise RuntimeError(f'File {path} is not a valid file. Should be audio or video file.')
+    if file_type not in ["audio", "video"]:
+        raise RuntimeError(f"File {path} is not a valid file. Should be audio or video file.")
 
     return file_type
 
 
-def get_audio_duration(path: Union[str, Path]) -> float:
+def get_audio_duration(path: str | Path) -> float:
     with audioread.audio_open(str(path)) as audio:
         return audio.duration
 
@@ -106,16 +117,16 @@ def normalize(text):
     Normalize strings using str.lower(), and unicodedata.normalize
     """
     # unicodedata cant handel quotes as expected'’'
-    quotes_table = str.maketrans('〈〉゛“”‘’', '<>"""\'\'')
+    quotes_table = str.maketrans("〈〉゛“”‘’", '<>"""\'\'')
     text = text.translate(quotes_table)
 
-    text = unicodedata.normalize('NFKC', text.lower())
+    text = unicodedata.normalize("NFKC", text.lower())
 
     # unicodedata cant handel kana
     text = jaconvV2.z2h(text)
 
     # Special case
-    special_table = str.maketrans('〇①②③④⑤⑥⑦⑧⑨', '0123456789')
+    special_table = str.maketrans("〇①②③④⑤⑥⑦⑧⑨", "0123456789")
     text = text.translate(special_table)
 
     return text
@@ -127,8 +138,8 @@ def get_text_token_number(text: str, model: str = "gpt-3.5-turbo") -> int:
     return len(tokens)
 
 
-def get_messages_token_number(messages: List[Dict[str, Any]], model: str = "gpt-3.5-turbo") -> int:
-    total = sum([get_text_token_number(element['content'], model=model) for element in messages])
+def get_messages_token_number(messages: list[dict[str, Any]], model: str = "gpt-3.5-turbo") -> int:
+    total = sum([get_text_token_number(element["content"], model=model) for element in messages])
 
     return total
 
@@ -140,25 +151,27 @@ def extend_filename(filename: Path, extend: str) -> Path:
 
 class Timer:
     def __init__(self, task=""):
-        self._start = None
-        self._stop = None
+        self._start: float | None = None
+        self._stop: float | None = None
         self.task = task
 
     def start(self):
         if self.task:
-            logger.info(f'Start {self.task}')
+            logger.info(f"Start {self.task}")
         self._start = time.perf_counter()
 
     def stop(self):
         self._stop = time.perf_counter()
-        logger.info(f'{self.task} Elapsed: {self._elapsed:.2f}s')
+        logger.info(f"{self.task} Elapsed: {self._elapsed:.2f}s")
 
     @property
-    def _elapsed(self):
+    def _elapsed(self) -> float:
+        assert self._start is not None and self._stop is not None, "Timer not started/stopped"
         return self._stop - self._start
 
     @property
-    def duration(self):
+    def duration(self) -> float:
+        assert self._start is not None, "Timer not started"
         return time.perf_counter() - self._start
 
     def __enter__(self):
@@ -186,23 +199,23 @@ def parse_timestamp(time_stamp: str, fmt: str) -> float:
         ValueError: If `time_stamp` does not match the expected format for the specified `fmt`.
     """
 
-    if fmt == 'lrc':
-        if not re.match(r'^\d+:\d+\.\d+$', time_stamp):
+    if fmt == "lrc":
+        if not re.match(r"^\d+:\d+\.\d+$", time_stamp):
             raise ValueError(f"Invalid timestamp format for LRC: {time_stamp}")
-        minutes, seconds = time_stamp.split(':')
-        seconds, hundredths_of_sec = seconds.split('.')
+        minutes, seconds = time_stamp.split(":")
+        seconds, hundredths_of_sec = seconds.split(".")
         return int(minutes) * 60 + int(seconds) + int(hundredths_of_sec) / 100.0
-    elif fmt == 'srt':
-        if not re.match(r'^\d+:\d+:\d+,\d+$', time_stamp):
+    elif fmt == "srt":
+        if not re.match(r"^\d+:\d+:\d+,\d+$", time_stamp):
             raise ValueError(f"Invalid timestamp format for SRT: {time_stamp}")
-        hours, minutes, seconds = time_stamp.split(':')
-        seconds, milliseconds = seconds.split(',')
+        hours, minutes, seconds = time_stamp.split(":")
+        seconds, milliseconds = seconds.split(",")
         return int(hours) * 3600 + int(minutes) * 60 + int(seconds) + int(milliseconds) / 1000.0
     else:
         raise ValueError(f"Unsupported timestamp format: {fmt}")
 
 
-def format_timestamp(seconds: float, fmt: str = 'lrc') -> str:
+def format_timestamp(seconds: float, fmt: str = "lrc") -> str:
     """
     Converts a timestamp in seconds into a string in the specified format.
 
@@ -219,10 +232,10 @@ def format_timestamp(seconds: float, fmt: str = 'lrc') -> str:
     # assert seconds >= 0, "non-negative timestamp expected"
     if seconds < 0:
         logger.warning(f"Negative timestamp: {seconds}")
-        if fmt == 'lrc':
-            return '0:00.00'
-        elif fmt == 'srt':
-            return '00:00:00,000'
+        if fmt == "lrc":
+            return "0:00.00"
+        elif fmt == "srt":
+            return "00:00:00,000"
         else:
             raise ValueError(f"Unsupported timestamp format: {fmt}")
 
@@ -238,42 +251,44 @@ def format_timestamp(seconds: float, fmt: str = 'lrc') -> str:
     milliseconds %= 1000
 
     # Return the timestamp in the specified format.
-    if fmt == 'lrc':
+    if fmt == "lrc":
         return f"{minutes:02d}:{seconds:02d}.{milliseconds // 10:02d}"
-    elif fmt == 'srt':
+    elif fmt == "srt":
         return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
     else:
         raise ValueError(f"Unsupported timestamp format: {fmt}")
 
 
-def detect_lang(text):
+def detect_lang(text) -> str:
     detector = LanguageDetectorBuilder.from_languages(*supported_languages_lingua).build()
-    name = detector.detect_language_of(text).name.lower()
+    detected = detector.detect_language_of(text)
+    if detected is None:
+        raise RuntimeError(f"Could not detect language for text: {text[:50]!r}")
+    name = detected.name.lower()
     lang_code = langcodes.Language.find(name).language
+    if lang_code is None:
+        raise RuntimeError(f"Could not resolve language code for: {name!r}")
     return lang_code
 
 
 def get_spacy_lib(lang):
-    special_case = {
-        'core_web': ['zh', 'en'],
-        'ent_wiki': ['xx']
-    }
+    special_case = {"core_web": ["zh", "en"], "ent_wiki": ["xx"]}
 
-    mid_str = 'core_news'
+    mid_str = "core_news"
     for k, v in special_case.items():
         if lang in v:
             mid_str = k
 
-    return f'{lang}_{mid_str}_sm'
+    return f"{lang}_{mid_str}_sm"
 
 
-def spacy_load(lang) -> spacy.Language:
+def spacy_load(lang) -> SpacyLanguage:
     lib_name = get_spacy_lib(lang)
     try:
         nlp = spacy.load(lib_name)
-    except (IOError, ImportError, OSError):
-        logger.warning(f'Spacy model {lib_name} missed, downloading')
-        spacy.cli.download(lib_name)
+    except (ImportError, OSError):
+        logger.warning(f"Spacy model {lib_name} missed, downloading")
+        spacy.cli.download(lib_name)  # pyright: ignore[reportPrivateImportUsage]
         nlp = spacy.load(lib_name)
 
     return nlp
@@ -298,23 +313,24 @@ def merge_subtitle(video_path, subtitle_path, output_path):
     def convert2ffmpeg_path(path):
         abs_path = str(Path(path).absolute()).replace("\\", "/")
 
-        abs_path = abs_path[0] + '\\\\' + abs_path[1:]
+        abs_path = abs_path[0] + "\\\\" + abs_path[1:]
 
         return abs_path
 
     # check ffmpeg
     try:
-        subprocess.check_output('ffmpeg -version', shell=True)
+        subprocess.check_output("ffmpeg -version", shell=True)
     except FileNotFoundError:
-        raise RuntimeError('ffmpeg is not installed. Please install ffmpeg first.')
+        raise RuntimeError("ffmpeg is not installed. Please install ffmpeg first.")
 
     subtitle_path = convert2ffmpeg_path(subtitle_path)
-    style = 'FontSize=24,Bold=1'
+    style = "FontSize=24,Bold=1"
     subprocess.call(
         f'ffmpeg -y -i "{video_path}" -vf subtitles="{subtitle_path}":force_style=\'{style}\' "{output_path}"',
-        shell=True)
+        shell=True,
+    )
 
-    logger.info(f'Subtitled video saved to {output_path}')
+    logger.info(f"Subtitled video saved to {output_path}")
 
 
 def remove_stop(text, stop_sequences):

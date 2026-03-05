@@ -306,6 +306,23 @@ uv venv
 uv sync
 ```
 
+### Code quality checks
+
+Before committing, please make sure the following checks pass locally:
+
+```shell
+# Lint
+uv run ruff check openlrc/ tests/
+
+# Format
+uv run ruff format --check openlrc/ tests/
+# To auto-fix formatting:
+# uv run ruff format openlrc/ tests/
+
+# Type check
+uv run pyright openlrc/
+```
+
 For live translation testing as a developer (and for CI usage), set:
 
 ```shell

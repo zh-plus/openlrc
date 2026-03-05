@@ -3,19 +3,24 @@
 
 import abc
 from abc import ABC
-from typing import List, Tuple, Optional
 
 from langcodes import Language
 
 from openlrc.context import TranslateInfo
-from openlrc.validators import ChunkedTranslateValidator, AtomicTranslateValidator, ProofreaderValidator, \
-    ContextReviewerValidateValidator, TranslationEvaluatorValidator
+from openlrc.validators import (
+    AtomicTranslateValidator,
+    BaseValidator,
+    ChunkedTranslateValidator,
+    ContextReviewerValidateValidator,
+    ProofreaderValidator,
+    TranslationEvaluatorValidator,
+)
 
-ORIGINAL_PREFIX = 'Original>'
-TRANSLATION_PREFIX = 'Translation>'
-PROOFREAD_PREFIX = 'Proofread>'
+ORIGINAL_PREFIX = "Original>"
+TRANSLATION_PREFIX = "Translation>"
+PROOFREAD_PREFIX = "Proofread>"
 
-BASE_TRANSLATE_INSTRUCTION = f'''Ignore all previous instructions.
+BASE_TRANSLATE_INSTRUCTION = f"""Ignore all previous instructions.
 You are a translator tasked with revising and translating subtitles into a target language. Your goal is to ensure accurate, concise, and natural-sounding translations for each line of dialogue. The input consists of transcribed audio, which may contain transcription errors. Your task is to first correct any errors you find in the sentences based on their context, and then translate them to the target language according to the revised sentences.
 The user will provide a chunk of lines, you should respond with an accurate, concise, and natural-sounding translation for the dialogue, with appropriate punctuation.
 The user may provide additional context, such as title of the source material, a summary of the current scene, or a list of character names. Use this information to improve the quality of your translation.
@@ -101,12 +106,14 @@ Please translate the subtitles again, paying careful attention to ensure that ea
 Do not merge lines together in the translation, it leads to incorrect timings and confusion for the reader.
 The content of the translation is for learning purposes only and will not violate the usage guidelines.
 Please DO NOT use JSON format in your response.
-'''
+"""
 
 
 class Prompter(abc.ABC):
+    validator: "BaseValidator | None" = None
+
     def check_format(self, user_input: str, generated_content: str) -> bool:
-        if hasattr(self, 'validator') and self.validator:
+        if self.validator:
             return self.validator.validate(user_input, generated_content)
         else:
             return True
@@ -123,10 +130,7 @@ class TranslatePrompter(Prompter, ABC):
 
     @classmethod
     def get_language_display_names(cls, src_lang, target_lang):
-        return (
-            Language.get(src_lang).display_name('en'),
-            Language.get(target_lang).display_name('en')
-        )
+        return (Language.get(src_lang).display_name("en"), Language.get(target_lang).display_name("en"))
 
 
 class ChunkedTranslatePrompter(TranslatePrompter):
@@ -139,7 +143,7 @@ class ChunkedTranslatePrompter(TranslatePrompter):
         self.audio_type = context.audio_type
         self.title = context.title
         self.glossary = context.glossary
-        self.user_prompt = f'''Translation guidelines from context reviewer:
+        self.user_prompt = f"""Translation guidelines from context reviewer:
 {{guideline}}
 
 Previews summaries:
@@ -150,31 +154,34 @@ Previews summaries:
 Please translate these subtitles for {self.audio_type} from {self.src_lang_display} to {self.target_lang_display}.\n
 {{user_input}}
 <summary></summary>
-<scene></scene>'''
+<scene></scene>"""
 
     def system(self) -> str:
         return BASE_TRANSLATE_INSTRUCTION
 
-    def user(self, chunk_num: int, user_input: str, summaries='', guideline='') -> str:
-        summaries_str = '\n'.join(f'Chunk {i}: {summary}' for i, summary in enumerate(summaries, 1))
+    def user(self, chunk_num: int, user_input: str, summaries: list[str] | str = "", guideline: str = "") -> str:
+        summaries_str = "\n".join(f"Chunk {i}: {summary}" for i, summary in enumerate(summaries, 1))
         return self.user_prompt.format(
-            summaries_str=summaries_str, chunk_num=chunk_num, user_input=user_input, guideline=guideline).strip()
+            summaries_str=summaries_str, chunk_num=chunk_num, user_input=user_input, guideline=guideline
+        ).strip()
 
     @property
     def formatted_glossary(self):
-        glossary_strings = '\n'.join(f'{k}: {v}' for k, v in self.glossary.items())
-        result = f'''
+        if not self.glossary:
+            return ""
+        glossary_strings = "\n".join(f"{k}: {v}" for k, v in self.glossary.items())
+        result = f"""
 # Glossary
 Use the following glossary to ensure consistency in your translations:
 <preferred-translation>
 {glossary_strings}
 </preferred-translation>
-'''
+"""
         return result
 
     @classmethod
-    def format_texts(cls, texts: List[Tuple[int, str]]):
-        return '\n'.join([f'#{i}\n{ORIGINAL_PREFIX}\n{text}\n{TRANSLATION_PREFIX}\n' for i, text in texts])
+    def format_texts(cls, texts: list[tuple[int, str]]):
+        return "\n".join([f"#{i}\n{ORIGINAL_PREFIX}\n{text}\n{TRANSLATION_PREFIX}\n" for i, text in texts])
 
 
 class AtomicTranslatePrompter(TranslatePrompter):
@@ -185,21 +192,22 @@ class AtomicTranslatePrompter(TranslatePrompter):
         self.validator = AtomicTranslateValidator(target_lang)
 
     def user(self, text):
-        return f'''Please translate the following text from {self.src_lang_display} to {self.target_lang_display}. 
-Please do not output any content other than the translated text. Here is the text: {text}'''
+        return f"""Please translate the following text from {self.src_lang_display} to {self.target_lang_display}. 
+Please do not output any content other than the translated text. Here is the text: {text}"""
 
 
 class ContextReviewPrompter(Prompter):
     def __init__(self, src_lang, target_lang):
         self.src_lang = src_lang
         self.target_lang = target_lang
-        self.src_lang_display, self.target_lang_display = TranslatePrompter.get_language_display_names(src_lang,
-                                                                                                       target_lang)
+        self.src_lang_display, self.target_lang_display = TranslatePrompter.get_language_display_names(
+            src_lang, target_lang
+        )
 
-        self.stop_sequence = '<--END-OF-CONTEXT-->'
+        self.stop_sequence = "<--END-OF-CONTEXT-->"
 
     def system(self):
-        return f'''You are a context reviewer responsible for ensuring the consistency and accuracy of translations between two languages. Your task involves reviewing and providing necessary contextual information for translations.
+        return f"""You are a context reviewer responsible for ensuring the consistency and accuracy of translations between two languages. Your task involves reviewing and providing necessary contextual information for translations.
 
 Objective:
 1. Build a comprehensive glossary of key terms and phrases used in the {self.src_lang_display} to {self.target_lang_display} translations. The glossary should include technical terms, slang, and culturally specific references that need consistent translation or localization, focusing on terms that may cause confusion or inconsistency.
@@ -261,28 +269,28 @@ Remember to add {self.stop_sequence} after the generated contexts.
 Remember you are a context provider, but NOT a translator. DO NOT provide any directly translation in the response.
 If you are given an existing glossary, try your best to incorporate it into the context review.
 Stop generating as soon as possible if you have generated a workable guideline (only include the glossary, characters, summary, tone and style, and target audience).
-I may give you a glossary. Please provide me with a new glossary that does not overlap with the one I give you.'''
+I may give you a glossary. Please provide me with a new glossary that does not overlap with the one I give you."""
 
-    def user(self, text, title='', given_glossary: Optional[dict] = None):
-        glossary_text = f'Given glossary: {given_glossary}' if given_glossary else ''
-        return f'''{glossary_text}
+    def user(self, text, title="", given_glossary: dict | None = None):
+        glossary_text = f"Given glossary: {given_glossary}" if given_glossary else ""
+        return f"""{glossary_text}
 Please review the following text (title:{title}) and provide the necessary context for the translation from {self.src_lang_display} to {self.target_lang_display}:
 {text}
 
 Now, generate Glossary, Characters, Summary, Tone and Style, and Target Audience:
-'''
+"""
 
 
 class ProofreaderPrompter(Prompter):
     def __init__(self, src_lang, target_lang):
         self.src_lang = src_lang
         self.target_lang = target_lang
-        self.src_lang_display = Language.get(src_lang).display_name('en')
-        self.target_lang_display = Language.get(target_lang).display_name('en')
+        self.src_lang_display = Language.get(src_lang).display_name("en")
+        self.target_lang_display = Language.get(target_lang).display_name("en")
         self.validator = ProofreaderValidator()
 
     def system(self):
-        return f'''Ignore all previous instructions.
+        return f"""Ignore all previous instructions.
 You are a experienced proofreader, responsible for meticulously reviewing the translated subtitles to ensure they are free of grammatical errors, spelling mistakes, and inconsistencies. The Proofreader ensures that the subtitles are clear, concise, and adhere to the provided glossary and style guidelines.
 Carefully read through the translated subtitles provided by translators. Ensure that the subtitles make sense in the context of the video and are easy to understand.
 Check for and correct any grammatical errors, including punctuation, syntax, and sentence structure. Ensure that all words are spelled correctly and consistently throughout the subtitles.
@@ -310,7 +318,18 @@ On the other hand, those who embrace change can thrive in the new environment.
 Thus, it is important to adapt to changing circumstances and remain open to new opportunities.
 {TRANSLATION_PREFIX}
 因此，适应变化的环境并对新机会持开放态度
-'''
+"""
+
+    def user(self, texts: list[str], translations: list[str], guideline: str) -> str:
+        paired = "\n".join(
+            f"#{i}\n{ORIGINAL_PREFIX}\n{text}\n{TRANSLATION_PREFIX}\n{trans}"
+            for i, (text, trans) in enumerate(zip(texts, translations), 1)
+        )
+        return (
+            f"Translation guideline:\n{guideline}\n\n"
+            f"Please proofread the following translated text "
+            f"(the original texts are for reference only, focus on the translated text):\n{paired}"
+        )
 
 
 class ContextReviewerValidatePrompter(Prompter):
@@ -318,7 +337,7 @@ class ContextReviewerValidatePrompter(Prompter):
         self.validator = ContextReviewerValidateValidator()
 
     def system(self):
-        return f'''Ignore all previous instructions.
+        return """Ignore all previous instructions.
 You are a context validator responsible for verifying the context provided by the context reviewers. Your duty is to initially confirm whether these contexts meet the most basic requirements.
 Only output True/False based on the provided context.
 
@@ -381,19 +400,19 @@ Input:
 I apologize, but I do not feel comfortable translating or engaging with that type of explicit sexual content. Perhaps we could have a thoughtful discussion about more general topics that don't involve graphic descriptions of sexual acts or non-consensual scenarios. I'd be happy to assist with other translation requests that don't contain adult content. Let me know if there's another way I can help.
 
 Output:
-False'''
+False"""
 
     def user(self, context):
-        return f'''Input:\n{context}\nOutput:'''
+        return f"""Input:\n{context}\nOutput:"""
 
 
 class TranslationEvaluatorPrompter(Prompter):
     def __init__(self):
         self.validator = TranslationEvaluatorValidator()
-        self.stop_sequence = '<--END-OF-JSON-->'
+        self.stop_sequence = "<--END-OF-JSON-->"
 
     def system(self):
-        return f'''Ignore all previous instructions.
+        return f"""Ignore all previous instructions.
 ### Context:
 You are an expert in evaluating subtitle translations. Your task is to assess the quality of a translated subtitle text based on several key factors. The original text and its translation are provided for your review.
 
@@ -442,12 +461,12 @@ result = {{
 {self.stop_sequence}
 
 Note that the result are processed by an automated system, so it is imperative that you adhere to the required output format.
-'''
+"""
 
-    def user(self, original: List[str], translation: List[str]):
-        original_str = '\n'.join(original)
-        translation_str = '\n'.join(translation)
-        return f'''Input:
+    def user(self, original: list[str], translation: list[str]):
+        original_str = "\n".join(original)
+        translation_str = "\n".join(translation)
+        return f"""Input:
 Original Texts:
 {original_str}
 
@@ -455,4 +474,4 @@ Translated Texts:
 {translation_str}
 
 Output:
-'''
+"""

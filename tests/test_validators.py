@@ -3,16 +3,15 @@
 
 import unittest
 
-from openlrc.validators import ChunkedTranslateValidator, AtomicTranslateValidator, ContextReviewerValidateValidator
+from openlrc.validators import AtomicTranslateValidator, ChunkedTranslateValidator, ContextReviewerValidateValidator
 
 
 class TestChunkedTranslateValidator(unittest.TestCase):
-
     #  Validate correctly extracts original text and translation
     def test_validate_correctly_extracts_original_and_translation(self):
         user_input = "Original>\nThis is a test.\nTranslation>\nEsto es una prueba."
         generated_content = "<summary>Test Summary</summary><scene>Test Scene</scene>\nOriginal>\nThis is a test.\nTranslation>\nEsto es una prueba."
-        validator = ChunkedTranslateValidator(target_lang='es')
+        validator = ChunkedTranslateValidator(target_lang="es")
         result = validator.validate(user_input, generated_content)
         self.assertTrue(result)
 
@@ -20,7 +19,7 @@ class TestChunkedTranslateValidator(unittest.TestCase):
     def test_validate_handles_empty_input_and_content(self):
         user_input = ""
         generated_content = ""
-        validator = ChunkedTranslateValidator(target_lang='es')
+        validator = ChunkedTranslateValidator(target_lang="es")
         result = validator.validate(user_input, generated_content)
         self.assertFalse(result)
 
@@ -28,7 +27,7 @@ class TestChunkedTranslateValidator(unittest.TestCase):
     def test_translation_not_in_target_language(self):
         user_input = "Original>\nThis is a test.\nTranslation>\nEsto es una prueba."
         generated_content = "<summary>Test Summary</summary><scene>Test Scene</scene>\nOriginal>\nThis is a test.\nTranslation>\n这是一个测试。"
-        validator = ChunkedTranslateValidator(target_lang='es')
+        validator = ChunkedTranslateValidator(target_lang="es")
         result = validator.validate(user_input, generated_content)
         self.assertFalse(result)
 
@@ -36,7 +35,7 @@ class TestChunkedTranslateValidator(unittest.TestCase):
     def test_handles_summary_and_scene_tags(self):
         user_input = "Original>\nThis is a test.\nTranslation>\nEsto es una prueba."
         generated_content = "<summary>Test Summary</summary><scene>Test Scene</scene>\nOriginal>\nThis is a test.\nTranslation>\nEsto es una prueba."
-        validator = ChunkedTranslateValidator(target_lang='es')
+        validator = ChunkedTranslateValidator(target_lang="es")
         result = validator.validate(user_input, generated_content)
         self.assertTrue(result)
 
@@ -44,15 +43,14 @@ class TestChunkedTranslateValidator(unittest.TestCase):
     def test_mismatched_original_and_translation_lengths(self):
         user_input = "Original>\nThis is a test.\nTranslation>\nEsto es una prueba."
         generated_content = "<summary>Test Summary</summary><scene>Test Scene</scene>\nOriginal>\nThis is a test.\nTranslation>\nEsto es una prueba.\nOriginal>\nThis is a test!\nTranslation>\nEsto es una prueba!"
-        validator = ChunkedTranslateValidator(target_lang='es')
+        validator = ChunkedTranslateValidator(target_lang="es")
         result = validator.validate(user_input, generated_content)
         self.assertFalse(result)
 
 
 class TestAtomicTranslateValidator(unittest.TestCase):
-
     def test_validate_returns_true_when_generated_content_matches_target_language(self):
-        validator = AtomicTranslateValidator(target_lang='en')
+        validator = AtomicTranslateValidator(target_lang="en")
         user_input = "你有什么问题？"
         generated_content = "What's your problem?"
 
@@ -60,7 +58,7 @@ class TestAtomicTranslateValidator(unittest.TestCase):
         self.assertTrue(result)
 
     def test_validate_returns_false_when_generated_content_not_matches_target_language(self):
-        validator = AtomicTranslateValidator(target_lang='ja')
+        validator = AtomicTranslateValidator(target_lang="ja")
         user_input = "Hello"
         generated_content = "你好"
 

@@ -3,7 +3,6 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, List
 
 
 class ModelProvider(Enum):
@@ -28,12 +27,12 @@ class ModelConfig:
 
     provider: ModelProvider
     name: str
-    base_url: Optional[str] = None
-    api_key: Optional[str] = None
-    proxy: Optional[str] = None
+    base_url: str | None = None
+    api_key: str | None = None
+    proxy: str | None = None
 
     def __str__(self):
-        return f'{self.provider.value}:{self.name}'
+        return f"{self.provider.value}:{self.name}"
 
 
 @dataclass
@@ -45,8 +44,8 @@ class ModelInfo:
     max_tokens: int
     context_window: int
     vision_support: bool = False
-    knowledge_cutoff: Optional[str] = None
-    latest_alias: Optional[str] = None
+    knowledge_cutoff: str | None = None
+    latest_alias: str | None = None
     beta: bool = False
 
 
@@ -61,7 +60,7 @@ class Models:
         context_window=200000,
         vision_support=True,
         knowledge_cutoff="Aug 2023",
-        latest_alias="claude-3-opus-latest"
+        latest_alias="claude-3-opus-latest",
     )
 
     CLAUDE_3_SONNET = ModelInfo(
@@ -72,7 +71,7 @@ class Models:
         max_tokens=4096,
         context_window=200000,
         vision_support=True,
-        knowledge_cutoff="Aug 2023"
+        knowledge_cutoff="Aug 2023",
     )
 
     CLAUDE_3_HAIKU = ModelInfo(
@@ -83,7 +82,7 @@ class Models:
         max_tokens=4096,
         context_window=200000,
         vision_support=True,
-        knowledge_cutoff="Aug 2023"
+        knowledge_cutoff="Aug 2023",
     )
 
     CLAUDE_3_5_SONNET = ModelInfo(
@@ -95,7 +94,7 @@ class Models:
         context_window=200000,
         vision_support=True,
         knowledge_cutoff="Apr 2024",
-        latest_alias="claude-3-5-sonnet-latest"
+        latest_alias="claude-3-5-sonnet-latest",
     )
 
     CLAUDE_3_7_SONNET = ModelInfo(
@@ -107,7 +106,7 @@ class Models:
         context_window=200000,
         vision_support=True,
         knowledge_cutoff="Apr 2024",
-        latest_alias="claude-3-7-sonnet-latest"
+        latest_alias="claude-3-7-sonnet-latest",
     )
 
     CLAUDE_3_5_HAIKU = ModelInfo(
@@ -119,7 +118,7 @@ class Models:
         context_window=200000,
         vision_support=False,
         knowledge_cutoff="July 2024",
-        latest_alias="claude-3-5-haiku-latest"
+        latest_alias="claude-3-5-haiku-latest",
     )
 
     # GPT Models
@@ -132,7 +131,7 @@ class Models:
         context_window=128000,
         vision_support=False,
         knowledge_cutoff="Oct 2023",
-        latest_alias="gpt-4o"
+        latest_alias="gpt-4o",
     )
 
     GPT_4O_MINI = ModelInfo(
@@ -144,7 +143,7 @@ class Models:
         context_window=128000,
         vision_support=False,
         knowledge_cutoff="Oct 2023",
-        latest_alias="gpt-4o-mini"
+        latest_alias="gpt-4o-mini",
     )
 
     GPT_4_TURBO = ModelInfo(
@@ -156,7 +155,7 @@ class Models:
         context_window=128000,
         vision_support=True,
         knowledge_cutoff="Dec 2023",
-        latest_alias="gpt-4-turbo"
+        latest_alias="gpt-4-turbo",
     )
 
     GPT_4_TURBO_PREVIEW = ModelInfo(
@@ -168,7 +167,7 @@ class Models:
         context_window=128000,
         vision_support=True,
         knowledge_cutoff="Dec 2023",
-        latest_alias="gpt-4-turbo-preview"
+        latest_alias="gpt-4-turbo-preview",
     )
 
     GPT_4_1106_PREVIEW = ModelInfo(
@@ -191,7 +190,7 @@ class Models:
         context_window=8192,
         vision_support=False,
         knowledge_cutoff="Sep 2021",
-        latest_alias="gpt-4"
+        latest_alias="gpt-4",
     )
 
     GPT_35_TURBO = ModelInfo(
@@ -202,7 +201,7 @@ class Models:
         max_tokens=4096,
         context_window=16385,
         knowledge_cutoff="Sep 2021",
-        latest_alias="gpt-3.5-turbo"
+        latest_alias="gpt-3.5-turbo",
     )
 
     GPT_41_NANO = ModelInfo(
@@ -243,7 +242,7 @@ class Models:
         output_price=5.0,
         max_tokens=8192,
         context_window=2097152,
-        vision_support=True
+        vision_support=True,
     )
 
     GEMINI_FLASH = ModelInfo(
@@ -252,7 +251,7 @@ class Models:
         input_price=0.075,
         output_price=0.30,
         max_tokens=8192,
-        context_window=1048576
+        context_window=1048576,
     )
 
     GEMINI_FLASH_8B = ModelInfo(
@@ -261,7 +260,7 @@ class Models:
         input_price=0.0375,
         output_price=0.15,
         max_tokens=8192,
-        context_window=1048576
+        context_window=1048576,
     )
 
     GEMINI_2_0_FLASH_LITE = ModelInfo(
@@ -272,7 +271,7 @@ class Models:
         max_tokens=8192,
         context_window=2097152,
         vision_support=True,
-        knowledge_cutoff="Aug 2024"
+        knowledge_cutoff="Aug 2024",
     )
 
     GEMINI_2_0_FLASH_EXP = ModelInfo(
@@ -283,7 +282,7 @@ class Models:
         max_tokens=8192,
         context_window=1048576,
         vision_support=True,
-        knowledge_cutoff="Aug 2024"
+        knowledge_cutoff="Aug 2024",
     )
 
     GEMINI_2_0_FLASH = ModelInfo(
@@ -294,7 +293,7 @@ class Models:
         max_tokens=8192,
         context_window=1048576,
         vision_support=True,
-        knowledge_cutoff="Aug 2024"
+        knowledge_cutoff="Aug 2024",
     )
 
     GEMINI_2_0_PRO_EXP = ModelInfo(
@@ -305,7 +304,7 @@ class Models:
         max_tokens=8192,
         context_window=2097152,
         vision_support=True,
-        knowledge_cutoff="Aug 2024"
+        knowledge_cutoff="Aug 2024",
     )
 
     GEMINI_2_5_PRO_EXP = ModelInfo(
@@ -316,7 +315,7 @@ class Models:
         max_tokens=8192,
         context_window=1048576,
         vision_support=True,
-        knowledge_cutoff="Jan 2025"
+        knowledge_cutoff="Jan 2025",
     )
 
     # Third Party Models
@@ -326,7 +325,7 @@ class Models:
         input_price=0.14,
         output_price=0.28,
         max_tokens=4096,
-        context_window=32768
+        context_window=32768,
     )
 
     DEEPSEEK_BETA = ModelInfo(
@@ -336,7 +335,7 @@ class Models:
         output_price=0.28,
         max_tokens=8192,
         context_window=32768,
-        beta=True
+        beta=True,
     )
 
     DEEPSEEK_REASONER = ModelInfo(
@@ -346,7 +345,7 @@ class Models:
         output_price=0.28,
         max_tokens=8192,
         context_window=65536,
-        beta=False
+        beta=False,
     )
 
     DEEPSEEK_REASONER_2 = ModelInfo(
@@ -356,11 +355,10 @@ class Models:
         output_price=0.28,
         max_tokens=8192,
         context_window=65536,
-        beta=False
+        beta=False,
     )
 
     class DefaultOpenAIModelInfo(ModelInfo):
-
         """Default configuration for unrecognized OpenAI models."""
 
         def __init__(self, model_name: str):
@@ -452,11 +450,11 @@ class Models:
 
         # If no exact match found, try to infer provider from model name
         # Note the model_provider is not vital for next processing
-        if any(name in model_name.lower() for name in ['gpt', 'openai', 'davinci', 'text-', 'curie']):
+        if any(name in model_name.lower() for name in ["gpt", "openai", "davinci", "text-", "curie"]):
             default_model = cls.DefaultOpenAIModelInfo(model_name)
-        elif any(name in model_name.lower() for name in ['claude', 'anthropic']):
+        elif any(name in model_name.lower() for name in ["claude", "anthropic"]):
             default_model = cls.DefaultAnthropicModelInfo(model_name)
-        elif any(name in model_name.lower() for name in ['gemini', 'google', 'palm']):
+        elif any(name in model_name.lower() for name in ["gemini", "google", "palm"]):
             default_model = cls.DefaultGeminiModelInfo(model_name)
         else:
             default_model = cls.DefaultThirdPartyModelInfo(model_name)
@@ -464,7 +462,7 @@ class Models:
         return default_model
 
 
-def list_chatbot_models() -> List[str]:
+def list_chatbot_models() -> list[str]:
     """
     List available chatbot models for translation.
 
