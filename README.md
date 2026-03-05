@@ -22,8 +22,12 @@ into `.lrc` subtitles with LLMs such as
 - 2024.5.7:
     - Added custom endpoint (`base_url`) support for OpenAI and Anthropic:
         ```python
-        lrcer = LRCer(base_url_config={'openai': 'https://api.chatanywhere.tech',
-                                       'anthropic': 'https://example/api'})
+        lrcer = LRCer(
+            translation=TranslationConfig(
+                base_url_config={'openai': 'https://api.chatanywhere.tech',
+                                 'anthropic': 'https://example/api'}
+            )
+        )
         ```
     - Added bilingual subtitle generation:
         ```python
@@ -34,12 +38,16 @@ into `.lrc` subtitles with LLMs such as
 - 2024.5.17: You can route models to arbitrary chatbot SDKs (OpenAI or Anthropic) by setting `chatbot_model` to
   `provider: model_name` together with `base_url_config`:
     ```python
-    lrcer = LRCer(chatbot_model='openai: claude-3-haiku-20240307',
-                  base_url_config={'openai': 'https://api.g4f.icu/v1/'})
+    lrcer = LRCer(
+        translation=TranslationConfig(
+            chatbot_model='openai: claude-3-haiku-20240307',
+            base_url_config={'openai': 'https://api.g4f.icu/v1/'}
+        )
+    )
     ```
 - 2024.6.25: Added Gemini as a translation model (for example, `gemini-1.5-flash`):
     ```python
-    lrcer = LRCer(chatbot_model='gemini-1.5-flash')
+    lrcer = LRCer(translation=TranslationConfig(chatbot_model='gemini-1.5-flash'))
     ```
 - 2024.9.10: Now openlrc depends on
   a [specific commit](https://github.com/SYSTRAN/faster-whisper/commit/d57c5b40b06e59ec44240d93485a95799548af50) of
@@ -51,7 +59,7 @@ into `.lrc` subtitles with LLMs such as
   `ModelConfig` can be `ModelConfig(provider='<provider>', name='<model-name>', base_url='<url>', proxy='<proxy>')`, e.g.:
     ```python
   
-    from openlrc import LRCer, ModelConfig, ModelProvider
+    from openlrc import LRCer, TranslationConfig, ModelConfig, ModelProvider
   
     chatbot_model1 = ModelConfig(
         provider=ModelProvider.OPENAI, 
@@ -64,7 +72,7 @@ into `.lrc` subtitles with LLMs such as
         name='gpt-4o-mini', 
         api_key='sk-APIKEY'
     )
-    lrcer = LRCer(chatbot_model=chatbot_model1, retry_model=chatbot_model2)
+    lrcer = LRCer(translation=TranslationConfig(chatbot_model=chatbot_model1, retry_model=chatbot_model2))
     ```
 
 ## Installation ⚙️
@@ -148,7 +156,7 @@ into `.lrc` subtitles with LLMs such as
 
 ```python
 import os
-from openlrc import LRCer, ModelConfig, ModelProvider
+from openlrc import LRCer, TranscriptionConfig, TranslationConfig, ModelConfig, ModelProvider
 
 if __name__ == '__main__':
     lrcer = LRCer()
@@ -166,21 +174,21 @@ if __name__ == '__main__':
     # Generate translated ./data/test_audio.lrc and ./data/test_video.srt
 
     # Use glossary to improve translation
-    lrcer = LRCer(glossary='./data/aoe4-glossary.yaml')
+    lrcer = LRCer(translation=TranslationConfig(glossary='./data/aoe4-glossary.yaml'))
 
     # To skip translation process
     lrcer.run('./data/test.mp3', target_lang='en', skip_trans=True)
 
     # Change asr_options or vad_options (see openlrc.defaults for details)
     vad_options = {"threshold": 0.1}
-    lrcer = LRCer(vad_options=vad_options)
+    lrcer = LRCer(transcription=TranscriptionConfig(vad_options=vad_options))
     lrcer.run('./data/test.mp3', target_lang='zh-cn')
 
     # Enhance the audio using noise suppression (consume more time).
     lrcer.run('./data/test.mp3', target_lang='zh-cn', noise_suppress=True)
 
     # Change the translation model
-    lrcer = LRCer(chatbot_model='claude-3-sonnet-20240229')
+    lrcer = LRCer(translation=TranslationConfig(chatbot_model='claude-3-sonnet-20240229'))
     lrcer.run('./data/test.mp3', target_lang='zh-cn')
 
     # Clear temp folder after processing done
@@ -199,7 +207,9 @@ if __name__ == '__main__':
         base_url='https://openrouter.ai/api/v1',
         api_key=os.getenv('OPENROUTER_API_KEY')
     )
-    lrcer = LRCer(chatbot_model=openrouter_model, retry_model=fallback_model)
+    lrcer = LRCer(
+        translation=TranslationConfig(chatbot_model=openrouter_model, retry_model=fallback_model)
+    )
 
     # Bilingual subtitle
     lrcer.run('./data/test.mp3', target_lang='zh-cn', bilingual_sub=True)
@@ -222,14 +232,14 @@ Add glossary to improve domain specific translation. For example `aoe4-glossary.
 ```
 
 ```python
-lrcer = LRCer(glossary='./data/aoe4-glossary.yaml')
+lrcer = LRCer(translation=TranslationConfig(glossary='./data/aoe4-glossary.yaml'))
 lrcer.run('./data/test.mp3', target_lang='zh-cn')
 ```
 
 or directly use dictionary to add glossary:
 
 ```python
-lrcer = LRCer(glossary={"aoe4": "帝国时代4", "feudal": "封建时代"})
+lrcer = LRCer(translation=TranslationConfig(glossary={"aoe4": "帝国时代4", "feudal": "封建时代"}))
 lrcer.run('./data/test.mp3', target_lang='zh-cn')
 ```
 

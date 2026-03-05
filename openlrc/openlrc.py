@@ -171,20 +171,23 @@ class LRCer:
         self.preprocess_options = {**default_preprocess_options, **(self._transcription_config.preprocess_options or {})}
 
         # Lazy initialization: Transcriber is created on first access via the property.
+        self._transcriber_lock = Lock()
         self._transcriber = None
         self.transcribed_paths = []
 
     @property
     def transcriber(self) -> Transcriber:
-        """Lazily initialize and return the Transcriber instance."""
+        """Lazily initialize and return the Transcriber instance (thread-safe)."""
         if self._transcriber is None:
-            self._transcriber = Transcriber(
-                model_name=self._transcription_config.whisper_model,
-                compute_type=self._transcription_config.compute_type,
-                device=self._transcription_config.device,
-                asr_options=self.asr_options,
-                vad_options=self.vad_options,
-            )
+            with self._transcriber_lock:
+                if self._transcriber is None:
+                    self._transcriber = Transcriber(
+                        model_name=self._transcription_config.whisper_model,
+                        compute_type=self._transcription_config.compute_type,
+                        device=self._transcription_config.device,
+                        asr_options=self.asr_options,
+                        vad_options=self.vad_options,
+                    )
         return self._transcriber
 
     @staticmethod
