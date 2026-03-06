@@ -77,12 +77,52 @@ into `.lrc` subtitles with LLMs such as
 
 ## Installation ⚙️
 
-1. Install CUDA 11.x and [cuDNN 8 for CUDA 11](https://developer.nvidia.com/cudnn) first according
-   to https://opennmt.net/CTranslate2/installation.html to enable `faster-whisper`.
+1. Add LLM API keys (recommended for most users: `OPENROUTER_API_KEY`):
+   - Add your [OpenAI API key](https://platform.openai.com/account/api-keys) to environment variable `OPENAI_API_KEY`.
+   - Add your [Anthropic API key](https://console.anthropic.com/settings/keys) to environment variable
+     `ANTHROPIC_API_KEY`.
+   - Add your [Google API Key](https://aistudio.google.com/app/apikey) to environment variable `GOOGLE_API_KEY`.
+   - Add your [OpenRouter API key](https://openrouter.ai/keys) to environment variable `OPENROUTER_API_KEY`.
 
-   `faster-whisper` also needs [cuBLAS for CUDA 11](https://developer.nvidia.com/cublas) installed.
+2. Install [ffmpeg](https://ffmpeg.org/download.html) and add `bin` directory
+   to your `PATH`.
+
+3. Install from PyPI:
+
+   ```shell
+   pip install openlrc
+   ```
+
+   By default this installs the GPU-enabled PyTorch from PyPI (same as upstream PyTorch behavior).
+   To explicitly install a CPU-only or CUDA 12.4 build, use an extra:
+
+   ```shell
+   pip install openlrc[cpu]      # CPU-only (smaller download, no GPU required)
+   pip install openlrc[cu124]    # CUDA 12.4 (explicit GPU build from PyTorch index)
+   ```
+
+   Or install directly from GitHub:
+
+   ```shell
+   pip install git+https://github.com/zh-plus/openlrc
+   ```
+
+4. Install the latest [faster-whisper](https://github.com/guillaumekln/faster-whisper) from source:
+   ```shell
+   pip install "faster-whisper @ https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz"
+   ```
+
    <details>
-   <summary>For Windows Users (click to expand)</summary> 
+   <summary>For GPU users: CUDA runtime requirements (click to expand)</summary>
+
+   Running with GPU acceleration requires the
+   [CUDA 12 Toolkit](https://developer.nvidia.com/cuda-toolkit) (provides `libcudart`, `libcublas`, etc.).
+   If you installed PyTorch with `openlrc[cu124]` or the default GPU build from PyPI, make sure the
+   CUDA 12 runtime libraries are available on your system.
+
+   Additionally, `faster-whisper` requires
+   [cuDNN 9 for CUDA 12](https://developer.nvidia.com/cudnn) to run on GPU.
+   See the [CTranslate2 documentation](https://opennmt.net/CTranslate2/installation.html) for details.
 
    (Windows only) You can download the libraries from Purfview's repository:
 
@@ -92,43 +132,37 @@ into `.lrc` subtitles with LLMs such as
 
    </details>
 
+### Using openlrc as a dependency
 
-2. Add LLM API keys (recommended for most users: `OPENROUTER_API_KEY`):
-   - Add your [OpenAI API key](https://platform.openai.com/account/api-keys) to environment variable `OPENAI_API_KEY`.
-   - Add your [Anthropic API key](https://console.anthropic.com/settings/keys) to environment variable
-     `ANTHROPIC_API_KEY`.
-   - Add your [Google API Key](https://aistudio.google.com/app/apikey) to environment variable `GOOGLE_API_KEY`.
-   - Add your [OpenRouter API key](https://openrouter.ai/keys) to environment variable `OPENROUTER_API_KEY`.
+If your project depends on openlrc and you want to switch between CPU and GPU
+PyTorch builds (e.g. CPU for development/CI, GPU for production),
+map openlrc's extras through your own `pyproject.toml`:
 
-3. Install [ffmpeg](https://ffmpeg.org/download.html) and add `bin` directory
-   to your `PATH`.
+```toml
+[project]
+dependencies = [
+    "openlrc",
+]
 
-4. This project can be installed from PyPI:
+[project.optional-dependencies]
+cpu = ["openlrc[cpu]"]
+cu124 = ["openlrc[cu124]"]
 
-    ```shell
-    pip install openlrc
-    ```
+[tool.uv]
+conflicts = [
+    [{ extra = "cpu" }, { extra = "cu124" }],
+]
+```
 
-   or install directly from GitHub:
+Then select the variant at install time:
 
-    ```shell
-    pip install git+https://github.com/zh-plus/openlrc
-    ```
+```shell
+# Local development (CPU)
+uv sync --extra cpu
 
-5. Install the latest [faster-whisper](https://github.com/guillaumekln/faster-whisper) from source:
-   ```shell
-   pip install "faster-whisper @ https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz"
-   ```
-
-6. Install [PyTorch](https://pytorch.org/get-started/locally/):
-   ```shell
-   pip install --force-reinstall torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
-   ```
-
-7. Fix the `typing-extensions` issue:
-   ```shell
-   pip install typing-extensions -U
-   ```
+# Production with GPU
+uv sync --extra cu124
+```
 
 ## Usage 🐍
 
@@ -303,7 +337,15 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 ```shell
 uv venv
+
+# Default (GPU-enabled PyTorch from PyPI)
 uv sync
+
+# CPU-only (for CI, or machines without GPU)
+uv sync --extra cpu
+
+# CUDA 12.4 (explicit GPU build from PyTorch index)
+uv sync --extra cu124
 ```
 
 ### Code quality checks
