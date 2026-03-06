@@ -6,7 +6,6 @@ import json
 import os
 import random
 import re
-import time
 from collections.abc import Callable
 from copy import deepcopy
 
@@ -80,7 +79,7 @@ class ChatBot:
             self.model_info = Models.get_model(model_name, beta)
             self.model_name = model_name
         except ValueError:
-            raise ValueError(f"Invalid model {model_name}.")
+            raise ValueError(f"Invalid model {model_name}.") from None
 
         self.temperature = temperature
         self.top_p = top_p
@@ -175,7 +174,7 @@ class ChatBot:
             )
         except ChatBotException as e:
             logger.error(f"Failed to message with GPT. Error: {e}")
-            raise e
+            raise
         finally:
             logger.info(f"Translation fee for this call: {self.api_fees[-1]:.4f} USD")
             logger.info(f"Total bot translation fee: {sum(self.api_fees):.4f} USD")
@@ -257,6 +256,9 @@ class GPTBot(ChatBot):
 
         raise ValueError("No API key found. Set OPENAI_API_KEY or pass api_key explicitly.")
 
+    def __enter__(self):
+        return self
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         asyncio.run(self.async_client.close())
 
@@ -318,7 +320,7 @@ class GPTBot(ChatBot):
             ) as e:
                 sleep_time = self._get_sleep_time(e)
                 logger.warning(f"{type(e).__name__}: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.")
-                time.sleep(sleep_time)
+                await asyncio.sleep(sleep_time)
 
         if not response:
             raise ChatBotException("Failed to create a chat.")
@@ -424,7 +426,7 @@ class ClaudeBot(ChatBot):
             ) as e:
                 sleep_time = self._get_sleep_time(e)
                 logger.warning(f"{type(e).__name__}: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.")
-                time.sleep(sleep_time)
+                await asyncio.sleep(sleep_time)
 
         if not response:
             raise ChatBotException("Failed to create a chat.")
@@ -552,7 +554,7 @@ class GeminiBot(ChatBot):
             self.update_fee(response)
             if not response.text:
                 logger.warning(f"Get None response. Wait 15s. Retry num: {i + 1}.")
-                time.sleep(15)
+                await asyncio.sleep(15)
                 continue
 
             response_text = remove_stop(response.text, stop_sequences)

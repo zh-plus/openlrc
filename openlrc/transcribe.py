@@ -148,7 +148,7 @@ class Transcriber:
         Returns:
             list: List of sentence-split segments.
         """
-        if lang not in LANGUAGE_CODES.keys():
+        if lang not in LANGUAGE_CODES:
             logger.warning(f"Language {lang} not supported. Skipping sentence split.")
             return segments
 

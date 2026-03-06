@@ -310,24 +310,24 @@ def get_similarity(text1, text2):
 
 
 def merge_subtitle(video_path, subtitle_path, output_path):
-    def convert2ffmpeg_path(path):
-        abs_path = str(Path(path).absolute()).replace("\\", "/")
-
-        abs_path = abs_path[0] + "\\\\" + abs_path[1:]
-
-        return abs_path
-
     # check ffmpeg
     try:
-        subprocess.check_output("ffmpeg -version", shell=True)
+        subprocess.check_output(["ffmpeg", "-version"])
     except FileNotFoundError:
-        raise RuntimeError("ffmpeg is not installed. Please install ffmpeg first.")
+        raise RuntimeError("ffmpeg is not installed. Please install ffmpeg first.") from None
 
-    subtitle_path = convert2ffmpeg_path(subtitle_path)
+    subtitle_abs = str(Path(subtitle_path).absolute())
     style = "FontSize=24,Bold=1"
     subprocess.call(
-        f'ffmpeg -y -i "{video_path}" -vf subtitles="{subtitle_path}":force_style=\'{style}\' "{output_path}"',
-        shell=True,
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-vf",
+            f"subtitles={subtitle_abs}:force_style='{style}'",
+            str(output_path),
+        ]
     )
 
     logger.info(f"Subtitled video saved to {output_path}")

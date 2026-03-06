@@ -60,6 +60,8 @@ class Subtitle:
             return Subtitle.from_lrc(filename)
         elif suffix == ".srt":
             return Subtitle.from_srt(filename)
+        else:
+            raise ValueError(f"Unsupported subtitle format: {suffix!r}")
 
     def __len__(self):
         return len(self.segments)

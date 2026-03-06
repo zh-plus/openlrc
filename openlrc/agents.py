@@ -100,7 +100,7 @@ class ChunkedTranslatorAgent(Agent):
         self,
         src_lang,
         target_lang,
-        info: TranslateInfo = TranslateInfo(),
+        info: TranslateInfo | None = None,
         chatbot_model: str | ModelConfig = "gpt-4.1-nano",
         fee_limit: float = 0.8,
         proxy: str | None = None,
@@ -119,6 +119,8 @@ class ChunkedTranslatorAgent(Agent):
             base_url_config (Optional[dict]): Configuration for the base URL of the API.
         """
         super().__init__()
+        if info is None:
+            info = TranslateInfo()
         self.chatbot_model = chatbot_model
         self.info = info
         self.chatbot = self._initialize_chatbot(chatbot_model, fee_limit, proxy, base_url_config)
@@ -149,9 +151,9 @@ class ChunkedTranslatorAgent(Agent):
             translations = self._extract_translations(content)
 
             return [t.strip() for t in translations], summary.strip(), scene.strip()
-        except Exception as e:
+        except Exception:
             logger.error(f"Failed to extract contents from response: {content}")
-            raise e
+            raise
 
     def _extract_tag_content(self, content: str, tag: str) -> str:
         """
@@ -203,7 +205,7 @@ class ChunkedTranslatorAgent(Agent):
         self,
         chunk_id: int,
         chunk: list[tuple[int, str]],
-        context: TranslationContext = TranslationContext(),
+        context: TranslationContext | None = None,
         use_glossary: bool = True,
     ) -> tuple[list[str], TranslationContext]:
         """
@@ -218,6 +220,8 @@ class ChunkedTranslatorAgent(Agent):
         Returns:
             Tuple[List[str], TranslationContext]: The translated texts and updated context.
         """
+        if context is None:
+            context = TranslationContext()
         user_input = self.prompter.format_texts(chunk)
         guideline = context.guideline if use_glossary else context.non_glossary_guideline
         messages_list = [
@@ -251,7 +255,7 @@ class ContextReviewerAgent(Agent):
         self,
         src_lang,
         target_lang,
-        info: TranslateInfo = TranslateInfo(),
+        info: TranslateInfo | None = None,
         chatbot_model: str | ModelConfig = "gpt-4.1-nano",
         retry_model: str | ModelConfig | None = None,
         fee_limit: float = 0.8,
@@ -272,6 +276,8 @@ class ContextReviewerAgent(Agent):
             base_url_config (Optional[dict]): Configuration for the base URL of the API.
         """
         super().__init__()
+        if info is None:
+            info = TranslateInfo()
         self.src_lang = src_lang
         self.target_lang = target_lang
         self.info = info
@@ -426,7 +432,7 @@ class ProofreaderAgent(Agent):
         self,
         src_lang,
         target_lang,
-        info: TranslateInfo = TranslateInfo(),
+        info: TranslateInfo | None = None,
         chatbot_model: str | ModelConfig = "gpt-4.1-nano",
         fee_limit: float = 0.8,
         proxy: str | None = None,
@@ -445,6 +451,8 @@ class ProofreaderAgent(Agent):
             base_url_config (Optional[dict]): Configuration for the base URL of the API.
         """
         super().__init__()
+        if info is None:
+            info = TranslateInfo()
         self.src_lang = src_lang
         self.target_lang = target_lang
         self.info = info

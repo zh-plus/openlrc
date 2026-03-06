@@ -43,8 +43,10 @@ class Preprocessor:
         self,
         audio_paths: str | Path | list[str] | list[Path],
         output_folder: str = "preprocessed",
-        options: dict = default_preprocess_options,
+        options: dict | None = None,
     ):
+        if options is None:
+            options = dict(default_preprocess_options)
         paths_list = audio_paths if isinstance(audio_paths, list) else [audio_paths]
         self.audio_paths: list[Path] = [Path(p) for p in paths_list]
         self.output_paths = [p.parent / output_folder for p in self.audio_paths]
@@ -61,7 +63,7 @@ class Preprocessor:
         if not audio_paths:
             return []
 
-        if "atten_lim_db" in self.options.keys():
+        if "atten_lim_db" in self.options:
             atten_lim_db = self.options["atten_lim_db"]
 
         model, df_state, _ = init_df()

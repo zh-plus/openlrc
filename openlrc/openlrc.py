@@ -679,7 +679,7 @@ class LRCer:
             logger.warning("No audio/video file given. Skip LRCer.run()")
             return []
 
-        if isinstance(paths, str) or isinstance(paths, Path):
+        if isinstance(paths, (str, Path)):
             paths = [paths]
 
         paths = list(map(Path, paths))
@@ -743,7 +743,7 @@ class LRCer:
 
         This method removes temporary folders and generated wave files from video processing.
         """
-        temp_folders = set([path.parent for path in paths])
+        temp_folders = {path.parent for path in paths}
         for folder in temp_folders:
             assert folder.name == "preprocessed", f"Not a temporary folder: {folder}"
 
