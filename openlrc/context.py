@@ -1,7 +1,6 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 import re
-from typing import Optional, Union, List
 
 from pydantic import BaseModel
 
@@ -9,11 +8,11 @@ from openlrc import ModelConfig
 
 
 class TranslationContext(BaseModel):
-    previous_summaries: Optional[List[str]] = None
-    summary: Optional[str] = ''
-    scene: Optional[str] = ''
-    model: Optional[Union[str, ModelConfig]] = None
-    guideline: Optional[str] = None
+    previous_summaries: list[str] | None = None
+    summary: str | None = ""
+    scene: str | None = ""
+    model: str | ModelConfig | None = None
+    guideline: str | None = None
 
     def update(self, **args):
         for key, value in args.items():
@@ -22,12 +21,14 @@ class TranslationContext(BaseModel):
 
     @property
     def non_glossary_guideline(self) -> str:
-        cleaned_text = re.sub(r'### Glossary.*?### Characters', '### Characters', self.guideline, flags=re.DOTALL)
+        if not self.guideline:
+            return ""
+        cleaned_text = re.sub(r"### Glossary.*?### Characters", "### Characters", self.guideline, flags=re.DOTALL)
         return cleaned_text
 
 
 class TranslateInfo(BaseModel):
-    title: Optional[str] = ''
-    audio_type: str = 'Movie'
-    glossary: Optional[dict] = None
+    title: str | None = ""
+    audio_type: str = "Movie"
+    glossary: dict | None = None
     forced_glossary: bool = False

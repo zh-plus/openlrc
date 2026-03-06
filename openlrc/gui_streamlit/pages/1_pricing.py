@@ -3,11 +3,7 @@
 
 import streamlit as st
 
-st.set_page_config(
-    page_title="Pricing xd",
-    page_icon="💰",
-    layout="wide",
-)
+st.set_page_config(page_title="Pricing xd", page_icon="💰", layout="wide")
 
 chatbot_help_msg = """
 ## Pricing 💰

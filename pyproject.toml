@@ -70,6 +70,12 @@ openlrc = "openlrc.cli:main"
 create = true
 in-project = true
 
+[dependency-groups]
+dev = [
+    "pyright>=1.1",
+    "ruff>=0.11",
+]
+
 [tool.uv]
 
 [[tool.uv.index]]
@@ -93,6 +99,27 @@ torchvision = [
 torchaudio = [
     { index = "pytorch-cu124", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = [
+    "E501",   # line too long — handled by formatter
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["openlrc"]
+split-on-trailing-comma = false
+
+[tool.pyright]
+pythonVersion = "3.10"
+exclude = ["openlrc/gui_streamlit"]
 
 [tool.hatch.build.targets.sdist]
 include = ["openlrc"]

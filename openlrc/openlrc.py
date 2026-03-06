@@ -12,21 +12,28 @@ from pathlib import Path
 from pprint import pformat
 from queue import Queue
 from threading import Lock
-from typing import Any, List, Union, Optional
+from typing import Any
 
 from faster_whisper.transcribe import Segment
 
 from openlrc.context import TranslateInfo
-from openlrc.defaults import default_asr_options, default_vad_options, default_preprocess_options
+from openlrc.defaults import default_asr_options, default_preprocess_options, default_vad_options
 from openlrc.logger import logger
 from openlrc.models import ModelConfig
 from openlrc.opt import SubtitleOptimizer
 from openlrc.preprocess import Preprocessor
-from openlrc.subtitle import Subtitle, BilingualSubtitle
+from openlrc.subtitle import BilingualSubtitle, Subtitle
 from openlrc.transcribe import Transcriber
 from openlrc.translate import LLMTranslator
-from openlrc.utils import Timer, extend_filename, get_audio_duration, format_timestamp, extract_audio, \
-    get_file_type, get_preprocessed_path
+from openlrc.utils import (
+    Timer,
+    extend_filename,
+    extract_audio,
+    format_timestamp,
+    get_audio_duration,
+    get_file_type,
+    get_preprocessed_path,
+)
 
 _SENTINEL = object()
 
@@ -45,12 +52,13 @@ class TranscriptionConfig:
         vad_options: Parameters for VAD model.
         preprocess_options: Options for audio preprocessing.
     """
-    whisper_model: str = 'large-v3'
-    compute_type: str = 'float16'
-    device: str = 'cuda'
-    asr_options: Optional[dict] = None
-    vad_options: Optional[dict] = None
-    preprocess_options: Optional[dict] = None
+
+    whisper_model: str = "large-v3"
+    compute_type: str = "float16"
+    device: str = "cuda"
+    asr_options: dict | None = None
+    vad_options: dict | None = None
+    preprocess_options: dict | None = None
 
 
 @dataclass
@@ -70,13 +78,14 @@ class TranslationConfig:
         retry_model: Fallback model for translation retries.
         is_force_glossary_used: Force glossary usage in context. Default: ``False``
     """
-    chatbot_model: Union[str, ModelConfig] = 'gpt-4.1-nano'
+
+    chatbot_model: str | ModelConfig = "gpt-4.1-nano"
     fee_limit: float = 0.8
     consumer_thread: int = 4
-    proxy: Optional[str] = None
-    base_url_config: Optional[dict] = None
-    glossary: Optional[Union[dict, str, Path]] = None
-    retry_model: Optional[Union[str, ModelConfig]] = None
+    proxy: str | None = None
+    base_url_config: dict | None = None
+    glossary: dict | str | Path | None = None
+    retry_model: str | ModelConfig | None = None
     is_force_glossary_used: bool = False
 
 
@@ -98,25 +107,44 @@ class LRCer:
         lrcer = LRCer(whisper_model='large-v3', chatbot_model='gpt-4.1-nano')
     """
 
-    def __init__(self, *,
-                 transcription: Optional[TranscriptionConfig] = None,
-                 translation: Optional[TranslationConfig] = None,
-                 # Legacy keyword arguments — deprecated
-                 whisper_model: Any = _SENTINEL, compute_type: Any = _SENTINEL,
-                 device: Any = _SENTINEL, chatbot_model: Any = _SENTINEL,
-                 fee_limit: Any = _SENTINEL, consumer_thread: Any = _SENTINEL,
-                 asr_options: Any = _SENTINEL, vad_options: Any = _SENTINEL,
-                 preprocess_options: Any = _SENTINEL, proxy: Any = _SENTINEL,
-                 base_url_config: Any = _SENTINEL, glossary: Any = _SENTINEL,
-                 retry_model: Any = _SENTINEL, is_force_glossary_used: Any = _SENTINEL):
+    def __init__(
+        self,
+        *,
+        transcription: TranscriptionConfig | None = None,
+        translation: TranslationConfig | None = None,
+        # Legacy keyword arguments — deprecated
+        whisper_model: Any = _SENTINEL,
+        compute_type: Any = _SENTINEL,
+        device: Any = _SENTINEL,
+        chatbot_model: Any = _SENTINEL,
+        fee_limit: Any = _SENTINEL,
+        consumer_thread: Any = _SENTINEL,
+        asr_options: Any = _SENTINEL,
+        vad_options: Any = _SENTINEL,
+        preprocess_options: Any = _SENTINEL,
+        proxy: Any = _SENTINEL,
+        base_url_config: Any = _SENTINEL,
+        glossary: Any = _SENTINEL,
+        retry_model: Any = _SENTINEL,
+        is_force_glossary_used: Any = _SENTINEL,
+    ):
 
         # Detect whether any legacy keyword was explicitly passed.
         legacy_kwargs = {
-            'whisper_model': whisper_model, 'compute_type': compute_type, 'device': device,
-            'chatbot_model': chatbot_model, 'fee_limit': fee_limit, 'consumer_thread': consumer_thread,
-            'asr_options': asr_options, 'vad_options': vad_options, 'preprocess_options': preprocess_options,
-            'proxy': proxy, 'base_url_config': base_url_config, 'glossary': glossary,
-            'retry_model': retry_model, 'is_force_glossary_used': is_force_glossary_used,
+            "whisper_model": whisper_model,
+            "compute_type": compute_type,
+            "device": device,
+            "chatbot_model": chatbot_model,
+            "fee_limit": fee_limit,
+            "consumer_thread": consumer_thread,
+            "asr_options": asr_options,
+            "vad_options": vad_options,
+            "preprocess_options": preprocess_options,
+            "proxy": proxy,
+            "base_url_config": base_url_config,
+            "glossary": glossary,
+            "retry_model": retry_model,
+            "is_force_glossary_used": is_force_glossary_used,
         }
         legacy_used = {k: v for k, v in legacy_kwargs.items() if v is not _SENTINEL}
 
@@ -137,13 +165,26 @@ class LRCer:
 
         if legacy_used:
             # Build config objects from legacy kwargs, using dataclass defaults for unset values.
-            transcription_fields = {k: v for k, v in legacy_used.items()
-                                    if k in ('whisper_model', 'compute_type', 'device',
-                                             'asr_options', 'vad_options', 'preprocess_options')}
-            translation_fields = {k: v for k, v in legacy_used.items()
-                                  if k in ('chatbot_model', 'fee_limit', 'consumer_thread', 'proxy',
-                                           'base_url_config', 'glossary', 'retry_model',
-                                           'is_force_glossary_used')}
+            transcription_fields = {
+                k: v
+                for k, v in legacy_used.items()
+                if k in ("whisper_model", "compute_type", "device", "asr_options", "vad_options", "preprocess_options")
+            }
+            translation_fields = {
+                k: v
+                for k, v in legacy_used.items()
+                if k
+                in (
+                    "chatbot_model",
+                    "fee_limit",
+                    "consumer_thread",
+                    "proxy",
+                    "base_url_config",
+                    "glossary",
+                    "retry_model",
+                    "is_force_glossary_used",
+                )
+            }
             transcription = TranscriptionConfig(**transcription_fields)
             translation = TranslationConfig(**translation_fields)
 
@@ -168,7 +209,10 @@ class LRCer:
         # Merge default options with provided options
         self.asr_options = {**default_asr_options, **(self._transcription_config.asr_options or {})}
         self.vad_options = {**default_vad_options, **(self._transcription_config.vad_options or {})}
-        self.preprocess_options = {**default_preprocess_options, **(self._transcription_config.preprocess_options or {})}
+        self.preprocess_options = {
+            **default_preprocess_options,
+            **(self._transcription_config.preprocess_options or {}),
+        }
 
         # Lazy initialization: Transcriber is created on first access via the property.
         self._transcriber_lock = Lock()
@@ -191,7 +235,7 @@ class LRCer:
         return self._transcriber
 
     @staticmethod
-    def parse_glossary(glossary: Union[dict, str, Path]):
+    def parse_glossary(glossary: dict | str | Path | None) -> dict | None:
         if not glossary:
             return None
 
@@ -200,15 +244,15 @@ class LRCer:
 
         glossary_path = Path(glossary)
         if not glossary_path.exists():
-            logger.warning('Glossary file not found.')
+            logger.warning("Glossary file not found.")
             return None
 
-        with open(glossary_path, 'r', encoding='utf-8') as f:
-            glossary = json.load(f)
+        with open(glossary_path, encoding="utf-8") as f:
+            loaded: dict = json.load(f)
 
-        return glossary
+        return loaded
 
-    def _transcribe_single(self, audio_path: Path, src_lang: Optional[str] = None) -> Path:
+    def _transcribe_single(self, audio_path: Path, src_lang: str | None = None) -> Path:
         """
         Transcribe a single audio file and return the path to the transcribed JSON.
 
@@ -221,17 +265,18 @@ class LRCer:
         Returns:
             Path: Path to the transcribed JSON file.
         """
-        transcribed_path = extend_filename(audio_path, '_transcribed').with_suffix('.json')
+        transcribed_path = extend_filename(audio_path, "_transcribed").with_suffix(".json")
         if not transcribed_path.exists():
-            with Timer('Transcription process'):
+            with Timer("Transcription process"):
                 logger.info(
-                    f'Audio length: {audio_path}: {format_timestamp(get_audio_duration(audio_path), fmt="srt")}')
+                    f"Audio length: {audio_path}: {format_timestamp(get_audio_duration(audio_path), fmt='srt')}"
+                )
                 segments, info = self.transcriber.transcribe(audio_path, language=src_lang)
-                logger.info(f'Detected language: {info.language}')
+                logger.info(f"Detected language: {info.language}")
 
             self.to_json(segments, name=transcribed_path, lang=info.language)
         else:
-            logger.info(f'Found transcribed json file: {transcribed_path}')
+            logger.info(f"Found transcribed json file: {transcribed_path}")
         return transcribed_path
 
     def produce_transcriptions(self, transcription_queue, audio_paths, src_lang):
@@ -251,10 +296,15 @@ class LRCer:
             transcription_queue.put(transcribed_path)
 
         transcription_queue.put(None)
-        logger.info('Transcription producer finished.')
+        logger.info("Transcription producer finished.")
 
-    def transcribe(self, paths: Union[str, Path, List[Union[str, Path]]], src_lang: Optional[str] = None,
-                   noise_suppress: bool = False, skip_preprocess: bool = False) -> List[Path]:
+    def transcribe(
+        self,
+        paths: str | Path | list[str | Path],
+        src_lang: str | None = None,
+        noise_suppress: bool = False,
+        skip_preprocess: bool = False,
+    ) -> list[Path]:
         """
         Transcribe audio/video files and return paths to the transcribed JSON files.
 
@@ -272,7 +322,7 @@ class LRCer:
             List[Path]: List of paths to the transcribed JSON files.
         """
         if not paths:
-            logger.warning('No audio/video file given. Skip transcription.')
+            logger.warning("No audio/video file given. Skip transcription.")
             return []
 
         if isinstance(paths, (str, Path)):
@@ -286,20 +336,19 @@ class LRCer:
             for p in audio_paths:
                 if not p.exists():
                     raise FileNotFoundError(
-                        f'Preprocessed file not found: {p}. '
-                        f'Run pre_process() first or set skip_preprocess=False.'
+                        f"Preprocessed file not found: {p}. Run pre_process() first or set skip_preprocess=False."
                     )
         else:
             audio_paths = self.pre_process(paths, noise_suppress=noise_suppress)
 
-        logger.info(f'Transcribing {len(audio_paths)} audio files: {pformat(audio_paths)}')
+        logger.info(f"Transcribing {len(audio_paths)} audio files: {pformat(audio_paths)}")
 
         return [self._transcribe_single(p, src_lang) for p in audio_paths]
 
     @staticmethod
     def _get_base_name(transcribed_path: Path) -> str:
         """Extract the original audio base name from a transcribed JSON path."""
-        return transcribed_path.stem.replace('_preprocessed_transcribed', '')
+        return transcribed_path.stem.replace("_preprocessed_transcribed", "")
 
     def _is_video_transcription(self, transcribed_path: Path, base_name: str) -> bool:
         """
@@ -313,7 +362,7 @@ class LRCer:
         if source_stem in self.from_video:
             return True
 
-        video_suffixes = ('.mp4', '.mkv', '.mov', '.avi', '.webm', '.ts', '.m4v', '.flv', '.wmv')
+        video_suffixes = (".mp4", ".mkv", ".mov", ".avi", ".webm", ".ts", ".m4v", ".flv", ".wmv")
         return any(source_stem.with_suffix(suffix).exists() for suffix in video_suffixes)
 
     def _build_final_subtitle(self, base_name, target_lang, transcribed_opt_sub, skip_trans):
@@ -332,8 +381,8 @@ class LRCer:
         Returns:
             Subtitle: The final subtitle (translated or copied), or None on error.
         """
-        translated_path = extend_filename(transcribed_opt_sub.filename, '_translated')
-        final_json_path = translated_path.with_name(f'{base_name}.json')
+        translated_path = extend_filename(transcribed_opt_sub.filename, "_translated")
+        final_json_path = translated_path.with_name(f"{base_name}.json")
 
         if final_json_path.exists():
             return Subtitle.from_json(final_json_path)
@@ -344,7 +393,7 @@ class LRCer:
             return transcribed_opt_sub
 
         try:
-            with Timer('Translation process'):
+            with Timer("Translation process"):
                 return self._translate(base_name, target_lang, transcribed_opt_sub, translated_path)
         except Exception as e:
             self.exception = e
@@ -359,8 +408,8 @@ class LRCer:
             base_name (str): Original audio base name.
             subtitle_format (str): Output format, either 'lrc' or 'srt'.
         """
-        subtitle_path = getattr(subtitle, f'to_{subtitle_format}')()
-        result_path = subtitle_path.parent.parent / f'{base_name}.{subtitle_format}'
+        subtitle_path = getattr(subtitle, f"to_{subtitle_format}")()
+        result_path = subtitle_path.parent.parent / f"{base_name}.{subtitle_format}"
         shutil.move(subtitle_path, result_path)
         self.transcribed_paths.append(result_path)
 
@@ -378,20 +427,18 @@ class LRCer:
         bilingual_optimizer = SubtitleOptimizer(bilingual_subtitle)
         bilingual_optimizer.extend_time()
 
-        bilingual_path = getattr(bilingual_subtitle, f'to_{subtitle_format}')()
+        bilingual_path = getattr(bilingual_subtitle, f"to_{subtitle_format}")()
         shutil.move(bilingual_path, bilingual_path.parent.parent / bilingual_path.name)
 
         non_translated_subtitle = transcribed_opt_sub
         optimizer = SubtitleOptimizer(non_translated_subtitle)
         optimizer.extend_time()
-        non_translated_path = getattr(non_translated_subtitle, f'to_{subtitle_format}')()
-        shutil.move(
-            non_translated_path,
-            non_translated_path.parent.parent / f'{base_name}_nontrans.{subtitle_format}'
-        )
+        non_translated_path = getattr(non_translated_subtitle, f"to_{subtitle_format}")()
+        shutil.move(non_translated_path, non_translated_path.parent.parent / f"{base_name}_nontrans.{subtitle_format}")
 
-    def _process_transcribed_file(self, transcribed_path: Path, target_lang: Optional[str],
-                                   skip_trans: bool = False, bilingual_sub: bool = False):
+    def _process_transcribed_file(
+        self, transcribed_path: Path, target_lang: str | None, skip_trans: bool = False, bilingual_sub: bool = False
+    ):
         """
         Process a single transcribed JSON file through post-processing, translation
         (or copy when skip_trans=True), and subtitle generation.
@@ -406,7 +453,7 @@ class LRCer:
             bilingual_sub (bool): Whether to generate bilingual subtitles.
         """
         base_name = self._get_base_name(transcribed_path)
-        subtitle_format = 'srt' if self._is_video_transcription(transcribed_path, base_name) else 'lrc'
+        subtitle_format = "srt" if self._is_video_transcription(transcribed_path, base_name) else "lrc"
 
         transcribed_sub = Subtitle.from_json(transcribed_path)
         transcribed_opt_sub = self.post_process(transcribed_sub, update_name=True)
@@ -418,8 +465,9 @@ class LRCer:
         if not skip_trans and bilingual_sub:
             self._handle_bilingual_subtitles(transcribed_path, base_name, transcribed_opt_sub, subtitle_format)
 
-    def translate(self, transcribed_paths: Union[Path, List[Path]], target_lang: str = 'zh-cn',
-                  bilingual_sub: bool = False) -> List[Path]:
+    def translate(
+        self, transcribed_paths: Path | list[Path], target_lang: str = "zh-cn", bilingual_sub: bool = False
+    ) -> list[Path]:
         """
         Translate previously transcribed JSON files and generate subtitle files.
 
@@ -441,7 +489,7 @@ class LRCer:
         if isinstance(transcribed_paths, Path):
             transcribed_paths = [transcribed_paths]
 
-        logger.info(f'Translating {len(transcribed_paths)} transcribed files: {pformat(transcribed_paths)}')
+        logger.info(f"Translating {len(transcribed_paths)} transcribed files: {pformat(transcribed_paths)}")
 
         for transcribed_path in transcribed_paths:
             self._process_transcribed_file(transcribed_path, target_lang, bilingual_sub=bilingual_sub)
@@ -450,7 +498,7 @@ class LRCer:
                 traceback.print_exception(type(self.exception), self.exception, self.exception.__traceback__)
                 raise self.exception
 
-        logger.info(f'Total API fee used: {self.api_fee:.4f} USD')
+        logger.info(f"Total API fee used: {self.api_fee:.4f} USD")
 
         return self.transcribed_paths
 
@@ -468,11 +516,12 @@ class LRCer:
         handling translation and subtitle generation.
         """
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = [executor.submit(self.translation_worker, transcription_queue, target_lang, skip_trans,
-                                       bilingual_sub)
-                       for _ in range(self.consumer_thread)]
+            futures = [
+                executor.submit(self.translation_worker, transcription_queue, target_lang, skip_trans, bilingual_sub)
+                for _ in range(self.consumer_thread)
+            ]
             concurrent.futures.wait(futures)
-        logger.info('Transcription consumer finished.')
+        logger.info("Transcription consumer finished.")
 
     def translation_worker(self, transcription_queue, target_lang, skip_trans, bilingual_sub):
         """
@@ -488,19 +537,19 @@ class LRCer:
         subtitle generation, and bilingual subtitle creation if required.
         """
         while True:
-            logger.debug('Translation worker waiting transcription...')
+            logger.debug("Translation worker waiting transcription...")
             transcribed_path = transcription_queue.get()
 
             if transcribed_path is None:
                 transcription_queue.put(None)
-                logger.debug('Translation worker finished.')
+                logger.debug("Translation worker finished.")
                 return
 
-            logger.info(f'Got transcription: {transcribed_path}')
+            logger.info(f"Got transcription: {transcribed_path}")
 
             self._process_transcribed_file(transcribed_path, target_lang, skip_trans, bilingual_sub)
 
-            logger.info(f'Translation fee til now: {self.api_fee:.4f} USD')
+            logger.info(f"Translation fee til now: {self.api_fee:.4f} USD")
 
     def _translate(self, audio_name, target_lang, transcribed_opt_sub, translated_path):
         """
@@ -518,23 +567,28 @@ class LRCer:
         This method handles the translation process, including context preparation,
         actual translation, and post-processing of the translated subtitles.
         """
-        context = TranslateInfo(title=audio_name, audio_type='Movie', glossary=self.glossary,
-                                forced_glossary=self.is_force_glossary_used)
+        context = TranslateInfo(
+            title=audio_name, audio_type="Movie", glossary=self.glossary, forced_glossary=self.is_force_glossary_used
+        )
 
-        json_filename = Path(translated_path.parent / (audio_name + '.json'))
-        compare_path = Path(translated_path.parent, f'{audio_name}_compare.json')
+        json_filename = Path(translated_path.parent / (audio_name + ".json"))
+        compare_path = Path(translated_path.parent, f"{audio_name}_compare.json")
         if not translated_path.exists():
             # Translate the transcribed json
-            translator = LLMTranslator(chatbot_model=self.chatbot_model, fee_limit=self.fee_limit,
-                                       proxy=self.proxy, base_url_config=self.base_url_config,
-                                       retry_model=self.retry_model)
+            translator = LLMTranslator(
+                chatbot_model=self.chatbot_model,
+                fee_limit=self.fee_limit,
+                proxy=self.proxy,
+                base_url_config=self.base_url_config,
+                retry_model=self.retry_model,
+            )
 
             target_texts = translator.translate(
                 transcribed_opt_sub.texts,
                 src_lang=transcribed_opt_sub.lang,
                 target_lang=target_lang,
                 info=context,
-                compare_path=compare_path
+                compare_path=compare_path,
             )
 
             with self._lock:
@@ -546,17 +600,26 @@ class LRCer:
             # xxx_transcribed_optimized_translated.json
             translated_sub.save(translated_path, update_name=True)
         else:
-            logger.info(f'Found translated json file: {translated_path}')
+            logger.info(f"Found translated json file: {translated_path}")
         translated_sub = Subtitle.from_json(translated_path)
 
-        final_subtitle = self.post_process(translated_sub, output_name=json_filename, update_name=True,
-                                           extend_time=True)  # xxx.json
+        final_subtitle = self.post_process(
+            translated_sub, output_name=json_filename, update_name=True, extend_time=True
+        )  # xxx.json
 
         return final_subtitle
 
-    def run(self, paths: Union[str, Path, List[Union[str, Path]]], src_lang: Optional[str] = None, target_lang='zh-cn',
-            skip_trans=False, noise_suppress=False, bilingual_sub=False, clear_temp=False,
-            skip_preprocess=False) -> List[str]:
+    def run(
+        self,
+        paths: str | Path | list[str | Path],
+        src_lang: str | None = None,
+        target_lang="zh-cn",
+        skip_trans=False,
+        noise_suppress=False,
+        bilingual_sub=False,
+        clear_temp=False,
+        skip_preprocess=False,
+    ) -> list[str]:
         """
         Run the entire transcription and translation process.
 
@@ -613,7 +676,7 @@ class LRCer:
         self.transcribed_paths = []
 
         if not paths:
-            logger.warning('No audio/video file given. Skip LRCer.run()')
+            logger.warning("No audio/video file given. Skip LRCer.run()")
             return []
 
         if isinstance(paths, str) or isinstance(paths, Path):
@@ -627,35 +690,34 @@ class LRCer:
             for p in audio_paths:
                 if not p.exists():
                     raise FileNotFoundError(
-                        f'Preprocessed file not found: {p}. '
-                        f'Run pre_process() first or set skip_preprocess=False.'
+                        f"Preprocessed file not found: {p}. Run pre_process() first or set skip_preprocess=False."
                     )
         else:
             audio_paths = self.pre_process(paths, noise_suppress=noise_suppress)
 
         if skip_trans:
             # Transcribe-only: no translation threads needed
-            transcribed_paths = self.transcribe(
-                paths, src_lang=src_lang, skip_preprocess=True,
-            )
+            transcribed_paths = self.transcribe(paths, src_lang=src_lang, skip_preprocess=True)
             for transcribed_path in transcribed_paths:
                 self._process_transcribed_file(transcribed_path, target_lang=None, skip_trans=True)
 
             if clear_temp:
-                logger.info('Clearing temporary folder...')
+                logger.info("Clearing temporary folder...")
                 self.clear_temp_files(audio_paths)
 
             return self.transcribed_paths
 
-        logger.info(f'Working on {len(audio_paths)} audio files: {pformat(audio_paths)}')
+        logger.info(f"Working on {len(audio_paths)} audio files: {pformat(audio_paths)}")
 
         transcription_queue = Queue()
 
-        with Timer('Transcription (Producer) and Translation (Consumer) process'):
-            consumer = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='Consumer') \
-                .submit(self.consume_transcriptions, transcription_queue, target_lang, skip_trans, bilingual_sub)
-            producer = concurrent.futures.ThreadPoolExecutor(thread_name_prefix='Producer') \
-                .submit(self.produce_transcriptions, transcription_queue, audio_paths, src_lang)
+        with Timer("Transcription (Producer) and Translation (Consumer) process"):
+            consumer = concurrent.futures.ThreadPoolExecutor(thread_name_prefix="Consumer").submit(
+                self.consume_transcriptions, transcription_queue, target_lang, skip_trans, bilingual_sub
+            )
+            producer = concurrent.futures.ThreadPoolExecutor(thread_name_prefix="Producer").submit(
+                self.produce_transcriptions, transcription_queue, audio_paths, src_lang
+            )
 
             producer.result()
             consumer.result()
@@ -664,10 +726,10 @@ class LRCer:
                 traceback.print_exception(type(self.exception), self.exception, self.exception.__traceback__)
                 raise self.exception
 
-        logger.info(f'Total API fee used: {self.api_fee:.4f} USD')
+        logger.info(f"Total API fee used: {self.api_fee:.4f} USD")
 
         if clear_temp:
-            logger.info('Clearing temporary folder...')
+            logger.info("Clearing temporary folder...")
             self.clear_temp_files(audio_paths)
 
         return self.transcribed_paths
@@ -683,19 +745,19 @@ class LRCer:
         """
         temp_folders = set([path.parent for path in paths])
         for folder in temp_folders:
-            assert folder.name == 'preprocessed', f'Not a temporary folder: {folder}'
+            assert folder.name == "preprocessed", f"Not a temporary folder: {folder}"
 
             shutil.rmtree(folder)
-            logger.debug(f'Removed {folder}')
+            logger.debug(f"Removed {folder}")
 
         for input_video_path in self.from_video:
-            generated_wave = input_video_path.with_suffix('.wav')
+            generated_wave = input_video_path.with_suffix(".wav")
             if generated_wave.exists():
                 generated_wave.unlink()
-                logger.debug(f'Removed generated wav (from video): {generated_wave}')
+                logger.debug(f"Removed generated wav (from video): {generated_wave}")
 
     @staticmethod
-    def to_json(segments: List[Segment], name, lang):
+    def to_json(segments: list[Segment], name, lang):
         """
         Convert transcription segments to JSON format and save to file.
 
@@ -709,29 +771,18 @@ class LRCer:
 
         This method creates a JSON structure from the transcription segments and saves it to a file.
         """
-        result = {
-            'language': lang,
-            'segments': []
-        }
+        result = {"language": lang, "segments": []}
 
         if not segments:
-            result['segments'].append({
-                'start': 0.0,
-                'end': 5.0,
-                'text': "no speech found"
-            })
+            result["segments"].append({"start": 0.0, "end": 5.0, "text": "no speech found"})
         else:
             for segment in segments:
-                result['segments'].append({
-                    'start': segment.start,
-                    'end': segment.end,
-                    'text': segment.text
-                })
+                result["segments"].append({"start": segment.start, "end": segment.end, "text": segment.text})
 
-        with open(name, 'w', encoding='utf-8') as f:
+        with open(name, "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=4)
 
-        logger.info(f'File saved to {name}')
+        logger.info(f"File saved to {name}")
 
         return result
 
@@ -750,11 +801,11 @@ class LRCer:
 
         for i, path in enumerate(paths):
             if not path.is_file():
-                raise FileNotFoundError(f'File not found: {path}')
+                raise FileNotFoundError(f"File not found: {path}")
 
-            if get_file_type(path) == 'video':
-                self.from_video.add(path.with_suffix(''))
-                audio_path = path.with_suffix('.wav')
+            if get_file_type(path) == "video":
+                self.from_video.add(path.with_suffix(""))
+                audio_path = path.with_suffix(".wav")
                 if not audio_path.exists():
                     extract_audio(path)
                 paths[i] = audio_path
@@ -762,17 +813,22 @@ class LRCer:
         return Preprocessor(paths, options=self.preprocess_options).run(noise_suppress)
 
     @staticmethod
-    def post_process(transcribed_sub: Path, output_name: Path = None, remove_files: List[Path] = None,
-                     update_name=False, extend_time=False):
+    def post_process(
+        transcribed_sub: Path | Subtitle | BilingualSubtitle,
+        output_name: str | Path | None = None,
+        remove_files: list[Path] | None = None,
+        update_name: bool = False,
+        extend_time: bool = False,
+    ):
         """
         Post-process the transcribed subtitles.
 
         Args:
-            transcribed_sub (Path): Path to the transcribed subtitle file.
-            output_name (Path, optional): Path for the output file.
-            remove_files (List[Path], optional): List of files to remove after processing.
-            update_name (bool): Whether to update the subtitle name.
-            extend_time (bool): Whether to extend the time of subtitles.
+            transcribed_sub: Path or Subtitle object to post-process.
+            output_name: Path for the output file.
+            remove_files: List of files to remove after processing.
+            update_name: Whether to update the subtitle name.
+            extend_time: Whether to extend the time of subtitles.
 
         Returns:
             Subtitle: The post-processed subtitle object.

@@ -6,3 +6,4 @@ run.py
 /dist/
 /openfaker.egg-info/
 __pycache__/
+uv.lock

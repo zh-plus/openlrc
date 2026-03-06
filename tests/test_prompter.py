@@ -6,7 +6,7 @@ import unittest
 from openlrc.context import TranslateInfo
 from openlrc.prompter import ChunkedTranslatePrompter, Prompter
 
-formatted_user_input = '''Translation guidelines from context reviewer:
+formatted_user_input = """Translation guidelines from context reviewer:
 This is a guidline.
 
 Previews summaries:
@@ -27,17 +27,17 @@ Original>
 生き残る秘訣は、進化し続けることです。
 Translation>
 <summary></summary>
-<scene></scene>'''
+<scene></scene>"""
 
 
 class TestPrompter(unittest.TestCase):
     def setUp(self) -> None:
-        context = TranslateInfo(title='Title', audio_type='movie')
-        self.prompter = ChunkedTranslatePrompter('ja', 'zh-cn', context)
+        context = TranslateInfo(title="Title", audio_type="movie")
+        self.prompter = ChunkedTranslatePrompter("ja", "zh-cn", context)
         self.formatted_user_input = formatted_user_input
 
     def test_user_prompt(self):
-        user_input = '''#1
+        user_input = """#1
 Original>
 変わりゆく時代において、
 Translation>
@@ -45,23 +45,25 @@ Translation>
 #2
 Original>
 生き残る秘訣は、進化し続けることです。
-Translation>'''
+Translation>"""
         self.assertEqual(
-            self.prompter.user(1, user_input, ['test chunk1 summary', 'test chunk2 summary'],
-                               guideline='This is a guidline.'),
-            self.formatted_user_input
+            self.prompter.user(
+                1, user_input, ["test chunk1 summary", "test chunk2 summary"], guideline="This is a guidline."
+            ),
+            self.formatted_user_input,
         )
 
     def test_format_texts(self):
-        texts = [(1, '変わりゆく時代において、'), (2, '生き残る秘訣は、進化し続けることです。')]
-        expected_output = '#1\nOriginal>\n変わりゆく時代において、\nTranslation>\n\n#2\nOriginal>\n' \
-                          '生き残る秘訣は、進化し続けることです。\nTranslation>\n'
+        texts = [(1, "変わりゆく時代において、"), (2, "生き残る秘訣は、進化し続けることです。")]
+        expected_output = (
+            "#1\nOriginal>\n変わりゆく時代において、\nTranslation>\n\n#2\nOriginal>\n"
+            "生き残る秘訣は、進化し続けることです。\nTranslation>\n"
+        )
         self.assertEqual(ChunkedTranslatePrompter.format_texts(texts), expected_output)
 
     def test_check_format(self):
-        messages = [{'role': 'system', 'content': 'system content'},
-                    {'role': 'user', 'content': formatted_user_input}]
-        content = '''<title>Title</title>
+        _ = [{"role": "system", "content": "system content"}, {"role": "user", "content": formatted_user_input}]
+        content = """<title>Title</title>
 <context>
 <scene>Scene</scene>
 <chunk> Chunk 1:  </chunk>
@@ -82,11 +84,11 @@ Translation>
 
 <summary>Summary</summary>
 <scene>Scene</scene>
-'''
+"""
         self.assertTrue(self.prompter.check_format(formatted_user_input, content))
 
     def test_default_check_format(self):
         class TMPPrompter(Prompter):
             pass
 
-        self.assertTrue(TMPPrompter().check_format('content', 'content'))
+        self.assertTrue(TMPPrompter().check_format("content", "content"))

@@ -2,16 +2,16 @@
 #  All rights reserved.
 
 from pathlib import Path
-from typing import NamedTuple, Union, List, Optional
+from typing import NamedTuple
 
 import pysbd
-from faster_whisper.transcribe import WhisperModel, Segment, BatchedInferencePipeline
+from faster_whisper.transcribe import BatchedInferencePipeline, Segment, WhisperModel
 from pysbd.languages import LANGUAGE_CODES
 from tqdm import tqdm
 
 from openlrc.defaults import default_asr_options, default_vad_options
 from openlrc.logger import logger
-from openlrc.utils import Timer, get_audio_duration, spacy_load, format_timestamp
+from openlrc.utils import Timer, format_timestamp, get_audio_duration, spacy_load
 
 
 class TranscriptionInfo(NamedTuple):
@@ -23,6 +23,7 @@ class TranscriptionInfo(NamedTuple):
         duration (float): The total duration of the audio in seconds.
         duration_after_vad (float): The duration of the audio after Voice Activity Detection (VAD).
     """
+
     language: str
     duration: float
     duration_after_vad: float
@@ -52,25 +53,32 @@ class Transcriber:
         whisper_model (BatchedInferencePipeline): The Whisper model pipeline.
     """
 
-    def __init__(self, model_name: str = 'large-v3', compute_type: str = 'float16', device: str = 'cuda',
-                 vad_filter: bool = True, asr_options: Optional[dict] = None, vad_options: Optional[dict] = None):
+    def __init__(
+        self,
+        model_name: str = "large-v3",
+        compute_type: str = "float16",
+        device: str = "cuda",
+        vad_filter: bool = True,
+        asr_options: dict | None = None,
+        vad_options: dict | None = None,
+    ):
         self.model_name = model_name
         self.compute_type = compute_type
         self.device = device
         # self.no_need_align = ['en', 'ja', 'zh']  # Languages that is accurate enough without sentence alignment
-        self.continuous_scripted = ['ja', 'zh', 'zh-cn', 'th', 'vi', 'lo', 'km', 'my', 'bo']
+        self.continuous_scripted = ["ja", "zh", "zh-cn", "th", "vi", "lo", "km", "my", "bo"]
         self.asr_options = asr_options or default_asr_options
         self.vad_options = vad_options or default_vad_options
         self.use_vad_model = vad_filter
 
         model = WhisperModel(model_name, device, compute_type=compute_type, num_workers=1)
-        if self.asr_options['batch_size'] == 1:
+        if self.asr_options["batch_size"] == 1:
             self.whisper_model = model
-            del self.asr_options['batch_size']
+            del self.asr_options["batch_size"]
         else:
             self.whisper_model = BatchedInferencePipeline(model)
 
-    def transcribe(self, audio_path: Union[str, Path], language: Optional[str] = None):
+    def transcribe(self, audio_path: str | Path, language: str | None = None):
         """
         Transcribe an audio file.
 
@@ -84,13 +92,16 @@ class Transcriber:
                 - TranscriptionInfo: Information about the transcription.
         """
         seg_gen, info = self.whisper_model.transcribe(
-            str(audio_path), language=language, vad_filter=self.use_vad_model, vad_parameters=self.vad_options,
-            **self.asr_options
+            str(audio_path),
+            language=language,
+            vad_filter=self.use_vad_model,
+            vad_parameters=self.vad_options,
+            **self.asr_options,
         )
 
         segments = []  # [Segment(start, end, text, words=[Word(start, end, word, probability)])]
         timestamps = 0
-        with tqdm(total=int(info.duration), unit=' seconds') as pbar:
+        with tqdm(total=int(info.duration), unit=" seconds") as pbar:
             for seg in seg_gen:
                 segments.append(seg)
                 pbar.update(int(seg.end - timestamps))
@@ -99,26 +110,30 @@ class Transcriber:
                 pbar.update(info.duration - timestamps)
 
         if not segments:
-            logger.warning(f'No speech found for {audio_path}')
+            logger.warning(f"No speech found for {audio_path}")
             result = []
         else:
-            with Timer('Sentence Segmentation'):
+            with Timer("Sentence Segmentation"):
                 result = self.sentence_split(segments, info.language)
 
-        info = TranscriptionInfo(language=info.language, duration=get_audio_duration(audio_path),
-                                 duration_after_vad=info.duration_after_vad)
+        info = TranscriptionInfo(
+            language=info.language, duration=get_audio_duration(audio_path), duration_after_vad=info.duration_after_vad
+        )
 
         logger.info(
-            f'VAD removed {format_timestamp(info.duration - info.duration_after_vad)}s of silence ({info.vad_ratio * 100}%) ')
+            f"VAD removed {format_timestamp(info.duration - info.duration_after_vad)}s of silence ({info.vad_ratio * 100}%) "
+        )
         if info.vad_ratio > 0.5:
-            logger.warning(f'VAD ratio is too high, check your audio quality. '
-                           f'VAD ratio: {info.vad_ratio}, duration: {format_timestamp(info.duration, fmt="srt")}, '
-                           f'duration_after_vad: {format_timestamp(info.duration_after_vad, fmt="srt")}. '
-                           f'Try to decrease the threshold in vad_options.')
+            logger.warning(
+                f"VAD ratio is too high, check your audio quality. "
+                f"VAD ratio: {info.vad_ratio}, duration: {format_timestamp(info.duration, fmt='srt')}, "
+                f"duration_after_vad: {format_timestamp(info.duration_after_vad, fmt='srt')}. "
+                f"Try to decrease the threshold in vad_options."
+            )
 
         return result, info
 
-    def sentence_split(self, segments: List[Segment], lang: str):
+    def sentence_split(self, segments: list[Segment], lang: str):
         """
         Split transcribed segments into sentences.
 
@@ -134,13 +149,13 @@ class Transcriber:
             list: List of sentence-split segments.
         """
         if lang not in LANGUAGE_CODES.keys():
-            logger.warning(f'Language {lang} not supported. Skipping sentence split.')
+            logger.warning(f"Language {lang} not supported. Skipping sentence split.")
             return segments
 
         # Load language-specific NLP model
         nlp = spacy_load(lang)
 
-        def seg_from_words(seg: Segment, seg_id: int, words: List, tokens: List):
+        def seg_from_words(seg: Segment, seg_id: int, words: list, tokens: list):
             """
             Create a new segment from a subset of words.
 
@@ -156,9 +171,20 @@ class Transcriber:
             Returns:
                 Segment: A new Segment object created from the given words.
             """
-            text = ''.join([word.word for word in words])
-            return Segment(seg_id, seg.seek, words[0].start, words[-1].end, text, tokens, seg.avg_logprob,
-                           seg.compression_ratio, seg.no_speech_prob, words, seg.temperature)
+            text = "".join([word.word for word in words])
+            return Segment(
+                seg_id,
+                seg.seek,
+                words[0].start,
+                words[-1].end,
+                text,
+                tokens,
+                seg.avg_logprob,
+                seg.compression_ratio,
+                seg.no_speech_prob,
+                words,
+                seg.temperature,
+            )
 
         def mid_split(seg_entry: Segment):
             """
@@ -175,6 +201,7 @@ class Transcriber:
             Returns:
                 list: List of split segments.
             """
+            assert seg_entry.words is not None, "Segment must have word-level timestamps for splitting"
             text = seg_entry.text
             doc = nlp(text)
 
@@ -191,9 +218,9 @@ class Transcriber:
 
                 # Special handling for languages without spaces between words
                 if lang in self.continuous_scripted and former_len >= splittable:
-                    if word.word.startswith(' '):
+                    if word.word.startswith(" "):
                         break
-                    elif word.word.endswith(' '):
+                    elif word.word.endswith(" "):
                         former_words.append(word)
                         former_len += len(word.word)
                         break
@@ -202,13 +229,14 @@ class Transcriber:
                 if former_len >= splittable and is_punct(word.word[-1]):
                     break
 
-            latter_words = seg_entry.words[len(former_words):]
+            latter_words = seg_entry.words[len(former_words) :]
 
             # If no natural split point found, use alternative methods
             if not latter_words:
                 # Find the largest gap between words
-                gaps = [-1] + [seg_entry.words[k + 1].start - seg_entry.words[k].end
-                               for k in range(len(seg_entry.words) - 1)]
+                gaps = [-1] + [
+                    seg_entry.words[k + 1].start - seg_entry.words[k].end for k in range(len(seg_entry.words) - 1)
+                ]
                 max_gap = max(gaps)
                 split_idx = gaps.index(max_gap)
 
@@ -222,12 +250,12 @@ class Transcriber:
 
             # Safeguard against empty splits
             if not former_words or not latter_words:
-                logger.warning(f'Empty split detected: {former_words} or {latter_words}, skipping split')
+                logger.warning(f"Empty split detected: {former_words} or {latter_words}, skipping split")
                 return [seg_entry]
 
             # Create new segments from the split
-            former = seg_from_words(seg_entry, seg_entry.id, former_words, seg_entry.tokens[:len(former_words)])
-            latter = seg_from_words(seg_entry, seg_entry.id + 1, latter_words, seg_entry.tokens[len(former_words):])
+            former = seg_from_words(seg_entry, seg_entry.id, former_words, seg_entry.tokens[: len(former_words)])
+            latter = seg_from_words(seg_entry, seg_entry.id + 1, latter_words, seg_entry.tokens[len(former_words) :])
 
             return [former, latter]
 
@@ -237,6 +265,7 @@ class Transcriber:
         id_cnt = 0
         sentences = []  # [{'text': , 'start': , 'end': , 'words': [{word: , start: , end: , score: }, ...]}, ...]
         for segment in segments:
+            assert segment.words is not None, "Segment must have word-level timestamps"
             # Use pysbd to split the segment text into potential sentences
             splits = [s for s in segmenter.segment(segment.text) if s]  # Also filter out empty splits
             word_start = 0
@@ -248,27 +277,30 @@ class Transcriber:
                 for i in range(len(split)):
                     if word_start + i < len(segment.words):
                         split_words.append(segment.words[word_start + i])
-                        split_words_len = len(''.join([word.word for word in split_words]).rstrip())
+                        split_words_len = len("".join([word.word for word in split_words]).rstrip())
                     else:
-                        logger.warning(f'Word alignment issue: {word_start + i} >= {len(segment.words)}. '
-                                       f'Keeping: {"".join([word.word for word in split_words])}, '
-                                       f'Discarding: {split[split_words_len:]}')
+                        logger.warning(
+                            f"Word alignment issue: {word_start + i} >= {len(segment.words)}. "
+                            f"Keeping: {''.join([word.word for word in split_words])}, "
+                            f"Discarding: {split[split_words_len:]}"
+                        )
                         break
                     if split_words_len >= len(split.rstrip()):
                         break
 
                 # Sanity checks for split quality
                 if split_words_len >= len(split.rstrip()) + 3:
-                    logger.warning(f'Split words length mismatch: {split_words_len} >= {len(split)} + 3')
+                    logger.warning(f"Split words length mismatch: {split_words_len} >= {len(split)} + 3")
                 if split_words_len == 0:
-                    logger.warning(f'Zero-length split detected for: {split}, skipping')
+                    logger.warning(f"Zero-length split detected for: {split}, skipping")
                     continue
 
                 word_start += len(split_words)
 
                 # Create a new segment for this split
-                entry = seg_from_words(segment, id_cnt, split_words,
-                                       segment.tokens[word_start: word_start + len(split_words)])
+                entry = seg_from_words(
+                    segment, id_cnt, split_words, segment.tokens[word_start : word_start + len(split_words)]
+                )
 
                 def recursive_segment(entry: Segment):
                     """
@@ -285,6 +317,7 @@ class Transcriber:
                         list: List of segments after recursive splitting.
                     """
                     # Check if the segment needs splitting
+                    assert entry.words is not None, "Segment must have word-level timestamps"
                     char_limit = 45 if lang in self.continuous_scripted else 90
                     if len(entry.text) < char_limit or len(entry.words) == 1:
                         if entry.end - entry.start > 10:  # Split if duration > 10s

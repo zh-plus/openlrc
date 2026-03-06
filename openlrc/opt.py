@@ -3,37 +3,32 @@
 
 import re
 from pathlib import Path
-from typing import Union, Optional, List
 
 import zhconv
 
 from openlrc.logger import logger
-from openlrc.subtitle import Subtitle, BilingualSubtitle
+from openlrc.subtitle import BilingualSubtitle, Subtitle
 from openlrc.utils import extend_filename, format_timestamp
 
 # Thresholds for different languages
-CUT_LONG_THRESHOLD = {
-    'en': 350,
-    'cn': 125,
-    'ja': 125
-}
+CUT_LONG_THRESHOLD = {"en": 350, "cn": 125, "ja": 125}
 
 # Punctuation mapping
 PUNCTUATION_MAPPING = {
-    ',': '，',
-    '.': '。',
-    '?': '？',
-    '!': '！',
-    ':': '：',
-    ';': '；',
-    '"': '”',
-    "'": '’',
-    '(': '（',
-    ')': '）',
-    '[': '【',
-    ']': '】',
-    '{': '｛',
-    '}': '｝'
+    ",": "，",
+    ".": "。",
+    "?": "？",
+    "!": "！",
+    ":": "：",
+    ";": "；",
+    '"': "”",
+    "'": "’",
+    "(": "（",
+    ")": "）",
+    "[": "【",
+    "]": "】",
+    "{": "｛",
+    "}": "｝",
 }
 
 
@@ -42,7 +37,7 @@ class SubtitleOptimizer:
     SubtitleOptimizer class is used to optimize subtitles by performing various operations.
     """
 
-    def __init__(self, subtitle: Union[Path, Subtitle, BilingualSubtitle]):
+    def __init__(self, subtitle: Path | Subtitle | BilingualSubtitle):
         if isinstance(subtitle, Path):
             subtitle = Subtitle.from_json(subtitle)
 
@@ -87,6 +82,7 @@ class SubtitleOptimizer:
 
                 # Merge to previous element if closer to pre-element and gap > 3s
                 previous_gap = current_segment.start - optimized_segments[-1].start
+                assert current_segment.end is not None, "Segment end time must be set for merging"
                 next_gap = element.start - current_segment.end
                 if previous_gap <= next_gap and previous_gap <= 3:
                     previous_element = optimized_segments.pop()
@@ -136,22 +132,22 @@ class SubtitleOptimizer:
         Merge repeated patterns in the text.
         """
         for element in self.subtitle.segments:
-            element.text = re.sub(r'(.)\1{4,}', r'\1\1...', element.text)
-            element.text = re.sub(r'(.+)\1{4,}', r'\1\1...', element.text)
+            element.text = re.sub(r"(.)\1{4,}", r"\1\1...", element.text)
+            element.text = re.sub(r"(.+)\1{4,}", r"\1\1...", element.text)
 
     def cut_long(self, max_length=20):
         """
         Cut long texts based on language-specific thresholds.
         """
         if isinstance(self.subtitle, BilingualSubtitle):
-            logger.warning('Bilingual subtitle is not supported for cut_long operation.')
+            logger.warning("Bilingual subtitle is not supported for cut_long operation.")
             return
 
         threshold = CUT_LONG_THRESHOLD.get(self.lang.lower(), 150)
 
         for element in self.subtitle.segments:
             if len(element.text) > threshold and len(element.text) / len(set(element.text)) > 3.0:
-                logger.warning(f'Cut long text: {element.text}\nInto: {element.text[:max_length]}...')
+                logger.warning(f"Cut long text: {element.text}\nInto: {element.text[:max_length]}...")
                 element.text = element.text[:max_length]
 
     def traditional2mandarin(self):
@@ -159,14 +155,14 @@ class SubtitleOptimizer:
         Convert traditional Chinese characters to simplified Chinese.
         """
         for element in self.subtitle.segments:
-            element.text = zhconv.convert(element.text, locale='zh-cn')
+            element.text = zhconv.convert(element.text, locale="zh-cn")
 
     def punctuation_optimization(self):
         """
         Replace English punctuation with Chinese punctuation where appropriate.
         """
         if isinstance(self.subtitle, BilingualSubtitle):
-            logger.warning('Bilingual subtitle is not supported for punctuation_optimization operation.')
+            logger.warning("Bilingual subtitle is not supported for punctuation_optimization operation.")
             return
 
         for element in self.subtitle.segments:
@@ -174,36 +170,37 @@ class SubtitleOptimizer:
 
     def _replace_punctuation_with_chinese(self, text):
         # Define a regex pattern to match URLs
-        url_pattern = r'https?://\S+'
+        url_pattern = r"https?://\S+"
 
         # Find all URLs in the text
         urls = re.findall(url_pattern, text)
 
         # Replace URLs with placeholders
         for i, url in enumerate(urls):
-            text = text.replace(url, f'URL_PLACEHOLDER_{i}')
+            text = text.replace(url, f"URL_PLACEHOLDER_{i}")
 
         # Replace "..." with "……"
-        text = re.sub(r'\.{3,}', '……', text)
+        text = re.sub(r"\.{3,}", "……", text)
 
         # Replace consecutive Chinese full stops "。。。。" with "……"
-        text = re.sub(r'。{3,}', '……', text)
+        text = re.sub(r"。{3,}", "……", text)
 
         # Replace punctuation
         for eng, chn in PUNCTUATION_MAPPING.items():
             # Avoid replacing dots in abbreviations like "Mr.", "Mrs.", or in decimal numbers
-            if eng == '.':
-                text = re.sub(r'(?<!\w)\.(?!\w)|(?<=[^A-Za-z0-9])\.(?=[^A-Za-z0-9])|(?<=[^A-Za-z0-9])\.(?=$)', chn,
-                              text)
+            if eng == ".":
+                text = re.sub(
+                    r"(?<!\w)\.(?!\w)|(?<=[^A-Za-z0-9])\.(?=[^A-Za-z0-9])|(?<=[^A-Za-z0-9])\.(?=$)", chn, text
+                )
             else:
                 text = text.replace(eng, chn)
 
         # replace number，number to number,number
-        text = re.sub(r'([0-9]+)，([0-9]+)', r'\1,\2', text)
+        text = re.sub(r"([0-9]+)，([0-9]+)", r"\1,\2", text)
 
         # Restore URLs
         for i, url in enumerate(urls):
-            text = text.replace(f'URL_PLACEHOLDER_{i}', url)
+            text = text.replace(f"URL_PLACEHOLDER_{i}", url)
 
         return text
 
@@ -212,13 +209,15 @@ class SubtitleOptimizer:
         Remove '<unk>' tags from the text.
         """
         for element in self.subtitle.segments:
-            element.text = element.text.replace('<unk>', '')
+            element.text = element.text.replace("<unk>", "")
 
     def remove_empty(self):
         """
         Remove empty subtitle segments.
         """
-        self.subtitle.segments = [element for element in self.subtitle.segments if element.text]
+        self.subtitle.segments = [  # pyright: ignore[reportAttributeAccessIssue]
+            element for element in self.subtitle.segments if element.text
+        ]
 
     def strip(self):
         """
@@ -232,10 +231,12 @@ class SubtitleOptimizer:
         Extend the subtitle time for each element to 0.5s.
         """
         for i, element in enumerate(self.subtitle.segments):
+            if element.end is None:
+                continue
             if i == len(self.subtitle.segments) - 1 or self.subtitle.segments[i + 1].start - element.end > 0.5:
                 element.end += 0.5
 
-    def perform_all(self, steps: Optional[List[str]] = None, extend_time=False):
+    def perform_all(self, steps: list[str] | None = None, extend_time=False):
         """
         Perform all or specified optimization operations.
 
@@ -246,17 +247,15 @@ class SubtitleOptimizer:
         """
         # Check steps is valid
         if steps and any(step not in dir(self) for step in steps):
-            invalid_steps = ', '.join(s for s in steps if s not in dir(self))
-            raise ValueError(f'Invalid steps: {invalid_steps}')
+            invalid_steps = ", ".join(s for s in steps if s not in dir(self))
+            raise ValueError(f"Invalid steps: {invalid_steps}")
 
         if steps is None:
-            steps = [
-                'merge_same', 'merge_short', 'merge_repeat', 'cut_long', 'remove_unk', 'remove_empty', 'strip'
-            ]
-            if self.lang.lower() in ['zh-cn', 'zh']:
-                steps.append('traditional2mandarin')
-            if self.lang.lower() in ['zh-cn', 'zh', 'zh-tw']:
-                steps.append('punctuation_optimization')
+            steps = ["merge_same", "merge_short", "merge_repeat", "cut_long", "remove_unk", "remove_empty", "strip"]
+            if self.lang.lower() in ["zh-cn", "zh"]:
+                steps.append("traditional2mandarin")
+            if self.lang.lower() in ["zh-cn", "zh", "zh-tw"]:
+                steps.append("punctuation_optimization")
 
         for step in steps:
             method = getattr(self, step, None)
@@ -269,13 +268,13 @@ class SubtitleOptimizer:
         # Finally check to notify users
         self.check()
 
-    def save(self, output_name: Optional[str] = None, update_name=False):
+    def save(self, output_name: str | Path | None = None, update_name: bool = False):
         """
         Save the optimized subtitle to a file.
         """
-        optimized_name = extend_filename(self.filename, '_optimized') if not output_name else output_name
+        optimized_name = extend_filename(self.filename, "_optimized") if not output_name else output_name
         self.subtitle.save(optimized_name, update_name=update_name)
-        logger.info(f'Optimized json file saved to {optimized_name}')
+        logger.info(f"Optimized json file saved to {optimized_name}")
 
     def check(self):
         for element in self.subtitle.segments:

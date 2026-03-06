@@ -7,10 +7,9 @@ import sys
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import List, Union, Dict
 
 from openlrc.logger import logger
-from openlrc.utils import format_timestamp, parse_timestamp, detect_lang
+from openlrc.utils import detect_lang, format_timestamp, parse_timestamp
 
 
 @dataclass
@@ -18,8 +17,9 @@ class Element:
     """
     Save a LRC format element.
     """
+
     start: float
-    end: Union[float, None]
+    end: float | None
     text: str
 
     @property
@@ -30,7 +30,7 @@ class Element:
             return sys.maxsize  # Fake int infinity
 
     def to_json(self):
-        return {'start': self.start, 'end': self.end, 'text': self.text}
+        return {"start": self.start, "end": self.end, "text": self.text}
 
 
 class Subtitle:
@@ -38,15 +38,15 @@ class Subtitle:
     Save a sequence of Element, and meta data.
     """
 
-    def __init__(self, language: str, segments: List[Dict], filename: Union[str, Path]):
+    def __init__(self, language: str, segments: list[dict], filename: str | Path):
         self.lang = language
-        self.segments: List[Element] = [Element(**seg) for seg in segments]
+        self.segments: list[Element] = [Element(**seg) for seg in segments]
         self.filename = Path(filename)
-        self.suffix = '.lrc'
+        self.suffix = ".lrc"
 
     @staticmethod
     def from_json(filename):
-        with open(filename, encoding='utf-8') as f:
+        with open(filename, encoding="utf-8") as f:
             content = json.loads(f.read())
         return Subtitle(filename=filename, **content)
 
@@ -54,11 +54,11 @@ class Subtitle:
     def from_file(filename):
         filename = Path(filename)
         suffix = filename.suffix
-        if suffix == '.json':
+        if suffix == ".json":
             return Subtitle.from_json(filename)
-        elif suffix == '.lrc':
+        elif suffix == ".lrc":
             return Subtitle.from_lrc(filename)
-        elif suffix == '.srt':
+        elif suffix == ".srt":
             return Subtitle.from_srt(filename)
 
     def __len__(self):
@@ -78,17 +78,14 @@ class Subtitle:
         if lang:
             self.lang = lang
 
-    def save(self, filename: Union[str, Path], update_name=False):
-        results = {
-            'language': self.lang,
-            'segments': [seg.to_json() for seg in self.segments]
-        }
+    def save(self, filename: str | Path, update_name=False):
+        results = {"language": self.lang, "segments": [seg.to_json() for seg in self.segments]}
 
-        with open(filename, 'w', encoding='utf-8') as f:
+        with open(filename, "w", encoding="utf-8") as f:
             json.dump(results, f, ensure_ascii=False, indent=4)
 
         if update_name:
-            self.filename = filename
+            self.filename = Path(filename)
 
         return filename
 
@@ -97,82 +94,83 @@ class Subtitle:
         Check if the .lrc/.srt/.json file exist.
         :return:
         """
-        lrc_path = self.filename.with_suffix('.lrc')
-        srt_path = self.filename.with_suffix('.srt')
+        lrc_path = self.filename.with_suffix(".lrc")
+        srt_path = self.filename.with_suffix(".srt")
 
         return lrc_path.exists() or srt_path.exists() or self.filename.exists()
 
     def to_lrc(self):
         # If duration larger than 1 hour, use srt file instead
-        if self.segments[-1].end >= 3600:
-            logger.warning('Duration larger than 1 hour, use srt file instead')
+        last_end = self.segments[-1].end
+        if last_end is not None and last_end >= 3600:
+            logger.warning("Duration larger than 1 hour, use srt file instead")
             self.to_srt()
-            return self.filename.with_suffix('.srt')
+            return self.filename.with_suffix(".srt")
 
-        lrc_path = self.filename.with_suffix('.lrc')
-        fmt = partial(format_timestamp, fmt='lrc')
-        with open(lrc_path, 'w', encoding='utf-8') as f:
+        lrc_path = self.filename.with_suffix(".lrc")
+        fmt = partial(format_timestamp, fmt="lrc")
+        with open(lrc_path, "w", encoding="utf-8") as f:
             for i, segment in enumerate(self.segments):
-                print(
-                    f'[{fmt(segment.start)}] {segment.text}',
-                    file=f,
-                    flush=True,
-                )
+                print(f"[{fmt(segment.start)}] {segment.text}", file=f, flush=True)
                 if i == len(self.segments) - 1 or segment.end != self.segments[i + 1].start:
-                    print(f'[{fmt(segment.end)}]', file=f, flush=True)
+                    assert segment.end is not None, "Segment end time is required for LRC output"
+                    print(f"[{fmt(segment.end)}]", file=f, flush=True)
 
-        logger.info(f'File saved to {lrc_path}')
+        logger.info(f"File saved to {lrc_path}")
 
         return lrc_path
 
     def to_srt(self):
-        srt_path = self.filename.with_suffix('.srt')
-        fmt = partial(format_timestamp, fmt='srt')
-        with open(srt_path, 'w', encoding='utf-8') as f:
+        srt_path = self.filename.with_suffix(".srt")
+        fmt = partial(format_timestamp, fmt="srt")
+        with open(srt_path, "w", encoding="utf-8") as f:
             for i, segment in enumerate(self.segments, start=1):
-                print(f'{i}\n'
-                      f'{fmt(segment.start)} --> {fmt(segment.end)}\n'
-                      f'{segment.text}\n', file=f, flush=True)
+                assert segment.end is not None, "Segment end time is required for SRT output"
+                print(f"{i}\n{fmt(segment.start)} --> {fmt(segment.end)}\n{segment.text}\n", file=f, flush=True)
 
-        logger.info(f'File saved to {srt_path}')
-        self.suffix = '.srt'
+        logger.info(f"File saved to {srt_path}")
+        self.suffix = ".srt"
 
         return srt_path
 
     @classmethod
     def from_lrc(cls, filename):
         filename = Path(filename)
-        with open(filename, encoding='utf-8') as f:
+        with open(filename, encoding="utf-8") as f:
             lines = f.readlines()
 
         # Remove comments
-        lines = [line for line in lines if not line.startswith('#')]
+        lines = [line for line in lines if not line.startswith("#")]
         # Only include valid lines
-        lines = [line for line in lines if line.startswith('[')]
+        lines = [line for line in lines if line.startswith("[")]
 
         segments = []
         for i, line in enumerate(lines):
             # get time stamp
-            start_str, text = re.search(r'\[(\d+:\d+(?:\.\d+)?)](.*)', line).group(1, 2)
-            start = parse_timestamp(start_str, fmt='lrc')
+            match = re.search(r"\[(\d+:\d+(?:\.\d+)?)](.*)", line)
+            assert match is not None, f"Invalid LRC line: {line!r}"
+            start_str, text = match.group(1, 2)
+            start = parse_timestamp(start_str, fmt="lrc")
 
             if i != len(lines) - 1:
-                end_str = re.search(r'\[(\d+:\d+(?:\.\d+)?)]', lines[i + 1]).group(1)
-                end = parse_timestamp(end_str, fmt='lrc')
+                next_match = re.search(r"\[(\d+:\d+(?:\.\d+)?)]", lines[i + 1])
+                assert next_match is not None, f"Invalid LRC line: {lines[i + 1]!r}"
+                end_str = next_match.group(1)
+                end = parse_timestamp(end_str, fmt="lrc")
             else:
                 end = None
 
             if not text.strip():
                 continue
 
-            segments.append({'start': start, 'end': end, 'text': text.strip()})
+            segments.append({"start": start, "end": end, "text": text.strip()})
 
-        lang = detect_lang(' '.join(segment['text'] for segment in segments[:10]))
+        lang = detect_lang(" ".join(segment["text"] for segment in segments[:10]))
 
         return cls(language=lang, segments=segments, filename=filename)
 
     @classmethod
-    def from_srt(cls, filename: Union[str, Path]):
+    def from_srt(cls, filename: str | Path):
         """
         Processes an SRT (SubRip Subtitle) file according to the SRT specifications outlined
         at http://www.textfiles.com/uploads/kds-srt.txt.
@@ -186,7 +184,7 @@ class Subtitle:
         This function is designed to read or manipulate an SRT file based on the provided filename.
         """
         filename = Path(filename)
-        with open(filename, encoding='utf-8') as f:
+        with open(filename, encoding="utf-8") as f:
             lines = f.readlines()
 
         # # Remove comments
@@ -197,9 +195,11 @@ class Subtitle:
         while i < len(lines):
             line = lines[i]
             if line.strip().isdigit():
-                start_str, end_str = re.search(r'(\d+:\d+:\d+,\d+) --> (\d+:\d+:\d+,\d+)', lines[i + 1]).group(1, 2)
-                start = parse_timestamp(start_str, fmt='srt')
-                end = parse_timestamp(end_str, fmt='srt')
+                time_match = re.search(r"(\d+:\d+:\d+,\d+) --> (\d+:\d+:\d+,\d+)", lines[i + 1])
+                assert time_match is not None, f"Invalid SRT timing line: {lines[i + 1]!r}"
+                start_str, end_str = time_match.group(1, 2)
+                start = parse_timestamp(start_str, fmt="srt")
+                end = parse_timestamp(end_str, fmt="srt")
                 i += 2
 
                 # Multi-line subtitle
@@ -208,14 +208,14 @@ class Subtitle:
                     text.append(lines[i].strip())
                     i += 1
 
-                text = '\n'.join(text)
-                segments.append({'start': start, 'end': end, 'text': text})
+                text = "\n".join(text)
+                segments.append({"start": start, "end": end, "text": text})
 
                 i += 1
             else:
-                raise ValueError(f'Invalid srt file {filename}')
+                raise ValueError(f"Invalid srt file {filename}")
 
-        lang = detect_lang(' '.join(segment['text'] for segment in segments[:10]))
+        lang = detect_lang(" ".join(segment["text"] for segment in segments[:10]))
 
         return cls(language=lang, segments=segments, filename=filename)
 
@@ -225,10 +225,20 @@ class BilingualElement:
     """
     Save a LRC format element.
     """
+
     start: float
-    end: Union[float, None]
+    end: float | None
     src_text: str
     target_text: str
+
+    @property
+    def text(self) -> str:
+        """Alias for target_text, used by SubtitleOptimizer operations."""
+        return self.target_text
+
+    @text.setter
+    def text(self, value: str) -> None:
+        self.target_text = value
 
     @property
     def duration(self):
@@ -238,85 +248,107 @@ class BilingualElement:
             return sys.maxsize  # Fake int infinity
 
     def to_json(self):
-        return {'start': self.start, 'end': self.end, 'src': self.src_text, 'target': self.target_text}
+        return {"start": self.start, "end": self.end, "src": self.src_text, "target": self.target_text}
 
 
 class BilingualSubtitle:
-    def __init__(self, src: Subtitle, target: Subtitle, filename: Union[str, Path]):
+    def __init__(self, src: Subtitle, target: Subtitle, filename: str | Path):
         self._validate_subtitles(src, target)
         self.src_lang = src.lang
         self.target_lang = target.lang
         self.segments = self._create_bilingual_segments(src, target)
         self.filename = Path(filename)
-        self.suffix = '.lrc'
+        self.suffix = ".lrc"
 
     @staticmethod
     def _validate_subtitles(src: Subtitle, target: Subtitle):
         if len(src) != len(target):
-            raise ValueError(f'Source and target subtitle length not equal: {len(src)} vs {len(target)}')
+            raise ValueError(f"Source and target subtitle length not equal: {len(src)} vs {len(target)}")
         for src_seg, target_seg in zip(src.segments, target.segments):
             if src_seg.start != target_seg.start or src_seg.end != target_seg.end:
                 raise ValueError(
-                    f'Source and target subtitle timings not equal: {src_seg.start}-{src_seg.end} vs {target_seg.start}-{target_seg.end}')
+                    f"Source and target subtitle timings not equal: {src_seg.start}-{src_seg.end} vs {target_seg.start}-{target_seg.end}"
+                )
 
     @staticmethod
     def _create_bilingual_segments(src: Subtitle, target: Subtitle):
-        return [BilingualElement(src_seg.start, src_seg.end, src_seg.text, target_seg.text)
-                for src_seg, target_seg in zip(src.segments, target.segments)]
+        return [
+            BilingualElement(src_seg.start, src_seg.end, src_seg.text, target_seg.text)
+            for src_seg, target_seg in zip(src.segments, target.segments)
+        ]
 
     @property
     def lang(self):
-        return f'{self.src_lang}-{self.target_lang}'
+        return f"{self.src_lang}-{self.target_lang}"
 
     @classmethod
     def from_preprocessed(cls, preprocessed_folder, audio_name):
-        src_file = preprocessed_folder / f'{audio_name}_preprocessed_transcribed_optimized.json'
-        target_file = preprocessed_folder / f'{audio_name}_preprocessed_transcribed_optimized_translated.json'
+        src_file = preprocessed_folder / f"{audio_name}_preprocessed_transcribed_optimized.json"
+        target_file = preprocessed_folder / f"{audio_name}_preprocessed_transcribed_optimized_translated.json"
 
         if not src_file.exists() or not target_file.exists():
-            raise ValueError(f'Preprocessed file not found for {audio_name}')
+            raise ValueError(f"Preprocessed file not found for {audio_name}")
 
         src_sub = Subtitle.from_json(src_file)
         target_sub = Subtitle.from_json(target_file)
 
-        bilingual_sub_name = preprocessed_folder / f'{audio_name}_bilingual.json'
+        bilingual_sub_name = preprocessed_folder / f"{audio_name}_bilingual.json"
 
         return cls(src_sub, target_sub, filename=bilingual_sub_name)
 
+    def save(self, filename: str | Path, update_name: bool = False) -> str | Path:
+        """Save the bilingual subtitle to a JSON file."""
+        results = {"language": self.lang, "segments": [seg.to_json() for seg in self.segments]}
+
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(results, f, ensure_ascii=False, indent=4)
+
+        if update_name:
+            self.filename = Path(filename)
+
+        return filename
+
     def to_lrc(self):
         # If duration larger than 1 hour, use srt file instead
-        if self.segments[-1].end >= 3600:
-            logger.warning('Duration larger than 1 hour, use srt file instead')
+        last_end = self.segments[-1].end
+        if last_end is not None and last_end >= 3600:
+            logger.warning("Duration larger than 1 hour, use srt file instead")
             self.to_srt()
-            return self.filename.with_suffix('.srt')
+            return self.filename.with_suffix(".srt")
 
-        lrc_path = self.filename.with_suffix('.lrc')
-        fmt = partial(format_timestamp, fmt='lrc')
-        with open(lrc_path, 'w', encoding='utf-8') as f:
+        lrc_path = self.filename.with_suffix(".lrc")
+        fmt = partial(format_timestamp, fmt="lrc")
+        with open(lrc_path, "w", encoding="utf-8") as f:
             for i, segment in enumerate(self.segments):
                 print(
-                    f'[{fmt(segment.start)}] {segment.target_text.strip()}\n[{fmt(segment.start)}] {segment.src_text.strip()}',
+                    f"[{fmt(segment.start)}] {segment.target_text.strip()}\n[{fmt(segment.start)}] {segment.src_text.strip()}",
                     file=f,
                     flush=True,
                 )
                 if i == len(self.segments) - 1 or segment.end != self.segments[i + 1].start:
-                    print(f'[{fmt(segment.end)}]', file=f, flush=True)
+                    assert segment.end is not None, "Segment end time is required for LRC output"
+                    print(f"[{fmt(segment.end)}]", file=f, flush=True)
 
-        logger.info(f'File saved to {lrc_path}')
+        logger.info(f"File saved to {lrc_path}")
 
         return lrc_path
 
     def to_srt(self):
-        srt_path = self.filename.with_suffix('.srt')
-        fmt = partial(format_timestamp, fmt='srt')
-        with open(srt_path, 'w', encoding='utf-8') as f:
+        srt_path = self.filename.with_suffix(".srt")
+        fmt = partial(format_timestamp, fmt="srt")
+        with open(srt_path, "w", encoding="utf-8") as f:
             for i, segment in enumerate(self.segments, start=1):
-                print(f'{i}\n'
-                      f'{fmt(segment.start)} --> {fmt(segment.end)}\n'
-                      f'{segment.target_text.strip()}\n'
-                      f'{segment.src_text.strip()}\n', file=f, flush=True)
+                assert segment.end is not None, "Segment end time is required for SRT output"
+                print(
+                    f"{i}\n"
+                    f"{fmt(segment.start)} --> {fmt(segment.end)}\n"
+                    f"{segment.target_text.strip()}\n"
+                    f"{segment.src_text.strip()}\n",
+                    file=f,
+                    flush=True,
+                )
 
-        logger.info(f'File saved to {srt_path}')
-        self.suffix = '.srt'
+        logger.info(f"File saved to {srt_path}")
+        self.suffix = ".srt"
 
         return srt_path
