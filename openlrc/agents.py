@@ -375,7 +375,7 @@ class ContextReviewerAgent(Agent):
 
             if not validated:
                 for i in range(2, 4):
-                    logger.warning(f"Retry to generate the context using {self.chatbot} at {i} reties.")
+                    logger.warning(f"Retry to generate the context using {self.chatbot} at {i} retries.")
                     resp = self.chatbot.message(
                         messages_list,
                         stop_sequences=[self.prompter.stop_sequence],

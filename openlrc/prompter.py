@@ -146,7 +146,7 @@ class ChunkedTranslatePrompter(TranslatePrompter):
         self.user_prompt = f"""Translation guidelines from context reviewer:
 {{guideline}}
 
-Previews summaries:
+Previous summaries:
 {{summaries_str}}
 
 <chunk_id> Scene 1 Chunk {{chunk_num}} <chunk_id>

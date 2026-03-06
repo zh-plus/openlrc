@@ -58,7 +58,7 @@ class Preprocessor:
 
     def noise_suppression(self, audio_paths: list[Path], atten_lim_db: int = 15):
         """
-        Supress noise in audio.
+        Suppress noise in audio.
         """
         if not audio_paths:
             return []
