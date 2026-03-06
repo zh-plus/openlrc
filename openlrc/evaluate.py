@@ -26,10 +26,10 @@ class LLMTranslationEvaluator(TranslationEvaluator):
     """
 
     def __init__(self, chatbot_model: str | ModelConfig = "gpt-4.1-nano"):
-        self.agenet = TranslationEvaluatorAgent(chatbot_model=chatbot_model)
+        self.agent = TranslationEvaluatorAgent(chatbot_model=chatbot_model)
 
     def evaluate(self, src_texts, target_texts, src_lang=None, target_lang=None):
-        return self.agenet.evaluate(src_texts, target_texts)
+        return self.agent.evaluate(src_texts, target_texts)
 
 
 class EmbeddingTranslationEvaluator(TranslationEvaluator):

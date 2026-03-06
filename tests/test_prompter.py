@@ -9,7 +9,7 @@ from openlrc.prompter import ChunkedTranslatePrompter, Prompter
 formatted_user_input = """Translation guidelines from context reviewer:
 This is a guidline.
 
-Previews summaries:
+Previous summaries:
 Chunk 1: test chunk1 summary
 Chunk 2: test chunk2 summary
 
