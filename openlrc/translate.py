@@ -162,7 +162,7 @@ class LLMTranslator(Translator):
         texts: str | list[str],
         src_lang: str,
         target_lang: str,
-        info: TranslateInfo = TranslateInfo(),
+        info: TranslateInfo | None = None,
         compare_path: Path = Path("translate_intermediate.json"),
     ) -> list[str]:
         """
@@ -185,6 +185,9 @@ class LLMTranslator(Translator):
         Returns:
             List[str]: List of translated texts.
         """
+        if info is None:
+            info = TranslateInfo()
+
         if not isinstance(texts, list):
             texts = [texts]
 
@@ -414,7 +417,7 @@ class MSTranslator(Translator):
         try:
             request = requests.post(self.constructed_url, params=params, headers=self.headers, json=body, timeout=20)
         except TimeoutError:
-            raise RuntimeError("Failed to connect to Microsoft Translator API.")
+            raise RuntimeError("Failed to connect to Microsoft Translator API.") from None
         response = request.json()
 
         return json.dumps(response, sort_keys=True, ensure_ascii=False, indent=4, separators=(",", ": "))

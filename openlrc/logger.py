@@ -17,8 +17,9 @@ formatter = ColoredFormatter(
 )
 handler.setFormatter(formatter)
 
-logger = logging.getLogger()
+logger = logging.getLogger("openlrc")
 logger.handlers.clear()  # Clear existing handlers
 logger.addHandler(handler)
+logger.propagate = False
 
 logger.setLevel("INFO")
