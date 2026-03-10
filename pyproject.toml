@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openlrc"
-version = "1.6.1"
+version = "1.6.2"
 description = "Transcribe (whisper) and translate (gpt) voice into LRC file."
 authors = [{ name = "Hao Zheng", email = "zhenghaosustc@gmail.com" }]
 requires-python = ">=3.9, <3.13"
@@ -61,6 +61,8 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/zh-plus/Open-Lyrics"
+"Documentation" = "https://zh-plus.github.io/openlrc/#/"
+"Changelog" = "https://github.com/zh-plus/Open-Lyrics/blob/master/CHANGELOG.md"
 "Bug Tracker" = "https://github.com/zh-plus/Open-Lyrics/issues"
 
 [project.scripts]
@@ -122,7 +124,13 @@ pythonVersion = "3.10"
 exclude = ["openlrc/gui_streamlit"]
 
 [tool.hatch.build.targets.sdist]
-include = ["openlrc"]
+include = [
+    "openlrc",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "pyproject.toml",
+]
 exclude = [
     "openlrc/gui",
     "openlrc/gui_streamlit",

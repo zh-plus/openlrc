@@ -5,5 +5,5 @@ from openlrc.models import ModelConfig, ModelProvider, list_chatbot_models
 from openlrc.openlrc import LRCer, TranscriptionConfig, TranslationConfig
 
 __all__ = ("LRCer", "TranscriptionConfig", "TranslationConfig", "ModelConfig", "list_chatbot_models", "ModelProvider")
-__version__ = "1.6.1"
+__version__ = "1.6.2"
 __author__ = "zh-plus"

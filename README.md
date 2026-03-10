@@ -329,6 +329,27 @@ For live translation testing as a developer (and for CI usage), set:
 export OPENROUTER_API_KEY="your-openrouter-api-key"
 ```
 
+### Build and publish a release
+
+Use `uv` end-to-end for release builds and publishing:
+
+```shell
+# Build source and wheel distributions
+uv build
+
+# Validate the generated metadata before uploading
+uvx twine check dist/*
+
+# Publish to PyPI
+# Preferred for local publishing:
+uv publish
+#
+# Or publish with an explicit token:
+# uv publish --token <pypi-token>
+```
+
+If you prefer GitHub Actions publishing, configure PyPI trusted publishing for this repository and push a version tag such as `v1.6.2`.
+
 ## Todo
 
 - [x] [Efficiency] Batched translate/polish for GPT request (enable contextual ability).

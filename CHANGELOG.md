@@ -1,3 +1,22 @@
+## 1.6.2
+
+Refine the transcription and translation pipeline, expand test coverage, and improve the release workflow around `uv`.
+
+### New Features:
+
+- Add `TranscriptionConfig` and `TranslationConfig` dataclasses for clearer runtime configuration.
+- Decouple transcription and translation in `LRCer`.
+- Add OpenRouter fallback model support.
+
+### Other Changes:
+
+- Add `skip_preprocess` support.
+- Fix `retry_model` validation.
+- Improve duplicate handling and video format inference in the decoupled flow.
+- Refresh README examples to the new config API.
+- Add mock and live regression coverage for translator and `LRCer` behavior.
+- Add Ruff and Pyright checks and update CI environment variables for live API tests.
+
 ## 1.6.1
 
 Replace poetry with uv package manager. Fix #69.
