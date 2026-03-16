@@ -1,6 +1,8 @@
 #  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 import shutil
+import sys
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -9,16 +11,30 @@ import torch
 
 from openlrc.preprocess import Preprocessor
 
+# Python 3.10's unittest.mock.patch has a bug where @patch("df.enhance.enhance")
+# caches the function object `enhance` as the resolved `df.enhance`, causing
+# subsequent @patch("df.enhance.save_audio") to look up `save_audio` on the
+# function instead of the module (AttributeError). Fixed in Python 3.11+.
+# Workaround: inject a fake df.enhance module via sys.modules and use
+# patch.object() to avoid string-based path resolution entirely.
+_df_enhance = types.ModuleType("df.enhance")
+_df_enhance.enhance = lambda *a, **kw: None  # type: ignore[attr-defined]
+_df_enhance.init_df = lambda *a, **kw: None  # type: ignore[attr-defined]
+_df_enhance.load_audio = lambda *a, **kw: None  # type: ignore[attr-defined]
+_df_enhance.save_audio = lambda *a, **kw: None  # type: ignore[attr-defined]
+sys.modules.setdefault("df", types.ModuleType("df"))
+sys.modules.setdefault("df.enhance", _df_enhance)
+
 
 class TestPreprocessor(unittest.TestCase):
     def tearDown(self) -> None:
         preprocessed_path = Path("data/preprocessed")
         shutil.rmtree(preprocessed_path, ignore_errors=True)
 
-    @patch("df.enhance.enhance")
-    @patch("df.enhance.init_df")
-    @patch("df.enhance.load_audio")
-    @patch("df.enhance.save_audio")
+    @patch.object(_df_enhance, "enhance")
+    @patch.object(_df_enhance, "init_df")
+    @patch.object(_df_enhance, "load_audio")
+    @patch.object(_df_enhance, "save_audio")
     @patch("openlrc.preprocess.release_memory")
     def test_noise_suppression_returns_path_objects(
         self, mock_release_memory, mock_save_audio, mock_load_audio, mock_init_df, mock_enhance
