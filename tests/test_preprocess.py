@@ -15,10 +15,10 @@ class TestPreprocessor(unittest.TestCase):
         preprocessed_path = Path("data/preprocessed")
         shutil.rmtree(preprocessed_path, ignore_errors=True)
 
-    @patch("openlrc.preprocess.enhance")
-    @patch("openlrc.preprocess.init_df")
-    @patch("openlrc.preprocess.load_audio")
-    @patch("openlrc.preprocess.save_audio")
+    @patch("df.enhance.enhance")
+    @patch("df.enhance.init_df")
+    @patch("df.enhance.load_audio")
+    @patch("df.enhance.save_audio")
     @patch("openlrc.preprocess.release_memory")
     def test_noise_suppression_returns_path_objects(
         self, mock_release_memory, mock_save_audio, mock_load_audio, mock_init_df, mock_enhance
