@@ -1,0 +1,583 @@
+#  Copyright (C) 2026. Hao Zheng
+#  All rights reserved.
+
+import asyncio
+import json
+import os
+import random
+import re
+from collections.abc import Callable
+from copy import deepcopy
+
+import anthropic
+import httpx
+import openai
+from anthropic import AsyncAnthropic
+from anthropic._types import NOT_GIVEN
+from anthropic.types import Message
+from google import genai
+from google.genai import types
+from google.genai.types import HarmBlockThreshold, HarmCategory
+from openai import AsyncClient as AsyncGPTClient
+from openai.types.chat import ChatCompletion
+
+from openlrc.exceptions import ChatBotException, LengthExceedException
+from openlrc.logger import logger
+from openlrc.models import ModelInfo, ModelProvider, Models
+from openlrc.utils import get_messages_token_number, get_text_token_number, remove_stop
+
+# The default mapping for model name to chatbot class.
+model2chatbot = {}
+
+
+def _register_chatbot(cls):
+    # Get model info from Models class
+    for model in Models.__dict__.values():
+        if not isinstance(model, ModelInfo):
+            continue
+
+        if model.provider in (ModelProvider.OPENAI, ModelProvider.THIRD_PARTY) and cls.__name__ == "GPTBot":
+            model2chatbot[model.name] = cls
+            if model.latest_alias:
+                model2chatbot[model.latest_alias] = cls
+        elif model.provider == ModelProvider.ANTHROPIC and cls.__name__ == "ClaudeBot":
+            model2chatbot[model.name] = cls
+            if model.latest_alias:
+                model2chatbot[model.latest_alias] = cls
+        elif model.provider == ModelProvider.GOOGLE and cls.__name__ == "GeminiBot":
+            model2chatbot[model.name] = cls
+            if model.latest_alias:
+                model2chatbot[model.latest_alias] = cls
+    return cls
+
+
+def route_chatbot(model: str) -> tuple[type, str]:
+    if ":" in model:
+        match = re.match(r"(.+):(.+)", model)
+        assert match is not None, f"Invalid model format: {model!r}"
+        chatbot_type, chatbot_model = match.groups()
+        chatbot_type, chatbot_model = chatbot_type.strip().lower(), chatbot_model.strip()
+
+        Models.get_model(chatbot_model)
+
+        if chatbot_type == "openai":
+            return GPTBot, chatbot_model
+        elif chatbot_type == "anthropic":
+            return ClaudeBot, chatbot_model
+        else:
+            raise ValueError(f"Invalid chatbot type {chatbot_type}.")
+
+    if model not in model2chatbot:
+        raise ValueError(f"Invalid model {model}.")
+
+    return model2chatbot[model], model
+
+
+class ChatBot:
+    def __init__(self, model_name, temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.8, beta=False):
+        try:
+            self.model_info = Models.get_model(model_name, beta)
+            self.model_name = model_name
+        except ValueError:
+            raise ValueError(f"Invalid model {model_name}.") from None
+
+        self.temperature = temperature
+        self.top_p = top_p
+        self.retry = retry
+        self.max_async = max_async
+        self.fee_limit = fee_limit
+
+        self.api_fees = []
+
+    def estimate_fee(self, messages: list[dict]):
+        """
+        Estimate the total fee for the given messages.
+        """
+        token_map = {"system": 0, "user": 0, "assistant": 0}
+        for message in messages:
+            token_map[message["role"]] += get_text_token_number(message["content"])
+
+        input_price = self.model_info.input_price
+        output_price = self.model_info.output_price
+
+        total_price = (sum(token_map.values()) * input_price + token_map["user"] * output_price * 2) / 1000000
+
+        return total_price
+
+    def update_fee(self, response):
+        raise NotImplementedError()
+
+    def get_content(self, response):
+        raise NotImplementedError()
+
+    async def _create_achat(
+        self,
+        messages: list[dict],
+        stop_sequences: list[str] | None = None,
+        output_checker: Callable = lambda user_input, generated_content: True,
+    ):
+        raise NotImplementedError()
+
+    async def _amessage(
+        self,
+        messages_list: list[list[dict]],
+        stop_sequences: list[str] | None = None,
+        output_checker: Callable = lambda user_input, generated_content: True,
+    ):
+        """
+        Async send messages to the GPT chatbot.
+        """
+
+        results = await asyncio.gather(
+            *(
+                self._create_achat(message, stop_sequences=stop_sequences, output_checker=output_checker)
+                for message in messages_list
+            )
+        )
+
+        return results
+
+    def message(
+        self,
+        messages_list: list[dict] | list[list[dict]],
+        stop_sequences: list[str] | None = None,
+        output_checker: Callable = lambda user_input, generated_content: True,
+    ):
+        """
+        Send chunked messages to the GPT chatbot.
+        """
+        assert messages_list, "Empty message list."
+
+        # Normalise to list[list[dict]] so downstream code has a single type.
+        normalised: list[list[dict]]
+        if isinstance(messages_list[0], dict):
+            normalised = [messages_list]  # type: ignore[list-item]
+        else:
+            normalised = messages_list  # type: ignore[assignment]
+
+        # Calculate the total sending token number and approximated billing fee.
+        token_numbers = [get_messages_token_number(message) for message in normalised]
+        logger.info(
+            f"Max token num: {max(token_numbers):.0f}, Avg token num: {sum(token_numbers) / len(token_numbers):.0f}"
+        )
+
+        # if the approximated billing fee exceeds the limit, raise an exception.
+        approximated_fee = sum([self.estimate_fee(messages) for messages in normalised])
+        logger.info(f"Approximated billing fee: {approximated_fee:.4f} USD")
+        self.api_fees += [0]  # Actual fee for this translation call.
+        if approximated_fee > self.fee_limit:
+            raise ChatBotException(f"Approximated billing fee {approximated_fee} exceeds the limit: {self.fee_limit}$.")
+
+        try:
+            results = asyncio.run(
+                self._amessage(normalised, stop_sequences=stop_sequences, output_checker=output_checker)
+            )
+        except ChatBotException as e:
+            logger.error(f"Failed to message with GPT. Error: {e}")
+            raise
+        finally:
+            logger.info(f"Translation fee for this call: {self.api_fees[-1]:.4f} USD")
+            logger.info(f"Total bot translation fee: {sum(self.api_fees):.4f} USD")
+
+        return results
+
+    def __str__(self):
+        return f"ChatBot ({self.model_name})"
+
+
+@_register_chatbot
+class GPTBot(ChatBot):
+    def __init__(
+        self,
+        model_name="gpt-4.1-nano",
+        temperature=1,
+        top_p=1,
+        retry=8,
+        max_async=16,
+        json_mode=False,
+        fee_limit=0.05,
+        proxy=None,
+        base_url_config=None,
+        api_key=None,
+    ):
+
+        # clamp temperature to 0-2
+        temperature = max(0, min(2, temperature))
+
+        is_beta = False
+        if base_url_config and base_url_config["openai"] == "https://api.deepseek.com/beta":
+            is_beta = True
+
+        super().__init__(model_name, temperature, top_p, retry, max_async, fee_limit, is_beta)
+
+        resolved_api_key, resolved_base_url = self._resolve_client_settings(
+            api_key=api_key, base_url_config=base_url_config
+        )
+
+        self.async_client = AsyncGPTClient(
+            api_key=resolved_api_key, http_client=httpx.AsyncClient(proxy=proxy), base_url=resolved_base_url
+        )
+
+        self.model_name = model_name
+        self.json_mode = json_mode
+
+    @staticmethod
+    def _resolve_client_settings(api_key: str | None, base_url_config: dict | None) -> tuple[str, str | None]:
+        """
+        Resolve API key and base URL, auto-switching to OpenRouter when needed.
+        """
+        openai_base_url = None
+        if base_url_config:
+            openai_base_url = base_url_config.get("openai")
+
+        if api_key:
+            return api_key, openai_base_url
+
+        is_openrouter = bool(openai_base_url and "openrouter.ai" in openai_base_url.lower())
+        openai_api_key = os.environ.get("OPENAI_API_KEY")
+        openrouter_api_key = os.environ.get("OPENROUTER_API_KEY")
+
+        if is_openrouter:
+            if openrouter_api_key:
+                return openrouter_api_key, openai_base_url
+            if openai_api_key:
+                return openai_api_key, openai_base_url
+            raise ValueError(
+                "OPENROUTER_API_KEY is required when using OpenRouter base_url. "
+                "Set OPENROUTER_API_KEY or pass api_key explicitly."
+            )
+
+        if openai_api_key:
+            return openai_api_key, openai_base_url
+
+        if openrouter_api_key:
+            logger.info("OPENAI_API_KEY not found, fallback to OPENROUTER_API_KEY with OpenRouter endpoint.")
+            return openrouter_api_key, "https://openrouter.ai/api/v1"
+
+        raise ValueError("No API key found. Set OPENAI_API_KEY or pass api_key explicitly.")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        asyncio.run(self.async_client.close())
+
+    def update_fee(self, response: ChatCompletion):
+        assert response.usage is not None, "ChatCompletion.usage is None"
+        prompt_tokens = response.usage.prompt_tokens
+        completion_tokens = response.usage.completion_tokens
+
+        self.api_fees[-1] += (
+            prompt_tokens * self.model_info.input_price + completion_tokens * self.model_info.output_price
+        ) / 1000000
+
+    def get_content(self, response):
+        return response.choices[0].message.content
+
+    async def _create_achat(
+        self,
+        messages: list[dict],
+        stop_sequences: list[str] | None = None,
+        output_checker: Callable = lambda user_input, generated_content: True,
+    ):
+        # Check stop sequences
+        if stop_sequences and len(stop_sequences) > 4:
+            logger.warning("Too many stop sequences. For openai, Only the first 4 will be used.")
+            stop_sequences = stop_sequences[:4]
+
+        response = None
+        for i in range(self.retry):
+            try:
+                response = await self.async_client.chat.completions.create(
+                    model=self.model_name,
+                    messages=messages,  # pyright: ignore[reportArgumentType]
+                    temperature=self.temperature,
+                    top_p=self.top_p,
+                    response_format={"type": "json_object" if self.json_mode else "text"},  # pyright: ignore[reportArgumentType]
+                    stop=stop_sequences,
+                    max_tokens=self.model_info.max_tokens,
+                )
+                self.update_fee(response)
+                if response.choices[0].finish_reason == "length":
+                    raise LengthExceedException(response)
+
+                response_text = remove_stop(self.get_content(response), stop_sequences)
+
+                if not output_checker(messages[-1]["content"], response_text):
+                    logger.warning(f"Invalid response format. Retry num: {i + 1}.")
+                    continue
+
+                break
+            except openai.AuthenticationError as e:
+                # Authentication errors are deterministic and should not be retried.
+                raise ChatBotException(f"Authentication failed: {e}") from e
+            except (
+                openai.RateLimitError,
+                openai.APITimeoutError,
+                openai.APIConnectionError,
+                openai.APIError,
+                json.decoder.JSONDecodeError,
+            ) as e:
+                sleep_time = self._get_sleep_time(e)
+                logger.warning(f"{type(e).__name__}: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.")
+                await asyncio.sleep(sleep_time)
+
+        if not response:
+            raise ChatBotException("Failed to create a chat.")
+
+        return response
+
+    @staticmethod
+    def _get_sleep_time(error):
+        if isinstance(error, openai.RateLimitError):
+            return random.randint(30, 60)
+        elif isinstance(error, openai.APITimeoutError):
+            return 3
+        elif isinstance(error, json.decoder.JSONDecodeError):
+            return 1
+        else:
+            return 15
+
+
+@_register_chatbot
+class ClaudeBot(ChatBot):
+    def __init__(
+        self,
+        model_name="claude-3-5-sonnet-20241022",
+        temperature=1,
+        top_p=1,
+        retry=8,
+        max_async=16,
+        fee_limit=0.8,
+        proxy=None,
+        base_url_config=None,
+        api_key=None,
+    ):
+
+        # clamp temperature to 0-1
+        temperature = max(0, min(1, temperature))
+
+        super().__init__(model_name, temperature, top_p, retry, max_async, fee_limit)
+
+        self.async_client = AsyncAnthropic(
+            api_key=api_key or os.environ["ANTHROPIC_API_KEY"],
+            http_client=httpx.AsyncClient(proxy=proxy),
+            base_url=base_url_config["anthropic"] if base_url_config and base_url_config["anthropic"] else None,
+        )
+
+        self.model_name = model_name
+        self.max_tokens = self.model_info.max_tokens
+
+    def update_fee(self, response: Message):
+        model_info = self.model_info
+
+        prompt_tokens = response.usage.input_tokens
+        completion_tokens = response.usage.output_tokens
+
+        self.api_fees[-1] += (
+            prompt_tokens * model_info.input_price + completion_tokens * model_info.output_price
+        ) / 1000000
+
+    def get_content(self, response):
+        return response.content[0].text
+
+    async def _create_achat(
+        self,
+        messages: list[dict],
+        stop_sequences: list[str] | None = None,
+        output_checker: Callable = lambda user_input, generated_content: True,
+    ):
+        # No need to check stop sequences for Claude (unlimited)
+
+        # Move "system" role into the parameters
+        system_msg = NOT_GIVEN
+        if messages[0]["role"] == "system":
+            system_msg = messages.pop(0)["content"]
+
+        response = None
+        for i in range(self.retry):
+            try:
+                response = await self.async_client.messages.create(
+                    model=self.model_name,
+                    messages=messages,  # pyright: ignore[reportArgumentType]
+                    system=system_msg,
+                    temperature=self.temperature,
+                    top_p=self.top_p,
+                    stop_sequences=stop_sequences or NOT_GIVEN,
+                    max_tokens=self.model_info.max_tokens,
+                )
+                self.update_fee(response)
+
+                if response.stop_reason == "max_tokens":
+                    raise LengthExceedException(response)
+
+                response_text = remove_stop(self.get_content(response), stop_sequences)
+
+                if not output_checker(messages[-1]["content"], response_text):
+                    logger.warning(f"Invalid response format. Retry num: {i + 1}.")
+                    continue
+
+                break
+            except (
+                anthropic.RateLimitError,
+                anthropic.APITimeoutError,
+                anthropic.APIConnectionError,
+                anthropic.APIError,
+            ) as e:
+                sleep_time = self._get_sleep_time(e)
+                logger.warning(f"{type(e).__name__}: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.")
+                await asyncio.sleep(sleep_time)
+
+        if not response:
+            raise ChatBotException("Failed to create a chat.")
+
+        return response
+
+    def _get_sleep_time(self, error):
+        if isinstance(error, anthropic.RateLimitError):
+            return random.randint(30, 60)
+        elif isinstance(error, anthropic.APITimeoutError):
+            return 3
+        else:
+            return 15
+
+
+@_register_chatbot
+class GeminiBot(ChatBot):
+    def __init__(
+        self,
+        model_name="gemini-2.5-flash-preview-04-17",
+        temperature=1,
+        top_p=1,
+        retry=8,
+        max_async=16,
+        fee_limit=0.8,
+        proxy=None,
+        base_url_config=None,
+        api_key=None,
+    ):
+        self.temperature = max(0, min(1, temperature))
+
+        super().__init__(model_name, temperature, top_p, retry, max_async, fee_limit)
+
+        self.model_name = model_name
+
+        # genai.configure(api_key=api_key or os.environ['GOOGLE_API_KEY'])
+        self.client = genai.Client(api_key=api_key or os.environ["GOOGLE_API_KEY"])
+
+        # Should not block any translation-related content.
+        # self.safety_settings = {
+        #     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+        #     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+        #     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+        #     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE
+        # }
+        self.safety_settings = [
+            types.SafetySetting(
+                category=HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=HarmBlockThreshold.BLOCK_NONE
+            ),
+            types.SafetySetting(
+                category=HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=HarmBlockThreshold.BLOCK_NONE
+            ),
+            types.SafetySetting(
+                category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=HarmBlockThreshold.BLOCK_NONE
+            ),
+            types.SafetySetting(
+                category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=HarmBlockThreshold.BLOCK_NONE
+            ),
+        ]
+        self.config = types.GenerateContentConfig(
+            temperature=self.temperature, top_p=self.top_p, safety_settings=self.safety_settings
+        )
+
+        if proxy:
+            logger.warning("Google Gemini SDK does not support proxy, try using the system-level proxy if needed.")
+
+        if base_url_config:
+            logger.warning("Google Gemini SDK does not support changing base_url.")
+
+    def update_fee(self, response: types.GenerateContentResponse):
+        model_info = self.model_info
+        assert response.usage_metadata is not None, "GenerateContentResponse.usage_metadata is None"
+        prompt_tokens = response.usage_metadata.prompt_token_count or 0
+        completion_tokens = response.usage_metadata.candidates_token_count or 0
+
+        self.api_fees[-1] += (
+            prompt_tokens * model_info.input_price + completion_tokens * model_info.output_price
+        ) / 1000000
+
+    def get_content(self, response):
+        return response.text
+
+    async def _create_achat(
+        self,
+        messages: list[dict],
+        stop_sequences: list[str] | None = None,
+        output_checker: Callable = lambda user_input, generated_content: True,
+    ):
+        # Check stop sequences
+        if stop_sequences and len(stop_sequences) > 5:
+            logger.warning("Too many stop sequences. Only the first 5 will be used.")
+            stop_sequences = stop_sequences[:5]
+
+        history_messages = deepcopy(messages)
+        system_msg = None
+        if history_messages[0]["role"] == "system":
+            system_msg = history_messages.pop(0)["content"]
+
+        if history_messages[-1]["role"] != "user":
+            logger.error("The last message should be user message.")
+        user_msg = history_messages.pop(-1)["content"]
+
+        # convert assistant role into model
+        for i, message in enumerate(history_messages):
+            if message["role"] == "assistant":
+                history_messages[i]["role"] = "model"
+
+            content = message.pop("content")
+            history_messages[i]["parts"] = [{"text": content}]
+
+        self.config.stop_sequences = stop_sequences
+        # generative_model = genai.GenerativeModel(model_name=self.model_name, generation_config=self.config,
+        #                                          safety_settings=self.safety_settings, system_instruction=system_msg)
+        # client = genai.ChatSession(generative_model, history=history_messages)
+        self.config.system_instruction = system_msg
+
+        response = None
+        for i in range(self.retry):
+            # try:
+            # send_message_async is buggy, so we use send_message instead as a workaround
+            # response = client.send_message(user_msg, safety_settings=self.safety_settings)
+            response = await self.client.aio.models.generate_content(
+                model=self.model_name, contents=user_msg, config=self.config
+            )
+            self.update_fee(response)
+            if not response.text:
+                logger.warning(f"Get None response. Wait 15s. Retry num: {i + 1}.")
+                await asyncio.sleep(15)
+                continue
+
+            response_text = remove_stop(response.text, stop_sequences)
+
+            if not output_checker(user_msg, response_text):
+                logger.warning(f"Invalid response format. Retry num: {i + 1}.")
+                continue
+
+            if not response:
+                logger.warning(f"Failed to get a complete response. Retry num: {i + 1}.")
+                continue
+
+            break
+            # except Exception as e:
+            #     logger.warning(f'{type(e).__name__}: {e}. Retry num: {i + 1}.')
+            #     time.sleep(3)
+            # except genai.types.generation_types.BlockedPromptException as e:
+            #     logger.warning(f'Prompt blocked: {e}.\n Retry in 30s.')
+
+        if not response:
+            raise ChatBotException("Failed to create a chat.")
+
+        return response
+
+
+provider2chatbot = {ModelProvider.OPENAI: GPTBot, ModelProvider.ANTHROPIC: ClaudeBot, ModelProvider.GOOGLE: GeminiBot}

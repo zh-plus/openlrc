@@ -1,0 +1,136 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "openlrc"
+version = "1.6.1"
+description = "Transcribe (whisper) and translate (gpt) voice into LRC file."
+authors = [{ name = "Hao Zheng", email = "zhenghaosustc@gmail.com" }]
+requires-python = ">=3.9, <3.13"
+readme = "README.md"
+license = "MIT"
+keywords = [
+    "openai-gpt3",
+    "whisper",
+    "voice transcribe",
+    "lrc",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "openai>=1.55.0,<2",
+    "anthropic>=0.39.0,<0.40",
+    "tiktoken>=0.8.0,<0.9",
+    "langcodes>=3.3.0,<4",
+    "language-data~=1.1",
+    "tqdm>=4.65.0,<5",
+    "audioread>=3.0.0,<4",
+    "zhconv>=1.4.3,<2",
+    "punctuators>=0.0.5,<0.0.6",
+    "colorlog>=6.7.0,<7",
+    "ffmpeg-python>=0.2.0,<0.3",
+    "lingua-language-detector>=1.3.2,<2",
+    "pandas>=2.0.2,<3",
+    "filetype>=1.2.0,<2",
+    "jaconvV2>=0.4,<0.5",
+    "spacy>=3.8.5,<4",
+    "pysbd>=0.3.4,<0.4",
+    "faster-whisper",
+    "soundfile>=0.12.1,<0.13",
+    "ffmpeg-normalize>=1.27.5,<2",
+    "deepfilternet>=0.5.6,<0.6",
+    "aiohttp>=3.9.4,<4",
+    "ctranslate2>=4.5.0,<5",
+    "google-genai==1.11.0",
+    "json_repair==0.25.2",
+    "matplotlib>=3.9.2,<4",
+    "typing-extensions>=4.12.2,<5",
+    "onnxruntime>=1.20.0,<1.24; python_version < '3.11'",
+    "onnxruntime>=1.20.0,<2; python_version >= '3.11'",
+    "torch>=2.6.0",
+    "torchvision>=0.21.0",
+    "torchaudio>=2.0.0",
+    "pip>=25.1"
+]
+
+[project.urls]
+Homepage = "https://github.com/zh-plus/Open-Lyrics"
+"Bug Tracker" = "https://github.com/zh-plus/Open-Lyrics/issues"
+
+[project.scripts]
+openlrc = "openlrc.cli:main"
+
+[virtualenvs]
+create = true
+in-project = true
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1",
+    "ruff>=0.11",
+]
+
+[tool.uv]
+
+[[tool.uv.index]]
+name = "PyPI"
+url = "https://pypi.org/simple/"
+default = true
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+faster-whisper = { url = "https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz" }
+torch = [
+    { index = "pytorch-cu124", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+torchvision = [
+    { index = "pytorch-cu124", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+torchaudio = [
+    { index = "pytorch-cu124", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = [
+    "E501",   # line too long — handled by formatter
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["openlrc"]
+split-on-trailing-comma = false
+
+[tool.pyright]
+pythonVersion = "3.10"
+exclude = ["openlrc/gui_streamlit"]
+
+[tool.hatch.build.targets.sdist]
+include = ["openlrc"]
+exclude = [
+    "openlrc/gui",
+    "openlrc/gui_streamlit",
+]
+
+[tool.hatch.build.targets.wheel]
+include = ["openlrc"]
+exclude = [
+    "openlrc/gui",
+    "openlrc/gui_streamlit",
+]
