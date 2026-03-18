@@ -4,8 +4,6 @@ import logging
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-import torch
-from df.enhance import enhance, init_df, load_audio, save_audio
 from ffmpeg_normalize import FFmpegNormalize
 from tqdm import tqdm
 
@@ -62,6 +60,9 @@ class Preprocessor:
         """
         if not audio_paths:
             return []
+
+        import torch
+        from df.enhance import enhance, init_df, load_audio, save_audio
 
         if "atten_lim_db" in self.options:
             atten_lim_db = self.options["atten_lim_db"]

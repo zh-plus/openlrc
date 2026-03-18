@@ -1,30 +1,28 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
+from __future__ import annotations
+
 import concurrent.futures
 import json
 import shutil
 import traceback
 import warnings
 from copy import deepcopy
-from dataclasses import dataclass
 from pathlib import Path
 from pprint import pformat
 from queue import Queue
 from threading import Lock
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from faster_whisper.transcribe import Segment
+if TYPE_CHECKING:
+    from faster_whisper.transcribe import Segment
 
-from openlrc.context import TranslateInfo
+from openlrc.config import TranscriptionConfig, TranslationConfig
 from openlrc.defaults import default_asr_options, default_preprocess_options, default_vad_options
 from openlrc.logger import logger
-from openlrc.models import ModelConfig
 from openlrc.opt import SubtitleOptimizer
-from openlrc.preprocess import Preprocessor
 from openlrc.subtitle import BilingualSubtitle, Subtitle
-from openlrc.transcribe import Transcriber
-from openlrc.translate import LLMTranslator
 from openlrc.utils import (
     Timer,
     extend_filename,
@@ -36,57 +34,6 @@ from openlrc.utils import (
 )
 
 _SENTINEL = object()
-
-
-@dataclass
-class TranscriptionConfig:
-    """
-    Configuration for the transcription stage.
-
-    Args:
-        whisper_model: Name of whisper model. Default: ``large-v3``
-        compute_type: Computation type (``default``, ``int8``, ``int8_float16``,
-            ``int16``, ``float16``, ``float32``). Default: ``float16``
-        device: Device for computation. Default: ``cuda``
-        asr_options: Parameters for whisper model.
-        vad_options: Parameters for VAD model.
-        preprocess_options: Options for audio preprocessing.
-    """
-
-    whisper_model: str = "large-v3"
-    compute_type: str = "float16"
-    device: str = "cuda"
-    asr_options: dict | None = None
-    vad_options: dict | None = None
-    preprocess_options: dict | None = None
-
-
-@dataclass
-class TranslationConfig:
-    """
-    Configuration for the translation stage.
-
-    Args:
-        chatbot_model: The chatbot model to use. Can be a string like
-            ``'gpt-4.1-nano'`` or ``'provider:model-name'``, or a ``ModelConfig``
-            instance. Default: ``gpt-4.1-nano``
-        fee_limit: Maximum fee per translation call in USD. Default: ``0.8``
-        consumer_thread: Number of parallel translation threads. Default: ``4``
-        proxy: Proxy for API requests. e.g. ``'http://127.0.0.1:7890'``
-        base_url_config: Base URL dict for OpenAI & Anthropic.
-        glossary: Dictionary or path mapping source words to translations.
-        retry_model: Fallback model for translation retries.
-        is_force_glossary_used: Force glossary usage in context. Default: ``False``
-    """
-
-    chatbot_model: str | ModelConfig = "gpt-4.1-nano"
-    fee_limit: float = 0.8
-    consumer_thread: int = 4
-    proxy: str | None = None
-    base_url_config: dict | None = None
-    glossary: dict | str | Path | None = None
-    retry_model: str | ModelConfig | None = None
-    is_force_glossary_used: bool = False
 
 
 class LRCer:
@@ -220,9 +167,11 @@ class LRCer:
         self.transcribed_paths = []
 
     @property
-    def transcriber(self) -> Transcriber:
+    def transcriber(self):
         """Lazily initialize and return the Transcriber instance (thread-safe)."""
         if self._transcriber is None:
+            from openlrc.transcribe import Transcriber
+
             with self._transcriber_lock:
                 if self._transcriber is None:
                     self._transcriber = Transcriber(
@@ -567,6 +516,9 @@ class LRCer:
         This method handles the translation process, including context preparation,
         actual translation, and post-processing of the translated subtitles.
         """
+        from openlrc.context import TranslateInfo
+        from openlrc.translate import LLMTranslator
+
         context = TranslateInfo(
             title=audio_name, audio_type="Movie", glossary=self.glossary, forced_glossary=self.is_force_glossary_used
         )
@@ -809,6 +761,8 @@ class LRCer:
                 if not audio_path.exists():
                     extract_audio(path)
                 paths[i] = audio_path
+
+        from openlrc.preprocess import Preprocessor
 
         return Preprocessor(paths, options=self.preprocess_options).run(noise_suppress)
 
