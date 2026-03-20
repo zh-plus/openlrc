@@ -12,17 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from spacy.language import Language as SpacyLanguage
-
-import audioread
-import ffmpeg
-import filetype
-import jaconvV2
-import langcodes
-import spacy
-import spacy.cli
-import tiktoken
-import torch
-from lingua import LanguageDetectorBuilder
+    import torch
 
 from openlrc.defaults import supported_languages_lingua
 from openlrc.logger import logger
@@ -33,6 +23,8 @@ def extract_audio(path: Path) -> Path:
     Extract audio from video.
     :return: Audio path
     """
+    import ffmpeg
+
     file_type = get_file_type(path)
     if file_type == "audio":
         return path
@@ -84,6 +76,8 @@ def get_preprocessed_path(audio_path: str | Path) -> Path:
 
 
 def get_file_type(path: Path) -> str:
+    import filetype
+
     if path.suffix == ".ts":
         return "video"
 
@@ -102,11 +96,15 @@ def get_file_type(path: Path) -> str:
 
 
 def get_audio_duration(path: str | Path) -> float:
+    import audioread
+
     with audioread.audio_open(str(path)) as audio:
         return audio.duration
 
 
 def release_memory(model: torch.nn.Module) -> None:
+    import torch
+
     # gc.collect()
     torch.cuda.empty_cache()
     del model
@@ -116,6 +114,8 @@ def normalize(text):
     """
     Normalize strings using str.lower(), and unicodedata.normalize
     """
+    import jaconvV2
+
     # unicodedata can't handle quotes as expected'’'
     quotes_table = str.maketrans("〈〉゛“”‘’", '<>"""\'\'')
     text = text.translate(quotes_table)
@@ -133,6 +133,8 @@ def normalize(text):
 
 
 def get_text_token_number(text: str, model: str = "gpt-3.5-turbo") -> int:
+    import tiktoken
+
     tokens = tiktoken.encoding_for_model(model).encode(text)
 
     return len(tokens)
@@ -260,7 +262,12 @@ def format_timestamp(seconds: float, fmt: str = "lrc") -> str:
 
 
 def detect_lang(text) -> str:
-    detector = LanguageDetectorBuilder.from_languages(*supported_languages_lingua).build()
+    import langcodes
+    from lingua import Language, LanguageDetectorBuilder
+
+    detector = LanguageDetectorBuilder.from_languages(
+        *(getattr(Language, language_name) for language_name in supported_languages_lingua)
+    ).build()
     detected = detector.detect_language_of(text)
     if detected is None:
         raise RuntimeError(f"Could not detect language for text: {text[:50]!r}")
@@ -283,6 +290,9 @@ def get_spacy_lib(lang):
 
 
 def spacy_load(lang) -> SpacyLanguage:
+    import spacy
+    import spacy.cli
+
     lib_name = get_spacy_lib(lang)
     try:
         nlp = spacy.load(lib_name)

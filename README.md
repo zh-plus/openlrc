@@ -130,6 +130,35 @@ into `.lrc` subtitles with LLMs such as
    pip install typing-extensions -U
    ```
 
+## Lightweight Imports
+
+OpenLRC keeps several package-root APIs lightweight to import.
+
+The following imports are guaranteed not to eagerly load heavyweight runtime dependencies such as
+`torch`, `spacy`, `faster-whisper`, `tiktoken`, or `lingua`:
+
+```python
+import openlrc
+from openlrc import LRCer
+from openlrc import TranscriptionConfig, TranslationConfig
+from openlrc import ModelConfig, ModelProvider, list_chatbot_models
+```
+
+This is useful when you only need configuration objects, model metadata, or the `LRCer` type itself
+without immediately starting transcription or language-processing work.
+
+Heavy dependencies are loaded only when the corresponding features are first used. For example:
+
+- `faster-whisper` is loaded when transcription is first needed.
+- `torch` and `df.enhance` are loaded when noise suppression is used.
+- `spacy` is loaded when sentence segmentation or related NLP helpers are used.
+- `tiktoken` is loaded when token counting is used.
+- `lingua` is loaded when language detection helpers are used.
+
+> [!NOTE]
+> Lightweight imports improve import-time behavior only. They do not change installation requirements:
+> `pip install openlrc` still installs the full dependency set declared by the package.
+
 ## Usage 🐍
 
 [//]: # (### GUI)
