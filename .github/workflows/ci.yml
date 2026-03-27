@@ -51,7 +51,10 @@ jobs:
         uses: FedericoCarboni/setup-ffmpeg@v2
         id: setup-ffmpeg
 
+      - name: Install dependencies (CPU-only PyTorch for CI)
+        run: uv sync --extra cpu
+
       - name: Test with unittest
         working-directory: ./tests
         run: |
-          uv run python -m unittest discover -s . -p 'test_*.py'
+          uv run --extra cpu python -m unittest discover -s . -p 'test_*.py'

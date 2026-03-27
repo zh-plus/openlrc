@@ -58,6 +58,11 @@ class Preprocessor:
         """
         Suppress noise in audio.
         """
+        # Lazy import: torch and deepfilternet are heavy dependencies that may not be available
+        # in all environments (e.g. CI with CPU-only PyTorch). Only import when actually needed.
+        import torch
+        from df.enhance import enhance, init_df, load_audio, save_audio
+
         if not audio_paths:
             return []
 
