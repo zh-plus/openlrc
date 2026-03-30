@@ -77,10 +77,10 @@ into `.lrc` subtitles with LLMs such as
 
 ## Installation ⚙️
 
-1. Install CUDA 11.x and [cuDNN 8 for CUDA 11](https://developer.nvidia.com/cudnn) first according
+1. Install [CUDA](https://developer.nvidia.com/cuda-toolkit) and [cuDNN](https://developer.nvidia.com/cudnn) according
    to https://opennmt.net/CTranslate2/installation.html to enable `faster-whisper`.
 
-   `faster-whisper` also needs [cuBLAS for CUDA 11](https://developer.nvidia.com/cublas) installed.
+   `faster-whisper` also needs [cuBLAS](https://developer.nvidia.com/cublas) installed.
    <details>
    <summary>For Windows Users (click to expand)</summary> 
 
@@ -103,7 +103,7 @@ into `.lrc` subtitles with LLMs such as
 3. Install [ffmpeg](https://ffmpeg.org/download.html) and add `bin` directory
    to your `PATH`.
 
-4. This project can be installed from PyPI:
+4. Install from PyPI:
 
     ```shell
     pip install openlrc
@@ -115,20 +115,12 @@ into `.lrc` subtitles with LLMs such as
     pip install git+https://github.com/zh-plus/openlrc
     ```
 
-5. Install the latest [faster-whisper](https://github.com/guillaumekln/faster-whisper) from source:
-   ```shell
-   pip install "faster-whisper @ https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz"
-   ```
+5. **(Optional)** If you need noise suppression (`noise_suppress=True`), install the full extras
+   which includes torch and DeepFilterNet:
 
-6. Install [PyTorch](https://pytorch.org/get-started/locally/):
-   ```shell
-   pip install --force-reinstall torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
-   ```
-
-7. Fix the `typing-extensions` issue:
-   ```shell
-   pip install typing-extensions -U
-   ```
+    ```shell
+    pip install openlrc[full]
+    ```
 
 ## Lightweight Imports
 
@@ -156,8 +148,9 @@ Heavy dependencies are loaded only when the corresponding features are first use
 - `lingua` is loaded when language detection helpers are used.
 
 > [!NOTE]
-> Lightweight imports improve import-time behavior only. They do not change installation requirements:
-> `pip install openlrc` still installs the full dependency set declared by the package.
+> The base `pip install openlrc` does **not** include torch or DeepFilterNet.
+> These are only installed with `pip install openlrc[full]` and are only needed
+> for noise suppression (`noise_suppress=True`).
 
 ## Usage 🐍
 
@@ -213,7 +206,7 @@ if __name__ == '__main__':
     lrcer = LRCer(transcription=TranscriptionConfig(vad_options=vad_options))
     lrcer.run('./data/test.mp3', target_lang='zh-cn')
 
-    # Enhance the audio using noise suppression (consume more time).
+    # Enhance the audio using noise suppression (requires openlrc[full], consumes more time).
     lrcer.run('./data/test.mp3', target_lang='zh-cn', noise_suppress=True)
 
     # Change the translation model
