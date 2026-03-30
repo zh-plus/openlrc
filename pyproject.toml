@@ -41,7 +41,7 @@ dependencies = [
     "jaconvV2>=0.4,<0.5",
     "spacy>=3.8.5,<4",
     "pysbd>=0.3.4,<0.4",
-    "faster-whisper",
+    "faster-whisper>=1.1.1,<2",
     "soundfile>=0.12.1,<0.13",
     "ffmpeg-normalize>=1.27.5,<2",
     "deepfilternet>=0.5.6,<0.6",
@@ -56,21 +56,16 @@ dependencies = [
     "torch>=2.6.0",
     "torchvision>=0.21.0",
     "torchaudio>=2.0.0",
-    "pip>=25.1"
 ]
 
 [project.urls]
-Homepage = "https://github.com/zh-plus/Open-Lyrics"
+Homepage = "https://github.com/zh-plus/openlrc"
 "Documentation" = "https://zh-plus.github.io/openlrc/#/"
-"Changelog" = "https://github.com/zh-plus/Open-Lyrics/blob/master/CHANGELOG.md"
-"Bug Tracker" = "https://github.com/zh-plus/Open-Lyrics/issues"
+"Changelog" = "https://github.com/zh-plus/openlrc/blob/master/CHANGELOG.md"
+"Bug Tracker" = "https://github.com/zh-plus/openlrc/issues"
 
 [project.scripts]
 openlrc = "openlrc.cli:main"
-
-[virtualenvs]
-create = true
-in-project = true
 
 [dependency-groups]
 dev = [
@@ -91,7 +86,6 @@ url = "https://download.pytorch.org/whl/cu124"
 explicit = true
 
 [tool.uv.sources]
-faster-whisper = { url = "https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz" }
 torch = [
     { index = "pytorch-cu124", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
