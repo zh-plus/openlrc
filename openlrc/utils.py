@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from spacy.language import Language as SpacyLanguage
-    import torch
 
 from openlrc.defaults import supported_languages_lingua
 from openlrc.logger import logger
@@ -102,12 +101,14 @@ def get_audio_duration(path: str | Path) -> float:
         return audio.duration
 
 
-def release_memory(model: torch.nn.Module) -> None:
-    import torch
+def release_memory(model: Any) -> None:
+    try:
+        import torch
+    except ImportError:
+        return
 
-    # gc.collect()
-    torch.cuda.empty_cache()
-    del model
+    if isinstance(model, torch.nn.Module):
+        torch.cuda.empty_cache()
 
 
 def normalize(text):

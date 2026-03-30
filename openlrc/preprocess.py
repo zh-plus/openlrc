@@ -61,8 +61,14 @@ class Preprocessor:
         if not audio_paths:
             return []
 
-        import torch
-        from df.enhance import enhance, init_df, load_audio, save_audio
+        try:
+            import torch
+            from df.enhance import enhance, init_df, load_audio, save_audio
+        except ImportError:
+            raise ImportError(
+                "Noise suppression requires torch and deepfilternet. "
+                "Install them with: pip install openlrc[full]"
+            )
 
         if "atten_lim_db" in self.options:
             atten_lim_db = self.options["atten_lim_db"]

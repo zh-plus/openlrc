@@ -54,4 +54,4 @@ jobs:
       - name: Test with unittest
         working-directory: ./tests
         run: |
-          uv run python -m unittest discover -s . -p 'test_*.py'
+          uv run --extra full python -m unittest discover -s . -p 'test_*.py'
