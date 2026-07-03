@@ -33,14 +33,12 @@ dependencies = [
     "filetype>=1.2.0,<2",
     "jaconvV2>=0.4,<0.5",
     "spacy>=3.8.5,<4",
-    "click>=8.1,<9",
     "pysbd>=0.3.4,<0.4",
     "ffmpeg-normalize>=1.27.5,<2",
     "google-genai>=1.70.0",
     "json_repair==0.25.2",
     "onnxruntime>=1.20.0,<1.24; python_version < '3.11'",
     "onnxruntime>=1.20.0,<2; python_version >= '3.11'",
-    "pip>=25.1",
 ]
 
 [project.optional-dependencies]
@@ -61,9 +59,6 @@ Homepage = "https://github.com/zh-plus/openlrc"
 "Documentation" = "https://zh-plus.github.io/openlrc/#/"
 "Changelog" = "https://github.com/zh-plus/openlrc/blob/master/CHANGELOG.md"
 "Bug Tracker" = "https://github.com/zh-plus/openlrc/issues"
-
-[project.scripts]
-openlrc = "openlrc.cli:main"
 
 [dependency-groups]
 dev = ["pyright>=1.1", "ruff>=0.11"]
@@ -107,12 +102,9 @@ split-on-trailing-comma = false
 
 [tool.pyright]
 pythonVersion = "3.10"
-exclude = ["openlrc/gui_streamlit"]
 
 [tool.hatch.build.targets.sdist]
 include = ["openlrc", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]
-exclude = ["openlrc/gui", "openlrc/gui_streamlit"]
 
 [tool.hatch.build.targets.wheel]
 include = ["openlrc"]
-exclude = ["openlrc/gui", "openlrc/gui_streamlit"]

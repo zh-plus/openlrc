@@ -1,5 +1,42 @@
 # Changelog
 
+## OpenLRC Mac 0.1.1
+
+Code cleanup release for the macOS `whisper.cpp` fork.
+
+### Removed
+
+- Removed the legacy upstream Streamlit GUI package from `openlrc/gui_streamlit`.
+- Removed the broken `openlrc gui` console entry point instead of keeping a
+  non-working GUI command.
+- Removed the unused Streamlit screenshot resource.
+- Removed faster-whisper/CUDA-era transcription compatibility fields from
+  `TranscriptionConfig`:
+  - `compute_type`
+  - `device`
+  - `vad_options`
+- Removed faster-whisper default ASR/VAD option tables from `openlrc/defaults.py`.
+- Removed unused runtime dependencies that were only needed by deleted or
+  non-runtime surfaces:
+  - `click`
+  - `pip`
+
+### Changed
+
+- Standardized transcription defaults around `whisper.cpp` CLI options.
+- Updated `Transcriber` to expose only the active `whisper.cpp` constructor
+  surface.
+- Updated `whisper_types.py` docs so Segment and Word are described as OpenLRC
+  pipeline types instead of faster-whisper replacements.
+- Updated tests to assert that removed faster-whisper fields are no longer
+  accepted.
+
+### Verified
+
+- Verified the full pytest suite: `195 passed, 25 skipped`.
+- Verified Ruff linting: `uv run ruff check openlrc/ tests/`.
+- Verified formatting for touched files.
+
 ## OpenLRC Mac 0.1.0
 
 Initial macOS-focused fork release based on upstream OpenLRC `1.7.0a1`.

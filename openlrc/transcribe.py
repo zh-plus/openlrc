@@ -134,14 +134,7 @@ def map_cli_json_to_segments(cli_json: dict) -> list[Segment]:
                 w_end = seg_end
 
             probability = tok.get("p", 0.0)
-            words.append(
-                Word(
-                    start=w_start,
-                    end=w_end,
-                    word=tok_text,
-                    probability=probability,
-                )
-            )
+            words.append(Word(start=w_start, end=w_end, word=tok_text, probability=probability))
 
         # 过滤空 words 的 segment
         # sentence_split() 中有 assert segment.words is not None
@@ -172,8 +165,7 @@ class Transcriber:
     """
     A class for transcribing audio files using whisper-cli.
 
-    This replaces the previous faster-whisper-based Transcriber with a
-    subprocess-based whisper.cpp CLI backend that supports Metal acceleration.
+    This uses a subprocess-based whisper.cpp CLI backend that supports Metal acceleration.
 
     Attributes:
         model_name (str): Path to the Whisper GGML model file.
@@ -188,20 +180,14 @@ class Transcriber:
         cli_path: str = "",
         vad_model: str = DEFAULT_VAD_MODEL_NAME,
         asr_options: dict | None = None,
-        # 以下参数保留签名兼容性但不再使用
-        compute_type: str = "float16",
-        device: str = "auto",
         vad_filter: bool = True,
-        vad_options: dict | None = None,
     ):
         self.model_name = model_name
         self.continuous_scripted = ["ja", "zh", "zh-cn", "th", "vi", "lo", "km", "my", "bo"]
         self.asr_options = {**default_whisper_cpp_options, **(asr_options or {})}
 
         self.cli_backend = WhisperCLIBackend(
-            cli_path=cli_path,
-            model_path=model_name,
-            vad_model_path=vad_model if vad_filter else "",
+            cli_path=cli_path, model_path=model_name, vad_model_path=vad_model if vad_filter else ""
         )
 
     def transcribe(self, audio_path: str | Path, language: str | None = None):
@@ -229,10 +215,7 @@ class Transcriber:
 
         # 调用 whisper-cli
         cli_json = self.cli_backend.transcribe(
-            audio_path=str(audio_path),
-            lang=language,
-            progress_cb=_progress_cb,
-            extra_args=self._build_extra_args(),
+            audio_path=str(audio_path), lang=language, progress_cb=_progress_cb, extra_args=self._build_extra_args()
         )
         pbar.close()
 
@@ -249,11 +232,7 @@ class Transcriber:
         if duration_after_vad == 0:
             duration_after_vad = total_duration
 
-        info = TranscriptionInfo(
-            language=detected_lang,
-            duration=total_duration,
-            duration_after_vad=duration_after_vad,
-        )
+        info = TranscriptionInfo(language=detected_lang, duration=total_duration, duration_after_vad=duration_after_vad)
 
         if not segments:
             logger.warning(f"No speech found for {audio_path}")

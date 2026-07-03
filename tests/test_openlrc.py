@@ -7,19 +7,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from openlrc.whisper_resources import DEFAULT_MODEL_NAME
-from openlrc.whisper_types import Segment, Word
-
 from openlrc.openlrc import LRCer, TranscriptionConfig, TranslationConfig
 from openlrc.transcribe import TranscriptionInfo
 from openlrc.utils import extend_filename
+from openlrc.whisper_resources import DEFAULT_MODEL_NAME
+from openlrc.whisper_types import Segment, Word
 
 TEST_DATA_DIR = Path(__file__).parent / "data"
 
 # Shared test config — avoids repeating these in every test method.
-_TEST_TRANSCRIPTION = TranscriptionConfig(
-    whisper_model=sys.executable, cli_path=sys.executable, vad_model="", compute_type="default", device="cpu"
-)
+_TEST_TRANSCRIPTION = TranscriptionConfig(whisper_model=sys.executable, cli_path=sys.executable, vad_model="")
 
 
 def _mock_create_chatbot(*args, **kwargs):

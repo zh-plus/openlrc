@@ -3,13 +3,12 @@
 
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-from openlrc.whisper_types import Segment, Word
+from openlrc.transcribe import Transcriber, TranscriptionInfo, _parse_timestamp_str, map_cli_json_to_segments
 from openlrc.whisper_backend import WhisperCLIBackend
 from openlrc.whisper_resources import DEFAULT_MODEL_NAME, DEFAULT_VAD_MODEL_NAME
-from openlrc.transcribe import Transcriber, TranscriptionInfo, map_cli_json_to_segments, _parse_timestamp_str
-
+from openlrc.whisper_types import Segment, Word
 
 # === Shared mock return value (compatible with original test_transcribe.py) ===
 return_tuple = (
@@ -54,9 +53,7 @@ class TestTranscriber(unittest.TestCase):
         """Transcriber should pass semantic defaults into the backend resolver path."""
         Transcriber()
         MockBackend.assert_called_once_with(
-            cli_path="",
-            model_path=DEFAULT_MODEL_NAME,
-            vad_model_path=DEFAULT_VAD_MODEL_NAME,
+            cli_path="", model_path=DEFAULT_MODEL_NAME, vad_model_path=DEFAULT_VAD_MODEL_NAME
         )
 
     @patch("openlrc.transcribe.WhisperCLIBackend")
@@ -151,7 +148,7 @@ class TestMapCliJsonToSegments(unittest.TestCase):
                         {"text": "[_EOT_]", "offsets": {"from": 1500, "to": 3000}, "p": 1.0},
                     ],
                 }
-            ],
+            ]
         }
         segments = map_cli_json_to_segments(cli_json)
         self.assertEqual(len(segments), 1)
@@ -170,7 +167,7 @@ class TestMapCliJsonToSegments(unittest.TestCase):
                         {"text": "[_EOT_]", "offsets": {"from": 500, "to": 1000}, "p": 1.0},
                     ],
                 }
-            ],
+            ]
         }
         segments = map_cli_json_to_segments(cli_json)
         self.assertEqual(len(segments), 0)
@@ -189,7 +186,7 @@ class TestMapCliJsonToSegments(unittest.TestCase):
                     "text": " second",
                     "tokens": [{"text": " second", "offsets": {"from": 3000, "to": 6000}, "p": 0.85}],
                 },
-            ],
+            ]
         }
         segments = map_cli_json_to_segments(cli_json)
         self.assertEqual(len(segments), 2)
@@ -206,14 +203,10 @@ class TestMapCliJsonToSegments(unittest.TestCase):
                     "offsets": {"from": 0, "to": 3000},
                     "text": " hello",
                     "tokens": [
-                        {
-                            "text": " hello",
-                            "timestamps": {"from": "00:00:00,000", "to": "00:00:01,500"},
-                            "p": 0.95,
-                        },
+                        {"text": " hello", "timestamps": {"from": "00:00:00,000", "to": "00:00:01,500"}, "p": 0.95}
                     ],
                 }
-            ],
+            ]
         }
         segments = map_cli_json_to_segments(cli_json)
         self.assertEqual(len(segments), 1)

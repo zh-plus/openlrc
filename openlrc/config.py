@@ -19,22 +19,14 @@ class TranscriptionConfig:
             Default: ``""``
         vad_model: Path to the Silero VAD model for whisper.cpp.
             Empty string disables native VAD. Default: ``ggml-silero-v6.2.0.bin``
-        compute_type: Computation type (legacy, kept for compatibility).
-            Default: ``float16``
-        device: Device for computation (legacy, kept for compatibility).
-            Default: ``cuda``
-        asr_options: Parameters for whisper model.
-        vad_options: Parameters for VAD model (legacy, kept for compatibility).
+        asr_options: Parameters for whisper.cpp CLI transcription.
         preprocess_options: Options for audio preprocessing.
     """
 
     whisper_model: str = DEFAULT_MODEL_NAME
     cli_path: str = ""
     vad_model: str = DEFAULT_VAD_MODEL_NAME
-    compute_type: str = "float16"
-    device: str = "cuda"
     asr_options: dict | None = None
-    vad_options: dict | None = None
     preprocess_options: dict | None = None
 
 

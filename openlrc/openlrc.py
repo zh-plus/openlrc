@@ -25,9 +25,8 @@ from openlrc.defaults import (
     PREPROCESSED_SUFFIX,
     TRANSCRIBED_SUFFIX,
     TRANSLATED_SUFFIX,
-    default_asr_options,
     default_preprocess_options,
-    default_vad_options,
+    default_whisper_cpp_options,
 )
 from openlrc.logger import logger
 from openlrc.media_utils import extract_audio, get_audio_duration, get_file_type
@@ -47,7 +46,7 @@ class LRCer:
         from openlrc.models import ModelConfig, ModelProvider
 
         lrcer = LRCer(
-            transcription=TranscriptionConfig(whisper_model='large-v3', device='cuda'),
+            transcription=TranscriptionConfig(whisper_model="small"),
             translation=TranslationConfig(
                 chatbot=ModelConfig(provider=ModelProvider.OPENAI, name='gpt-4.1-nano'),
                 fee_limit=1.0,
@@ -79,8 +78,7 @@ class LRCer:
         self.consumer_thread = self._translation_config.consumer_thread
 
         # Merge default options with provided options
-        self.asr_options = {**default_asr_options, **(self._transcription_config.asr_options or {})}
-        self.vad_options = {**default_vad_options, **(self._transcription_config.vad_options or {})}
+        self.asr_options = {**default_whisper_cpp_options, **(self._transcription_config.asr_options or {})}
         self.preprocess_options = {
             **default_preprocess_options,
             **(self._transcription_config.preprocess_options or {}),

@@ -1,15 +1,14 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
-"""
-替代 faster_whisper 的 Segment / Word 数据类型。
+"""Segment and Word data types for the OpenLRC transcription pipeline.
 
 Design Decision:
   使用 @dataclass 而非 namedtuple，原因：
-  1. faster_whisper.Segment 本身是 NamedTuple，但 sentence_split 中的
-     seg_from_words() 使用位置参数重新构造 Segment，@dataclass 同样支持
-  2. @dataclass 支持属性修改，更灵活
-  3. 比 namedtuple 易于 IDE 索引和 type hint
+  1. sentence_split() 中的 seg_from_words() 使用位置参数重新构造 Segment，
+     @dataclass 同样支持。
+  2. @dataclass 支持属性修改，更灵活。
+  3. 比 namedtuple 易于 IDE 索引和 type hint。
 """
 
 from __future__ import annotations
@@ -19,7 +18,7 @@ from dataclasses import dataclass
 
 @dataclass
 class Word:
-    """词级时间戳单元，对齐 faster_whisper.transcribe.Word 的字段签名。
+    """词级时间戳单元，供 OpenLRC downstream subtitle pipeline 使用。
 
     Attributes:
         start: 词开始时间（秒）。
@@ -36,10 +35,10 @@ class Word:
 
 @dataclass
 class Segment:
-    """段级转录单元，对齐 faster_whisper.transcribe.Segment 的字段签名。
+    """段级转录单元，供 OpenLRC downstream subtitle pipeline 使用。
 
-    字段顺序必须与 faster_whisper.Segment (NamedTuple) 一致，
-    因为 sentence_split.seg_from_words() 使用位置参数构造。
+    字段顺序必须保持稳定，因为 sentence_split.seg_from_words()
+    使用位置参数构造。
 
     Attributes:
         id: 段 ID。

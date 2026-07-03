@@ -4,7 +4,7 @@
 import unittest
 from typing import get_args, get_type_hints
 
-from openlrc.config import TranslationConfig
+from openlrc.config import TranscriptionConfig, TranslationConfig
 from openlrc.models import ModelConfig, ModelProvider
 
 
@@ -16,6 +16,18 @@ class TestTranslationConfigAnnotations(unittest.TestCase):
         self.assertEqual(set(get_args(hints["retry_chatbot"])), {ModelConfig, type(None)})
         self.assertEqual(set(get_args(hints["cr_chatbot"])), {ModelConfig, type(None)})
         self.assertEqual(set(get_args(hints["glossary"])), {str, type(None)})
+
+
+class TestTranscriptionConfig(unittest.TestCase):
+    def test_faster_whisper_fields_are_not_supported(self):
+        with self.assertRaises(TypeError):
+            TranscriptionConfig(compute_type="float16")
+
+        with self.assertRaises(TypeError):
+            TranscriptionConfig(device="cuda")
+
+        with self.assertRaises(TypeError):
+            TranscriptionConfig(vad_options={"threshold": 0.5})
 
 
 class TestModelConfig(unittest.TestCase):

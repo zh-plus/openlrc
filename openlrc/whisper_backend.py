@@ -16,7 +16,7 @@ import queue
 import re
 import subprocess
 import threading
-from typing import Callable
+from collections.abc import Callable
 
 from openlrc.whisper_resources import resolve_vad_model_path, resolve_whisper_cli, resolve_whisper_model_path
 
@@ -100,12 +100,7 @@ class WhisperCLIBackend:
         logger.info(f"Running whisper-cli: {' '.join(cmd)}")
 
         # === 启动进程 ===
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
         # === stderr 进度解析线程 ===
         stderr_lines: list[str] = []
