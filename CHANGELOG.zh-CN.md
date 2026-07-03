@@ -3,6 +3,22 @@
 这个文件只记录 OpenLRC Mac fork 自己的变更。英文版见
 [CHANGELOG.md](CHANGELOG.md) 中的 OpenLRC Mac 条目；两个文件需要同步更新。
 
+## OpenLRC Mac 0.1.2
+
+本地 `whisper.cpp` 后端的依赖更新版本。
+
+### 变更
+
+- 将 `vendor/whisper.cpp` submodule 从 `v1.8.5` 更新到 `v1.9.1`。
+- 使用更新后的 submodule 源码重新构建本地 `whisper-cli`。
+
+### 验证
+
+- 验证 `resolve_whisper_cli("")` 可以解析到重新构建后的本地 CLI。
+- 使用 `tests/data/test_audio.wav` 完成真实本地转写 smoke test。
+- 完整 pytest 测试通过：`195 passed, 25 skipped`。
+- Ruff lint 检查通过：`uv run ruff check openlrc/ tests/`。
+
 ## OpenLRC Mac 0.1.1
 
 面向 macOS `whisper.cpp` fork 的代码清理版本。

@@ -1,5 +1,22 @@
 # Changelog
 
+## OpenLRC Mac 0.1.2
+
+Dependency update release for the local `whisper.cpp` backend.
+
+### Changed
+
+- Updated the `vendor/whisper.cpp` submodule from `v1.8.5` to `v1.9.1`.
+- Rebuilt the local `whisper-cli` with the updated submodule source.
+
+### Verified
+
+- Verified `resolve_whisper_cli("")` resolves the rebuilt local CLI.
+- Verified a real local transcription smoke test with
+  `tests/data/test_audio.wav`.
+- Verified the full pytest suite: `195 passed, 25 skipped`.
+- Verified Ruff linting: `uv run ruff check openlrc/ tests/`.
+
 ## OpenLRC Mac 0.1.1
 
 Code cleanup release for the macOS `whisper.cpp` fork.
