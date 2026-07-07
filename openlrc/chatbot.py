@@ -38,7 +38,11 @@ def _register_chatbot(cls):
         if not isinstance(model, ModelInfo):
             continue
 
-        if model.provider in (ModelProvider.OPENAI, ModelProvider.THIRD_PARTY) and cls.__name__ == "GPTBot":
+        if model.provider in (
+            ModelProvider.OPENAI,
+            ModelProvider.THIRD_PARTY,
+            ModelProvider.LOCAL_LLAMA,
+        ) and cls.__name__ == "GPTBot":
             model2chatbot[model.name] = cls
             if model.latest_alias:
                 model2chatbot[model.latest_alias] = cls
@@ -876,7 +880,7 @@ class LiteLLMBot(ChatBot):
             import litellm
         except ImportError:
             raise ImportError(
-                "litellm is required for the litellm: provider. Install with: pip install 'openlrc[litellm]'"
+                "litellm is required for the litellm: provider. Install with: pip install 'openlrc-mac[litellm]'"
             )
 
         effective_temperature = temperature if temperature is not None else self.temperature
@@ -971,5 +975,6 @@ provider2chatbot: dict[str, type[ChatBot]] = {
     ModelProvider.ANTHROPIC: ClaudeBot,
     ModelProvider.GOOGLE: GeminiBot,
     ModelProvider.THIRD_PARTY: GPTBot,
+    ModelProvider.LOCAL_LLAMA: GPTBot,
     ModelProvider.LITELLM: LiteLLMBot,
 }

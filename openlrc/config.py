@@ -3,7 +3,18 @@
 
 from dataclasses import dataclass
 
-from openlrc.models import ModelConfig
+from openlrc.llama_resources import (
+    DEFAULT_LLAMA_CONTEXT_SIZE,
+    DEFAULT_LLAMA_HOST,
+    DEFAULT_LLAMA_IDLE_TIMEOUT,
+    DEFAULT_LLAMA_MODEL_ALIAS,
+    DEFAULT_LLAMA_MODEL_FILE,
+    DEFAULT_LLAMA_PORT,
+    DEFAULT_LLAMA_STARTUP_TIMEOUT,
+    LOCAL_LLAMA_API_KEY,
+    normalize_llama_model_name,
+)
+from openlrc.models import ModelConfig, ModelProvider
 from openlrc.whisper_resources import DEFAULT_MODEL_NAME, DEFAULT_VAD_MODEL_NAME
 
 
@@ -28,6 +39,39 @@ class TranscriptionConfig:
     vad_model: str = DEFAULT_VAD_MODEL_NAME
     asr_options: dict | None = None
     preprocess_options: dict | None = None
+
+
+@dataclass
+class LocalLLMConfig:
+    """
+    Configuration for the local llama.cpp translation server.
+
+    Args:
+        enabled: Whether OpenLRC should manage a local llama-server.
+        model_path: Path, filename, or supported alias for a GGUF model.
+        server_path: Path to llama-server. Empty string resolves automatically.
+        host: Host for the local server.
+        port: Port for the local server.
+        alias: OpenAI-compatible model alias served by llama-server.
+        ctx_size: Context size passed to llama-server.
+        gpu_layers: GPU layer offload setting for llama-server.
+        idle_timeout: Seconds to keep an owned server alive after translation.
+            Values <= 0 disable automatic idle shutdown.
+        startup_timeout: Seconds to wait for llama-server readiness.
+        extra_args: Additional llama-server CLI arguments.
+    """
+
+    enabled: bool = True
+    model_path: str = DEFAULT_LLAMA_MODEL_FILE
+    server_path: str = ""
+    host: str = DEFAULT_LLAMA_HOST
+    port: int = DEFAULT_LLAMA_PORT
+    alias: str = DEFAULT_LLAMA_MODEL_ALIAS
+    ctx_size: int = DEFAULT_LLAMA_CONTEXT_SIZE
+    gpu_layers: str | int = "all"
+    idle_timeout: int = DEFAULT_LLAMA_IDLE_TIMEOUT
+    startup_timeout: int = DEFAULT_LLAMA_STARTUP_TIMEOUT
+    extra_args: list[str] | None = None
 
 
 @dataclass
@@ -62,6 +106,8 @@ class TranslationConfig:
         chunked_guideline: Enable chunked guideline generation for long texts.
             When True, texts exceeding the CR model's context window are
             automatically split and merged. Default: ``False``
+        local_llm: Local llama.cpp server configuration. When provided and
+            enabled, OpenLRC starts or reuses a local OpenAI-compatible server.
     """
 
     chatbot: ModelConfig | None = None
@@ -74,3 +120,46 @@ class TranslationConfig:
     translate_mode: str = "standard"
     enable_cr: bool = True
     chunked_guideline: bool = False
+    local_llm: LocalLLMConfig | None = None
+
+    @classmethod
+    def local_qwen35_9b(
+        cls,
+        *,
+        model: str = "qwen3.5-9b",
+        idle_timeout: int = DEFAULT_LLAMA_IDLE_TIMEOUT,
+        port: int = DEFAULT_LLAMA_PORT,
+        translate_mode: str = "lean",
+        server_path: str = "",
+        host: str = DEFAULT_LLAMA_HOST,
+        ctx_size: int = DEFAULT_LLAMA_CONTEXT_SIZE,
+        gpu_layers: str | int = "all",
+        startup_timeout: int = DEFAULT_LLAMA_STARTUP_TIMEOUT,
+        extra_args: list[str] | None = None,
+    ) -> "TranslationConfig":
+        """Create the recommended local Qwen3.5 9B translation configuration."""
+        local_llm = LocalLLMConfig(
+            model_path=normalize_llama_model_name(model),
+            server_path=server_path,
+            host=host,
+            port=port,
+            alias=DEFAULT_LLAMA_MODEL_ALIAS,
+            ctx_size=ctx_size,
+            gpu_layers=gpu_layers,
+            idle_timeout=idle_timeout,
+            startup_timeout=startup_timeout,
+            extra_args=extra_args,
+        )
+        return cls(
+            chatbot=ModelConfig(
+                provider=ModelProvider.LOCAL_LLAMA,
+                name=DEFAULT_LLAMA_MODEL_ALIAS,
+                api_key=LOCAL_LLAMA_API_KEY,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            ),
+            fee_limit=0.0,
+            consumer_thread=1,
+            translate_mode=translate_mode,
+            enable_cr=False,
+            local_llm=local_llm,
+        )

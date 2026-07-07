@@ -6,19 +6,31 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from openlrc.config import TranscriptionConfig, TranslationConfig
+    from openlrc.config import LocalLLMConfig, TranscriptionConfig, TranslationConfig
     from openlrc.models import ModelConfig, ModelProvider, list_chatbot_models
     from openlrc.openlrc import LRCer
 
 
-__all__ = ("LRCer", "TranscriptionConfig", "TranslationConfig", "ModelConfig", "list_chatbot_models", "ModelProvider")
-__version__ = "1.7.0a1"
-__author__ = "zh-plus"
+__all__ = (
+    "LRCer",
+    "TranscriptionConfig",
+    "TranslationConfig",
+    "LocalLLMConfig",
+    "ModelConfig",
+    "list_chatbot_models",
+    "ModelProvider",
+)
+__version__ = "0.2.0"
+__upstream_version__ = "1.7.0a1"
+__app_name__ = "OpenLRC Mac"
+__dist_name__ = "openlrc-mac"
+__author__ = "OpenLRC Mac contributors"
 
 _LAZY_EXPORTS = {
     "LRCer": ("openlrc.openlrc", "LRCer"),
     "TranscriptionConfig": ("openlrc.config", "TranscriptionConfig"),
     "TranslationConfig": ("openlrc.config", "TranslationConfig"),
+    "LocalLLMConfig": ("openlrc.config", "LocalLLMConfig"),
     "ModelConfig": ("openlrc.models", "ModelConfig"),
     "ModelProvider": ("openlrc.models", "ModelProvider"),
     "list_chatbot_models": ("openlrc.models", "list_chatbot_models"),

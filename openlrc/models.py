@@ -20,6 +20,7 @@ class ModelProvider(_StrEnum):
     GOOGLE = "google"
     LITELLM = "litellm"
     THIRD_PARTY = "third_party"
+    LOCAL_LLAMA = "local_llama"
 
 
 @dataclass
@@ -342,6 +343,13 @@ class Models:
         input_price=0.14,
         output_price=0.28,
         beta=False,
+    )
+
+    LOCAL_QWEN35_9B = ModelInfo(
+        name="qwen3.5-9b-local",
+        provider=ModelProvider.LOCAL_LLAMA,
+        input_price=0.0,
+        output_price=0.0,
     )
 
     class DefaultOpenAIModelInfo(ModelInfo):

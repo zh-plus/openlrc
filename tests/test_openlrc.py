@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from openlrc.config import LocalLLMConfig
+from openlrc.llama_resources import DEFAULT_LLAMA_MODEL_ALIAS
 from openlrc.openlrc import LRCer, TranscriptionConfig, TranslationConfig
 from openlrc.transcribe import TranscriptionInfo
 from openlrc.utils import extend_filename
@@ -286,3 +288,55 @@ class TestLRCer(unittest.TestCase):
         self.assertEqual(lrcer._transcription_config.whisper_model, DEFAULT_MODEL_NAME)
         self.assertIsNone(lrcer._translation_config.chatbot)
         self.assertIsNone(lrcer._transcriber)
+
+
+class TestLRCerLocalLLM(unittest.TestCase):
+    def test_local_constructor_uses_recommended_local_config(self):
+        lrcer = LRCer.local(idle_timeout=12, port=9090)
+
+        self.assertIsNotNone(lrcer._translation_config.local_llm)
+        self.assertEqual(lrcer._translation_config.local_llm.idle_timeout, 12)
+        self.assertEqual(lrcer._translation_config.local_llm.port, 9090)
+        self.assertEqual(lrcer._translation_config.translate_mode, "lean")
+        self.assertFalse(lrcer._translation_config.enable_cr)
+        self.assertEqual(lrcer._translation_config.consumer_thread, 1)
+
+    @patch("openlrc.agents.create_chatbot", side_effect=_mock_create_chatbot)
+    @patch("openlrc.local_llm_server.LocalLLMServer")
+    def test_local_chatbot_starts_server_and_injects_base_url(self, mock_server_cls, mock_create_chatbot):
+        server = mock_server_cls.return_value
+        server.ensure_running.return_value = "http://127.0.0.1:8088/v1"
+
+        lrcer = LRCer.local()
+        _ = lrcer.chatbot
+
+        model_config = mock_create_chatbot.call_args.args[0]
+        self.assertEqual(model_config.name, DEFAULT_LLAMA_MODEL_ALIAS)
+        self.assertEqual(model_config.base_url, "http://127.0.0.1:8088/v1")
+        self.assertEqual(model_config.api_key, "openlrc-local")
+        server.ensure_running.assert_called_once()
+
+    @patch("openlrc.agents.create_chatbot", side_effect=_mock_create_chatbot)
+    @patch("openlrc.local_llm_server.LocalLLMServer")
+    def test_close_stops_owned_local_server(self, mock_server_cls, _mock_create_chatbot):
+        server = mock_server_cls.return_value
+        server.ensure_running.return_value = "http://127.0.0.1:8088/v1"
+
+        lrcer = LRCer.local()
+        _ = lrcer.chatbot
+        lrcer.close()
+
+        server.close.assert_called_once()
+
+    @patch("openlrc.agents.create_chatbot", side_effect=_mock_create_chatbot)
+    @patch("openlrc.local_llm_server.LocalLLMServer")
+    def test_local_llm_config_without_chatbot_defaults_to_local_provider(self, mock_server_cls, mock_create_chatbot):
+        server = mock_server_cls.return_value
+        server.ensure_running.return_value = "http://127.0.0.1:8088/v1"
+
+        lrcer = LRCer(translation=TranslationConfig(local_llm=LocalLLMConfig()))
+        _ = lrcer.chatbot
+
+        model_config = mock_create_chatbot.call_args.args[0]
+        self.assertEqual(model_config.name, DEFAULT_LLAMA_MODEL_ALIAS)
+        self.assertEqual(model_config.base_url, "http://127.0.0.1:8088/v1")

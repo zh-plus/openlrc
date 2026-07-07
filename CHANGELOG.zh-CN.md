@@ -3,6 +3,48 @@
 这个文件只记录 OpenLRC Mac fork 自己的变更。英文版见
 [CHANGELOG.md](CHANGELOG.md) 中的 OpenLRC Mac 条目；两个文件需要同步更新。
 
+## OpenLRC Mac 0.2.0
+
+面向 macOS fork 的本地翻译和第一阶段 CLI 版本。
+
+### 新增
+
+- 新增 `vendor/llama.cpp` submodule，用于本地 LLM 翻译。
+- 新增可复用的 `openlrc.setup.llama_cpp` 和 `scripts/setup_llama_cpp.py`，用于构建
+  `llama-server` / `llama-cli` 并下载默认 Qwen GGUF 模型。
+- 新增 `openlrc.llama_resources`，统一解析 `llama-server`、`llama-cli` 和 GGUF
+  模型路径，覆盖显式配置、环境变量、app resources、submodule build、默认用户模型目录和
+  `PATH`。
+- 新增 `openlrc.local_llm_server`，管理本地 `llama-server` 的启动、复用、健康检查、
+  空闲自动关闭和手动关闭。
+- 新增 opt-in 本地 Qwen 翻译入口：`LRCer.local()` 和
+  `TranslationConfig.local_qwen35_9b(...)`。
+- 新增 `ModelProvider.LOCAL_LLAMA`，复用现有 OpenAI-compatible `GPTBot` 路径，并将
+  本地翻译费用固定为 0。
+- 新增第一阶段 `openlrc` Typer/Rich CLI，覆盖 `doctor`、`models status`、`setup`、
+  `transcribe`、`translate` 和 `run` 工作流。
+- 新增 `openlrc-mac` CLI 别名，用于体现 fork 的独立发行身份。
+
+### 变更
+
+- 将 Python distribution metadata 从 `openlrc` 改为 `openlrc-mac`，同时保留
+  `import openlrc` 兼容现有上游式用户代码。
+- 更新 `openlrc --version`，显示 `OpenLRC Mac 0.2.0` 和上游 OpenLRC 基线版本。
+- 保持 `openlrc run` 的安全默认行为：除非用户显式传入 `--translation local` 或
+  `--translation online`，否则默认不翻译。
+- 将 whisper.cpp setup 抽到可复用 package helper，原 setup 脚本保留为兼容 wrapper。
+- 更新 README、TODO 和架构文档，补齐本地翻译流程、CLI 工作流和 fork 发行身份说明。
+- 将 optional dependency 安装提示更新为 `openlrc-mac[...]`。
+
+### 验证
+
+- 完整 pytest 测试通过：`226 passed, 25 skipped`。
+- 验证 `openlrc --version` 和 `openlrc-mac --version`。
+- 验证 CLI smoke test：`doctor`、`models status` 和本地
+  `run --translation local`。
+- 通过 OpenLRC pipeline 验证真实 `llama.cpp` / Qwen 本地翻译。
+- Ruff lint 检查通过：`openlrc/`、`tests/` 和 `scripts/`。
+
 ## OpenLRC Mac 0.1.2
 
 本地 `whisper.cpp` 后端的依赖更新版本。

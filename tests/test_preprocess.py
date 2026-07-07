@@ -98,5 +98,5 @@ class TestPreprocessor(unittest.TestCase):
 
         preprocessor = Preprocessor("audio.wav")
         with patch("builtins.__import__", side_effect=fake_import):
-            with self.assertRaisesRegex(ImportError, r"pip install 'openlrc\[full\]'"):
+            with self.assertRaisesRegex(ImportError, r"pip install 'openlrc-mac\[full\]'"):
                 preprocessor.noise_suppression(preprocessor.audio_paths)

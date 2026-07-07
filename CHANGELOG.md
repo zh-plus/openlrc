@@ -1,5 +1,51 @@
 # Changelog
 
+## OpenLRC Mac 0.2.0
+
+Local translation and first-stage CLI release for the macOS fork.
+
+### Added
+
+- Added `vendor/llama.cpp` as a pinned submodule for local LLM translation.
+- Added reusable `openlrc.setup.llama_cpp` and `scripts/setup_llama_cpp.py` to
+  build `llama-server` / `llama-cli` and download the default Qwen GGUF model.
+- Added `openlrc.llama_resources` to resolve `llama-server`, `llama-cli`, and
+  GGUF model paths from explicit config, environment variables, app resources,
+  submodule builds, default user model directories, and `PATH`.
+- Added `openlrc.local_llm_server` to start, reuse, health-check, idle-shutdown,
+  and manually close local `llama-server` processes.
+- Added opt-in local Qwen translation through `LRCer.local()` and
+  `TranslationConfig.local_qwen35_9b(...)`.
+- Added `ModelProvider.LOCAL_LLAMA` routing through the existing
+  OpenAI-compatible `GPTBot` path with local translation cost fixed at zero.
+- Added the first-stage `openlrc` Typer/Rich CLI with `doctor`, `models status`,
+  `setup`, `transcribe`, `translate`, and `run` workflows.
+- Added an `openlrc-mac` CLI alias for the fork distribution identity.
+
+### Changed
+
+- Renamed the Python distribution metadata from `openlrc` to `openlrc-mac`
+  while keeping `import openlrc` compatible with upstream-style user code.
+- Updated `openlrc --version` to report `OpenLRC Mac 0.2.0` and the upstream
+  OpenLRC base version.
+- Kept `openlrc run` safe by default: translation remains disabled unless the
+  user passes `--translation local` or `--translation online`.
+- Extracted whisper.cpp setup into reusable package helpers while keeping the
+  existing setup script as a compatibility wrapper.
+- Updated README, TODO, and architecture documentation for the local
+  translation flow, CLI workflow, and fork distribution identity.
+- Updated optional dependency install hints to use `openlrc-mac[...]`.
+
+### Verified
+
+- Verified the full pytest suite: `226 passed, 25 skipped`.
+- Verified `openlrc --version` and `openlrc-mac --version`.
+- Verified CLI smoke tests for `doctor`, `models status`, and local
+  `run --translation local`.
+- Verified real local translation with `llama.cpp` / Qwen through the OpenLRC
+  pipeline.
+- Verified Ruff linting for `openlrc/`, `tests/`, and `scripts/`.
+
 ## OpenLRC Mac 0.1.2
 
 Dependency update release for the local `whisper.cpp` backend.

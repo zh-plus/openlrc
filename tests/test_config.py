@@ -4,7 +4,8 @@
 import unittest
 from typing import get_args, get_type_hints
 
-from openlrc.config import TranscriptionConfig, TranslationConfig
+from openlrc.config import LocalLLMConfig, TranscriptionConfig, TranslationConfig
+from openlrc.llama_resources import DEFAULT_LLAMA_MODEL_ALIAS, DEFAULT_LLAMA_MODEL_FILE
 from openlrc.models import ModelConfig, ModelProvider
 
 
@@ -16,6 +17,7 @@ class TestTranslationConfigAnnotations(unittest.TestCase):
         self.assertEqual(set(get_args(hints["retry_chatbot"])), {ModelConfig, type(None)})
         self.assertEqual(set(get_args(hints["cr_chatbot"])), {ModelConfig, type(None)})
         self.assertEqual(set(get_args(hints["glossary"])), {str, type(None)})
+        self.assertEqual(set(get_args(hints["local_llm"])), {LocalLLMConfig, type(None)})
 
 
 class TestTranscriptionConfig(unittest.TestCase):
@@ -28,6 +30,28 @@ class TestTranscriptionConfig(unittest.TestCase):
 
         with self.assertRaises(TypeError):
             TranscriptionConfig(vad_options={"threshold": 0.5})
+
+
+class TestLocalLLMConfig(unittest.TestCase):
+    def test_default_values(self):
+        config = LocalLLMConfig()
+        self.assertTrue(config.enabled)
+        self.assertEqual(config.model_path, DEFAULT_LLAMA_MODEL_FILE)
+        self.assertEqual(config.alias, DEFAULT_LLAMA_MODEL_ALIAS)
+
+    def test_local_qwen35_9b_factory(self):
+        config = TranslationConfig.local_qwen35_9b(idle_timeout=12, port=9090)
+
+        self.assertIsNotNone(config.local_llm)
+        self.assertEqual(config.local_llm.model_path, DEFAULT_LLAMA_MODEL_FILE)
+        self.assertEqual(config.local_llm.idle_timeout, 12)
+        self.assertEqual(config.local_llm.port, 9090)
+        self.assertEqual(config.translate_mode, "lean")
+        self.assertFalse(config.enable_cr)
+        self.assertEqual(config.consumer_thread, 1)
+        self.assertEqual(config.fee_limit, 0.0)
+        self.assertIs(config.chatbot.provider, ModelProvider.LOCAL_LLAMA)
+        self.assertEqual(config.chatbot.name, DEFAULT_LLAMA_MODEL_ALIAS)
 
 
 class TestModelConfig(unittest.TestCase):

@@ -67,7 +67,7 @@ class Preprocessor:
             from df.enhance import enhance, init_df, load_audio, save_audio
         except ImportError:
             raise ImportError(
-                "Noise suppression requires torch and deepfilternet. Install them with: pip install 'openlrc[full]'"
+                "Noise suppression requires torch and deepfilternet. Install them with: pip install 'openlrc-mac[full]'"
             )
 
         if "atten_lim_db" in self.options:

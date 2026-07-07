@@ -99,6 +99,13 @@ class TestTranslatorAgent(unittest.TestCase):
         bot = create_chatbot(config_litellm)
         self.assertIsInstance(bot, LiteLLMBot)
 
+        # Local llama.cpp provider → GPTBot compatibility layer with zero-cost model info
+        config_local = ModelConfig(provider=ModelProvider.LOCAL_LLAMA, name="qwen3.5-9b-local", api_key="local-key")
+        bot = create_chatbot(config_local)
+        self.assertIsInstance(bot, GPTBot)
+        self.assertEqual(bot.model_info.input_price, 0.0)
+        self.assertEqual(bot.model_info.output_price, 0.0)
+
         # Unknown custom provider string → falls back to GPTBot
         config_custom = ModelConfig(provider="openrouter", name="gpt-4o", api_key="key")
         bot = create_chatbot(config_custom)

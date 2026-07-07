@@ -7,6 +7,7 @@ import concurrent.futures
 import json
 import shutil
 import traceback
+from contextlib import nullcontext
 from copy import deepcopy
 from pathlib import Path
 from pprint import pformat
@@ -28,6 +29,7 @@ from openlrc.defaults import (
     default_preprocess_options,
     default_whisper_cpp_options,
 )
+from openlrc.llama_resources import DEFAULT_LLAMA_IDLE_TIMEOUT, DEFAULT_LLAMA_PORT, LOCAL_LLAMA_API_KEY
 from openlrc.logger import logger
 from openlrc.media_utils import extract_audio, get_audio_duration, get_file_type
 from openlrc.opt import SubtitleOptimizer
@@ -94,6 +96,28 @@ class LRCer:
         self._chatbot = None
         self._retry_chatbot = None
         self._cr_chatbot = None
+        self._local_llm_server = None
+
+    @classmethod
+    def local(
+        cls,
+        *,
+        model: str = "qwen3.5-9b",
+        idle_timeout: int = DEFAULT_LLAMA_IDLE_TIMEOUT,
+        port: int = DEFAULT_LLAMA_PORT,
+        translate_mode: str = "lean",
+        transcription: TranscriptionConfig | None = None,
+    ) -> LRCer:
+        """Create an LRCer configured for local whisper.cpp transcription and llama.cpp translation."""
+        return cls(
+            transcription=transcription,
+            translation=TranslationConfig.local_qwen35_9b(
+                model=model,
+                idle_timeout=idle_timeout,
+                port=port,
+                translate_mode=translate_mode,
+            ),
+        )
 
     @property
     def transcriber(self):
@@ -120,9 +144,19 @@ class LRCer:
 
             with self._chatbot_lock:
                 if self._chatbot is None:
-                    model_config = self._translation_config.chatbot or ModelConfig(
-                        provider=ModelProvider.OPENAI, name="gpt-4.1-nano"
-                    )
+                    if self._translation_config.chatbot is not None:
+                        model_config = self._translation_config.chatbot
+                    elif self._local_llm_enabled():
+                        assert self._translation_config.local_llm is not None
+                        model_config = ModelConfig(
+                            provider=ModelProvider.LOCAL_LLAMA,
+                            name=self._translation_config.local_llm.alias,
+                            api_key=LOCAL_LLAMA_API_KEY,
+                            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                        )
+                    else:
+                        model_config = ModelConfig(provider=ModelProvider.OPENAI, name="gpt-4.1-nano")
+                    model_config = self._prepare_local_chatbot_config(model_config)
                     self._chatbot = create_chatbot(model_config, self.fee_limit)
         return self._chatbot
 
@@ -137,7 +171,8 @@ class LRCer:
 
             with self._chatbot_lock:
                 if self._retry_chatbot is None:
-                    self._retry_chatbot = create_chatbot(self._translation_config.retry_chatbot, self.fee_limit)
+                    model_config = self._prepare_local_chatbot_config(self._translation_config.retry_chatbot)
+                    self._retry_chatbot = create_chatbot(model_config, self.fee_limit)
         return self._retry_chatbot
 
     @property
@@ -151,8 +186,62 @@ class LRCer:
 
             with self._chatbot_lock:
                 if self._cr_chatbot is None:
-                    self._cr_chatbot = create_chatbot(self._translation_config.cr_chatbot, self.fee_limit)
+                    model_config = self._prepare_local_chatbot_config(self._translation_config.cr_chatbot)
+                    self._cr_chatbot = create_chatbot(model_config, self.fee_limit)
         return self._cr_chatbot
+
+    def _local_llm_enabled(self) -> bool:
+        return bool(self._translation_config.local_llm and self._translation_config.local_llm.enabled)
+
+    def _local_server(self):
+        if not self._local_llm_enabled():
+            return None
+
+        if self._local_llm_server is None:
+            from openlrc.local_llm_server import LocalLLMServer
+
+            config = self._translation_config.local_llm
+            assert config is not None
+            self._local_llm_server = LocalLLMServer(
+                server_path=config.server_path,
+                model_path=config.model_path,
+                host=config.host,
+                port=config.port,
+                alias=config.alias,
+                ctx_size=config.ctx_size,
+                gpu_layers=config.gpu_layers,
+                idle_timeout=config.idle_timeout,
+                startup_timeout=config.startup_timeout,
+                extra_args=config.extra_args,
+            )
+
+        return self._local_llm_server
+
+    def _ensure_local_llm_server(self) -> str:
+        server = self._local_server()
+        if server is None:
+            raise RuntimeError("Local LLM server is not enabled.")
+        return server.ensure_running()
+
+    def _prepare_local_chatbot_config(self, model_config):
+        if not self._local_llm_enabled():
+            return model_config
+
+        from openlrc.models import ModelProvider
+
+        if model_config.provider != ModelProvider.LOCAL_LLAMA:
+            return model_config
+
+        model_config = deepcopy(model_config)
+        model_config.base_url = self._ensure_local_llm_server()
+        model_config.api_key = model_config.api_key or LOCAL_LLAMA_API_KEY
+        return model_config
+
+    def _local_llm_session(self):
+        server = self._local_server()
+        if server is None:
+            return nullcontext()
+        return server.session()
 
     def close(self):
         """Close ChatBot connections and release resources.
@@ -168,6 +257,9 @@ class LRCer:
         if self._cr_chatbot is not None:
             self._cr_chatbot.close()
             self._cr_chatbot = None
+        if self._local_llm_server is not None:
+            self._local_llm_server.close()
+            self._local_llm_server = None
 
     def __enter__(self):
         return self
@@ -552,16 +644,17 @@ class LRCer:
         json_filename = Path(translated_path.parent / (audio_name + ".json"))
         compare_path = Path(translated_path.parent, f"{audio_name}{COMPARE_SUFFIX}.json")
         if not translated_path.exists():
-            timestamps = [(seg.start, seg.end) for seg in transcribed_opt_sub.segments]
-            translator = self._create_translator(timestamps)
+            with self._local_llm_session():
+                timestamps = [(seg.start, seg.end) for seg in transcribed_opt_sub.segments]
+                translator = self._create_translator(timestamps)
 
-            target_texts = translator.translate(
-                transcribed_opt_sub.texts,
-                src_lang=transcribed_opt_sub.lang,
-                target_lang=target_lang,
-                info=context,
-                compare_path=compare_path,
-            )
+                target_texts = translator.translate(
+                    transcribed_opt_sub.texts,
+                    src_lang=transcribed_opt_sub.lang,
+                    target_lang=target_lang,
+                    info=context,
+                    compare_path=compare_path,
+                )
 
             with self._lock:
                 self.api_fee += translator.api_fee  # Ensure thread-safe

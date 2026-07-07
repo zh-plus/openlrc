@@ -3,20 +3,22 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "openlrc"
-version = "1.7.0a1"
-description = "Transcribe (whisper) and translate (gpt) voice into LRC file."
-authors = [{ name = "Hao Zheng", email = "zhenghaosustc@gmail.com" }]
+name = "openlrc-mac"
+version = "0.2.0"
+description = "macOS-focused OpenLRC fork with local whisper.cpp transcription and optional llama.cpp translation."
+authors = [
+    { name = "OpenLRC Mac contributors" },
+]
 requires-python = ">=3.10, <3.13"
 readme = "README.md"
 license = "MIT"
-keywords = ["openai-gpt3", "whisper", "voice transcribe", "lrc"]
+keywords = ["whisper.cpp", "llama.cpp", "macos", "subtitle", "lrc", "srt"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Intended Audience :: Developers",
     "Topic :: Scientific/Engineering",
     "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
+    "Operating System :: MacOS",
 ]
 dependencies = [
     "openai>=2.20.0",
@@ -39,11 +41,17 @@ dependencies = [
     "json_repair==0.25.2",
     "onnxruntime>=1.20.0,<1.24; python_version < '3.11'",
     "onnxruntime>=1.20.0,<2; python_version >= '3.11'",
+    "rich>=13,<15",
+    "typer>=0.12,<1",
 ]
+
+[project.scripts]
+openlrc = "openlrc.cli.main:main"
+openlrc-mac = "openlrc.cli.main:main"
 
 [project.optional-dependencies]
 # Noise suppression via DeepFilterNet (requires torch).
-# Install with: pip install openlrc[full]
+# Install with: pip install openlrc-mac[full]
 # Only needed when using noise_suppress=True in LRCer.run() or Preprocessor.run().
 full = [
     "torch>=2.6.0",
@@ -53,12 +61,6 @@ full = [
 litellm = [
     "litellm>=1.60,<1.85",
 ]
-
-[project.urls]
-Homepage = "https://github.com/zh-plus/openlrc"
-"Documentation" = "https://zh-plus.github.io/openlrc/#/"
-"Changelog" = "https://github.com/zh-plus/openlrc/blob/master/CHANGELOG.md"
-"Bug Tracker" = "https://github.com/zh-plus/openlrc/issues"
 
 [dependency-groups]
 dev = ["pyright>=1.1", "ruff>=0.11"]
@@ -103,8 +105,12 @@ split-on-trailing-comma = false
 [tool.pyright]
 pythonVersion = "3.10"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["vendor", ".venv", ".uv-cache"]
+
 [tool.hatch.build.targets.sdist]
-include = ["openlrc", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]
+include = ["openlrc", "README.md", "CLI_REFERENCE.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]
 
 [tool.hatch.build.targets.wheel]
 include = ["openlrc"]

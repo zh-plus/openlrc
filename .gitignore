@@ -10,8 +10,12 @@ __pycache__/
 uv.lock
 .DS_Store
 /vendor/whisper.cpp/build/
+/vendor/llama.cpp/build/
+/vendor/llama.cpp/models/
+*.gguf
 /tests/data/test_nospeech_video.srt
 /tests/data/test_nospeech_video.wav
 /manual tests/
 /AGENTS.md
 /progress document/
+/PROJECT_ARCHITECTURE.md
