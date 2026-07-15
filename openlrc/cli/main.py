@@ -16,18 +16,26 @@ from rich.console import Console
 from rich.table import Table
 
 from openlrc import __app_name__, __dist_name__, __upstream_version__, __version__
-from openlrc.config import TranscriptionConfig
+from openlrc.config import ContextLLMConfig, HyMT2Mode, TranscriptionConfig
 from openlrc.llama_resources import (
     DEFAULT_LLAMA_IDLE_TIMEOUT,
     DEFAULT_LLAMA_MODEL_FILE,
     DEFAULT_LLAMA_MODEL_REPO,
     DEFAULT_LLAMA_PORT,
+    HY_MT2_7B_MODEL_FILE,
+    HY_MT2_7B_PROFILE,
+    HY_MT2_30B_A3B_PROFILE,
+    QWEN35_9B_PROFILE,
+    get_local_llm_profile,
+    infer_local_llm_profile,
+    is_hy_mt2_30b_profile_alias,
     resolve_llama_cli,
     resolve_llama_model_path,
     resolve_llama_server,
     user_llm_model_dir,
 )
 from openlrc.llama_resources import vendor_dir as llama_vendor_dir
+from openlrc.models import ModelProvider
 from openlrc.setup.llama_cpp import LlamaSetupResult, setup_llama_cpp
 from openlrc.setup.whisper_cpp import DEFAULT_MODEL, DEFAULT_VAD_MODEL, WhisperSetupResult, setup_whisper_cpp
 from openlrc.whisper_resources import (
@@ -69,9 +77,19 @@ class TranslationOnlyBackend(str, Enum):
     online = "online"
 
 
-class TranslateMode(str, Enum):
-    lean = "lean"
-    standard = "standard"
+class LocalModelProfile(str, Enum):
+    qwen35_9b = QWEN35_9B_PROFILE
+    hy_mt2_7b = HY_MT2_7B_PROFILE
+    hy_mt2_30b_a3b = HY_MT2_30B_A3B_PROFILE
+
+
+class ContextProvider(str, Enum):
+    openai = "openai"
+    anthropic = "anthropic"
+    google = "google"
+    litellm = "litellm"
+    third_party = "third-party"
+    local = "local"
 
 
 @dataclass(frozen=True)
@@ -165,6 +183,11 @@ def _model_checks() -> list[CheckResult]:
             lambda: resolve_llama_model_path(DEFAULT_LLAMA_MODEL_FILE),
             f"Default directory: {user_llm_model_dir()}",
         ),
+        _check_resolver(
+            "Local Hy-MT2 7B Q6_K GGUF",
+            lambda: resolve_llama_model_path(HY_MT2_7B_MODEL_FILE),
+            f"Optional. Run `openlrc setup llama --local-model-profile {HY_MT2_7B_PROFILE}`.",
+        ),
     ]
 
 
@@ -178,25 +201,119 @@ def _lrcer_cls():
     return LRCer
 
 
+def _selected_profile_and_model(
+    *, local_model_profile: LocalModelProfile | None, llama_model: str
+) -> tuple[str, str | None]:
+    if local_model_profile is None and is_hy_mt2_30b_profile_alias(llama_model):
+        raise typer.BadParameter(
+            f"{HY_MT2_30B_A3B_PROFILE} must be selected with --local-model-profile and a local .gguf path."
+        )
+
+    inferred_profile = infer_local_llm_profile(llama_model)
+    if local_model_profile is not None:
+        selected_profile = local_model_profile.value
+        if is_hy_mt2_30b_profile_alias(llama_model) and selected_profile != HY_MT2_30B_A3B_PROFILE:
+            raise typer.BadParameter(
+                f"--llama-model {llama_model!r} conflicts with --local-model-profile {selected_profile!r}."
+            )
+        if inferred_profile and inferred_profile != selected_profile and llama_model != QWEN35_9B_PROFILE:
+            raise typer.BadParameter(
+                f"--llama-model {llama_model!r} conflicts with --local-model-profile {selected_profile!r}."
+            )
+
+    profile_name = local_model_profile.value if local_model_profile else inferred_profile
+    profile_name = profile_name or QWEN35_9B_PROFILE
+
+    if profile_name == HY_MT2_30B_A3B_PROFILE:
+        if llama_model == QWEN35_9B_PROFILE or is_hy_mt2_30b_profile_alias(llama_model):
+            raise typer.BadParameter(
+                f"--local-model-profile {HY_MT2_30B_A3B_PROFILE} requires --llama-model /path/to/model.gguf."
+            )
+        if not (llama_model.endswith(".gguf") or "/" in llama_model or Path(llama_model).is_absolute()):
+            raise typer.BadParameter(f"--llama-model for {HY_MT2_30B_A3B_PROFILE} must be a GGUF filename or path.")
+        return profile_name, llama_model
+
+    if profile_name == HY_MT2_7B_PROFILE:
+        if local_model_profile is not None and llama_model == QWEN35_9B_PROFILE:
+            return profile_name, None
+        return profile_name, llama_model
+
+    return profile_name, llama_model
+
+
+def _context_llm_config(
+    *,
+    mode: HyMT2Mode,
+    provider: ContextProvider | None,
+    model: str | None,
+    base_url: str | None,
+    fee_limit: float,
+    port: int,
+) -> ContextLLMConfig | None:
+    if mode is HyMT2Mode.FAST:
+        return None
+    if provider is None or not model:
+        raise typer.BadParameter(f"--hy-mt2-mode {mode.value} requires both --context-provider and --context-model.")
+    if provider is ContextProvider.local:
+        if base_url:
+            raise typer.BadParameter("--context-base-url cannot be used with --context-provider local.")
+        return ContextLLMConfig.local_qwen35_9b(model=model, port=port)
+
+    provider_map = {
+        ContextProvider.openai: ModelProvider.OPENAI,
+        ContextProvider.anthropic: ModelProvider.ANTHROPIC,
+        ContextProvider.google: ModelProvider.GOOGLE,
+        ContextProvider.litellm: ModelProvider.LITELLM,
+        ContextProvider.third_party: ModelProvider.THIRD_PARTY,
+    }
+    if provider is ContextProvider.third_party and not base_url:
+        raise typer.BadParameter("--context-provider third-party requires --context-base-url.")
+    return ContextLLMConfig.online(provider=provider_map[provider], model=model, base_url=base_url, fee_limit=fee_limit)
+
+
 def _lrcer_for_run(
     *,
     translation: TranslationBackend,
     whisper_model: str,
     vad_model: str,
     llama_model: str,
+    local_model_profile: LocalModelProfile | None,
     llama_port: int,
     idle_timeout: int,
-    translate_mode: TranslateMode,
+    hy_mt2_mode: HyMT2Mode,
+    context_provider: ContextProvider | None,
+    context_model: str | None,
+    context_base_url: str | None,
+    context_fee_limit: float,
 ) -> LRCer:
     lrcer_cls = _lrcer_cls()
     transcription = _transcription_config(whisper_model, vad_model)
     if translation == TranslationBackend.local:
+        profile_name, selected_model = _selected_profile_and_model(
+            local_model_profile=local_model_profile, llama_model=llama_model
+        )
+        if profile_name != QWEN35_9B_PROFILE:
+            context_llm = _context_llm_config(
+                mode=hy_mt2_mode,
+                provider=context_provider,
+                model=context_model,
+                base_url=context_base_url,
+                fee_limit=context_fee_limit,
+                port=llama_port,
+            )
+            return lrcer_cls.local_hy_mt2(
+                size=profile_name,
+                model=selected_model,
+                idle_timeout=idle_timeout,
+                port=llama_port,
+                transcription=transcription,
+                mode=hy_mt2_mode,
+                context_llm=context_llm,
+            )
+        if hy_mt2_mode is not HyMT2Mode.FAST or context_provider is not None or context_model is not None:
+            raise typer.BadParameter("Hy-MT2 context options require a Hy-MT2 local model profile.")
         return lrcer_cls.local(
-            model=llama_model,
-            idle_timeout=idle_timeout,
-            port=llama_port,
-            translate_mode=translate_mode.value,
-            transcription=transcription,
+            model=selected_model or llama_model, idle_timeout=idle_timeout, port=llama_port, transcription=transcription
         )
     return lrcer_cls(transcription=transcription)
 
@@ -205,19 +322,44 @@ def _lrcer_for_translation(
     *,
     translation: TranslationOnlyBackend,
     llama_model: str,
+    local_model_profile: LocalModelProfile | None,
     llama_port: int,
     idle_timeout: int,
-    translate_mode: TranslateMode,
+    hy_mt2_mode: HyMT2Mode,
+    context_provider: ContextProvider | None,
+    context_model: str | None,
+    context_base_url: str | None,
+    context_fee_limit: float,
 ) -> LRCer:
     lrcer_cls = _lrcer_cls()
     if translation == TranslationOnlyBackend.local:
-        return lrcer_cls.local(
-            model=llama_model, idle_timeout=idle_timeout, port=llama_port, translate_mode=translate_mode.value
+        profile_name, selected_model = _selected_profile_and_model(
+            local_model_profile=local_model_profile, llama_model=llama_model
         )
+        if profile_name != QWEN35_9B_PROFILE:
+            context_llm = _context_llm_config(
+                mode=hy_mt2_mode,
+                provider=context_provider,
+                model=context_model,
+                base_url=context_base_url,
+                fee_limit=context_fee_limit,
+                port=llama_port,
+            )
+            return lrcer_cls.local_hy_mt2(
+                size=profile_name,
+                model=selected_model,
+                idle_timeout=idle_timeout,
+                port=llama_port,
+                mode=hy_mt2_mode,
+                context_llm=context_llm,
+            )
+        if hy_mt2_mode is not HyMT2Mode.FAST or context_provider is not None or context_model is not None:
+            raise typer.BadParameter("Hy-MT2 context options require a Hy-MT2 local model profile.")
+        return lrcer_cls.local(model=selected_model or llama_model, idle_timeout=idle_timeout, port=llama_port)
     return lrcer_cls()
 
 
-def _print_outputs(outputs: list[Path] | list[str]) -> None:
+def _print_outputs(outputs: list[Path] | list[str], review_statuses: dict[str, dict] | None = None) -> None:
     if not outputs:
         console.print("[yellow]No output files generated.[/yellow]")
         return
@@ -225,9 +367,29 @@ def _print_outputs(outputs: list[Path] | list[str]) -> None:
     table = Table(title="Generated files")
     table.add_column("#", justify="right")
     table.add_column("Path")
+    review_statuses = review_statuses or {}
+    if review_statuses:
+        table.add_column("Review status")
     for index, output in enumerate(outputs, start=1):
-        table.add_row(str(index), str(output))
+        status = review_statuses.get(Path(output).stem)
+        status_text = ""
+        if status:
+            if status.get("incomplete"):
+                failed = status.get("failed_chunks", [])
+                status_text = f"[yellow]incomplete ({len(failed)} chunk(s) kept as Hy-MT2 draft)[/yellow]"
+            else:
+                status_text = "[green]complete[/green]"
+        row = [str(index), str(output)]
+        if review_statuses:
+            row.append(status_text)
+        table.add_row(*row)
     console.print(table)
+    for name, status in review_statuses.items():
+        if status.get("incomplete"):
+            console.print(
+                f"[yellow]Review incomplete for {name}: chunks {status.get('failed_chunks', [])} kept their "
+                "Hy-MT2 draft. Temporary checkpoint retained for the next run.[/yellow]"
+            )
 
 
 def _print_whisper_setup_result(result: WhisperSetupResult) -> None:
@@ -304,6 +466,10 @@ def setup_whisper_command(
 
 @setup_app.command("llama")
 def setup_llama_command(
+    local_model_profile: Annotated[
+        LocalModelProfile | None,
+        typer.Option("--local-model-profile", help="Registered local LLM profile to download."),
+    ] = None,
     model_repo: Annotated[
         str, typer.Option("--model-repo", help="Hugging Face GGUF model repo.")
     ] = DEFAULT_LLAMA_MODEL_REPO,
@@ -320,6 +486,17 @@ def setup_llama_command(
     force: Annotated[bool, typer.Option("--force", help="Re-download the model even if it exists.")] = False,
 ) -> None:
     """Build llama.cpp and download the default local LLM model."""
+    if local_model_profile is not None and not skip_models:
+        profile = get_local_llm_profile(local_model_profile.value)
+        if not profile.model_repo or not profile.model_file:
+            raise typer.BadParameter(
+                f"{profile.name} has no downloadable default GGUF. Place a converted model locally instead."
+            )
+        if model_repo == DEFAULT_LLAMA_MODEL_REPO:
+            model_repo = profile.model_repo
+        if model_file == DEFAULT_LLAMA_MODEL_FILE:
+            model_file = profile.model_file
+
     result = setup_llama_cpp(
         model_repo=model_repo,
         model_file=model_file,
@@ -384,28 +561,54 @@ def translate(
     translation: Annotated[TranslationOnlyBackend, typer.Option("--translation", help="Translation backend to use.")],
     target_lang: Annotated[str, typer.Option("--target-lang", help="Target language code.")] = "zh-cn",
     bilingual_sub: Annotated[bool, typer.Option("--bilingual-sub", help="Generate bilingual subtitle files.")] = False,
+    keep_checkpoint: Annotated[
+        bool, typer.Option("--keep-checkpoint", help="Keep a completed translation checkpoint for debugging.")
+    ] = False,
     llama_model: Annotated[
         str, typer.Option("--llama-model", help="Local GGUF model alias, filename, or path.")
-    ] = "qwen3.5-9b",
+    ] = QWEN35_9B_PROFILE,
+    local_model_profile: Annotated[
+        LocalModelProfile | None,
+        typer.Option("--local-model-profile", help="Local LLM profile for sampling and prompt settings."),
+    ] = None,
     llama_port: Annotated[int, typer.Option("--llama-port", help="Local llama-server port.")] = DEFAULT_LLAMA_PORT,
     idle_timeout: Annotated[
         int, typer.Option("--idle-timeout", help="Seconds before an owned local server shuts down.")
     ] = DEFAULT_LLAMA_IDLE_TIMEOUT,
-    translate_mode: Annotated[
-        TranslateMode, typer.Option("--translate-mode", help="OpenLRC translation strategy.")
-    ] = TranslateMode.lean,
+    hy_mt2_mode: Annotated[
+        HyMT2Mode, typer.Option("--hy-mt2-mode", help="Hy-MT2 quality/context mode.")
+    ] = HyMT2Mode.FAST,
+    context_provider: Annotated[
+        ContextProvider | None, typer.Option("--context-provider", help="General model provider for Hy-MT2 context.")
+    ] = None,
+    context_model: Annotated[
+        str | None, typer.Option("--context-model", help="General model name, local alias, GGUF filename, or path.")
+    ] = None,
+    context_base_url: Annotated[
+        str | None, typer.Option("--context-base-url", help="Custom OpenAI-compatible context-model endpoint.")
+    ] = None,
+    context_fee_limit: Annotated[
+        float, typer.Option("--context-fee-limit", help="Maximum estimated fee per context-model call.")
+    ] = 0.8,
 ) -> None:
     """Translate existing transcription JSON files."""
     lrcer = _lrcer_for_translation(
         translation=translation,
         llama_model=llama_model,
+        local_model_profile=local_model_profile,
         llama_port=llama_port,
         idle_timeout=idle_timeout,
-        translate_mode=translate_mode,
+        hy_mt2_mode=hy_mt2_mode,
+        context_provider=context_provider,
+        context_model=context_model,
+        context_base_url=context_base_url,
+        context_fee_limit=context_fee_limit,
     )
     try:
-        outputs = lrcer.translate(json_paths, target_lang=target_lang, bilingual_sub=bilingual_sub)
-        _print_outputs(outputs)
+        outputs = lrcer.translate(
+            json_paths, target_lang=target_lang, bilingual_sub=bilingual_sub, clear_checkpoint=not keep_checkpoint
+        )
+        _print_outputs(outputs, lrcer.review_statuses)
     finally:
         lrcer.close()
 
@@ -429,21 +632,41 @@ def run(
     ] = False,
     bilingual_sub: Annotated[bool, typer.Option("--bilingual-sub", help="Generate bilingual subtitle files.")] = False,
     clear_temp: Annotated[
-        bool, typer.Option("--clear-temp", help="Clear preprocessed temporary files after success.")
-    ] = False,
+        bool,
+        typer.Option(
+            "--clear-temp/--keep-temp",
+            help="Clear temporary files after complete success; incomplete review is always retained.",
+        ),
+    ] = True,
     skip_preprocess: Annotated[
         bool, typer.Option("--skip-preprocess", help="Use existing preprocessed audio files.")
     ] = False,
     llama_model: Annotated[
         str, typer.Option("--llama-model", help="Local GGUF model alias, filename, or path.")
-    ] = "qwen3.5-9b",
+    ] = QWEN35_9B_PROFILE,
+    local_model_profile: Annotated[
+        LocalModelProfile | None,
+        typer.Option("--local-model-profile", help="Local LLM profile for sampling and prompt settings."),
+    ] = None,
     llama_port: Annotated[int, typer.Option("--llama-port", help="Local llama-server port.")] = DEFAULT_LLAMA_PORT,
     idle_timeout: Annotated[
         int, typer.Option("--idle-timeout", help="Seconds before an owned local server shuts down.")
     ] = DEFAULT_LLAMA_IDLE_TIMEOUT,
-    translate_mode: Annotated[
-        TranslateMode, typer.Option("--translate-mode", help="OpenLRC translation strategy.")
-    ] = TranslateMode.lean,
+    hy_mt2_mode: Annotated[
+        HyMT2Mode, typer.Option("--hy-mt2-mode", help="Hy-MT2 quality/context mode.")
+    ] = HyMT2Mode.FAST,
+    context_provider: Annotated[
+        ContextProvider | None, typer.Option("--context-provider", help="General model provider for Hy-MT2 context.")
+    ] = None,
+    context_model: Annotated[
+        str | None, typer.Option("--context-model", help="General model name, local alias, GGUF filename, or path.")
+    ] = None,
+    context_base_url: Annotated[
+        str | None, typer.Option("--context-base-url", help="Custom OpenAI-compatible context-model endpoint.")
+    ] = None,
+    context_fee_limit: Annotated[
+        float, typer.Option("--context-fee-limit", help="Maximum estimated fee per context-model call.")
+    ] = 0.8,
 ) -> None:
     """Run the transcription pipeline and optionally translate subtitles."""
     lrcer = _lrcer_for_run(
@@ -451,9 +674,14 @@ def run(
         whisper_model=whisper_model,
         vad_model=vad_model,
         llama_model=llama_model,
+        local_model_profile=local_model_profile,
         llama_port=llama_port,
         idle_timeout=idle_timeout,
-        translate_mode=translate_mode,
+        hy_mt2_mode=hy_mt2_mode,
+        context_provider=context_provider,
+        context_model=context_model,
+        context_base_url=context_base_url,
+        context_fee_limit=context_fee_limit,
     )
     try:
         outputs = lrcer.run(
@@ -466,7 +694,7 @@ def run(
             clear_temp=clear_temp,
             skip_preprocess=skip_preprocess,
         )
-        _print_outputs(outputs)
+        _print_outputs(outputs, lrcer.review_statuses)
     finally:
         lrcer.close()
 

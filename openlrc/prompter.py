@@ -2,16 +2,20 @@
 #  All rights reserved.
 
 import abc
+import html
+import re
 from abc import ABC
 
 from langcodes import Language
 
 from openlrc.context import TranslateInfo
+from openlrc.llama_resources import HY_MT2_PROMPT_PROFILE
 from openlrc.validators import (
     AtomicTranslateValidator,
     BaseValidator,
     ChunkedTranslateValidator,
     ContextReviewerValidateValidator,
+    HyMT2DelimiterTranslateValidator,
     LeanTranslateValidator,
     ProofreaderValidator,
     TranslationEvaluatorValidator,
@@ -157,7 +161,7 @@ Please translate these subtitles for {self.audio_type} from {self.src_lang_displ
 <summary></summary>
 <scene></scene>"""
 
-    def system(self) -> str:
+    def system(self) -> str | None:
         return BASE_TRANSLATE_INSTRUCTION
 
     def user(self, chunk_num: int, user_input: str, summaries: list[str] | str = "", guideline: str = "") -> str:
@@ -192,9 +196,26 @@ class AtomicTranslatePrompter(TranslatePrompter):
         self.src_lang_display, self.target_lang_display = self.get_language_display_names(src_lang, target_lang)
         self.validator = AtomicTranslateValidator(target_lang)
 
-    def user(self, text):
-        return f"""Please translate the following text from {self.src_lang_display} to {self.target_lang_display}. 
-Please do not output any content other than the translated text. Here is the text: {text}"""
+    def user(self, text, *, context: str = "", guideline: str = ""):
+        context_text = f"\nContext:\n{context}" if context else ""
+        guideline_text = f"\nTranslation guideline:\n{guideline}" if guideline else ""
+        return f"""Please translate the following text from {self.src_lang_display} to {self.target_lang_display}.
+Please do not output any content other than the translated text.{context_text}{guideline_text}
+Here is the text: {text}"""
+
+
+class HyMT2AtomicTranslatePrompter(AtomicTranslatePrompter):
+    """Atomic fallback prompt following Hy-MT2's official translation style."""
+
+    def user(self, text, *, context: str = "", guideline: str = ""):
+        context_text = f"[Background Information]\n{context}\n" if context else ""
+        guideline_text = f"[Translation Guidance]\n{guideline}\n" if guideline else ""
+        return (
+            context_text + guideline_text + f"Translate the following text into {self.target_lang_display}. "
+            "Note that you should only output the translated result without any additional explanation. "
+            "Do not output XML/HTML tags, Markdown, code fences, or labels:\n"
+            f"{text}"
+        )
 
 
 LEAN_TRANSLATE_INSTRUCTION = """You are a subtitle translator. Translate each numbered line from {src_lang} to {target_lang}.
@@ -222,6 +243,11 @@ LEAN_RETRY_INSTRUCTION = """Previous response had formatting issues. \
 Please ensure each translated line starts with #<id> on its own line, \
 followed by the translation on the next line. Do not add any extra text."""
 
+HY_MT2_DELIMITER_RETRY_INSTRUCTION = """Previous response had delimiter formatting issues. \
+Output only <seg id="N">translated text</seg> blocks for every original id. \
+Keep each opening and closing <seg> delimiter exactly, translate only the text inside the tags, \
+and do not add explanations, labels, Markdown, or code fences."""
+
 
 class LeanTranslatePrompter(TranslatePrompter):
     """Prompter for :class:`LeanTranslator`.
@@ -236,17 +262,20 @@ class LeanTranslatePrompter(TranslatePrompter):
         self.target_lang = target_lang
         self.src_lang_display, self.target_lang_display = self.get_language_display_names(src_lang, target_lang)
         # Validator is set per-chunk via update_expected_ids() before each call.
-        self.validator: LeanTranslateValidator | None = None
+        self.validator = None
 
     def update_expected_ids(self, expected_ids: list[int]) -> None:
         """Refresh the validator with the line IDs of the current chunk."""
         self.validator = LeanTranslateValidator(expected_ids)
 
-    def system(self) -> str:
-        return LEAN_TRANSLATE_INSTRUCTION.format(
-            src_lang=self.src_lang_display,
-            target_lang=self.target_lang_display,
-        )
+    def parse_translations(self, raw: str) -> dict[int, str]:
+        return LeanTranslateValidator.parse_anchored_translations(raw)
+
+    def retry_instruction(self) -> str:
+        return LEAN_RETRY_INSTRUCTION
+
+    def system(self) -> str | None:
+        return LEAN_TRANSLATE_INSTRUCTION.format(src_lang=self.src_lang_display, target_lang=self.target_lang_display)
 
     def user(
         self,
@@ -281,6 +310,105 @@ class LeanTranslatePrompter(TranslatePrompter):
     def format_texts(cls, texts: list[tuple[int, str]]) -> str:  # type: ignore[override]
         """Format chunk lines as ``#id\\ntext`` blocks (no Original>/Translation> prefixes)."""
         return "\n".join(f"#{line_id}\n{text}" for line_id, text in texts)
+
+
+class HyMT2DelimiterTranslatePrompter(LeanTranslatePrompter):
+    """Hy-MT2 subtitle prompt using official-style delimiter preservation."""
+
+    _SEG_ID_RE = re.compile(r"<seg\s+id=[\"']?(\d+)[\"']?\s*>", re.IGNORECASE)
+    exact_id_alignment = True
+
+    def system(self) -> None:
+        return None
+
+    def update_expected_ids(self, expected_ids: list[int]) -> None:
+        self.validator = HyMT2DelimiterTranslateValidator(expected_ids)
+
+    def parse_translations(self, raw: str) -> dict[int, str]:
+        parsed = HyMT2DelimiterTranslateValidator.parse_delimited_translations(raw)
+        if parsed:
+            return parsed
+        return LeanTranslateValidator.parse_anchored_translations(raw)
+
+    def retry_instruction(self) -> str:
+        return HY_MT2_DELIMITER_RETRY_INSTRUCTION
+
+    @classmethod
+    def format_texts(cls, texts: list[tuple[int, str]]) -> str:  # type: ignore[override]
+        return "\n".join(f'<seg id="{line_id}">{html.escape(text, quote=False)}</seg>' for line_id, text in texts)
+
+    def user(
+        self,
+        user_input: str,
+        *,
+        summary: str = "",
+        characters: str = "",
+        terminology: str = "",
+        sliding_window: str = "",
+        style: str = "",
+        audience: str = "",
+        asr_ambiguities: str = "",
+        neighboring_context: str = "",
+    ) -> str:
+        context_parts: list[str] = []
+        if summary:
+            context_parts.append(f"Background summary:\n{summary}")
+        if characters:
+            context_parts.append(f"Characters:\n{characters}")
+        if terminology:
+            context_parts.append(f"Reference the following translations:\n{terminology}")
+        if sliding_window:
+            context_parts.append(f"Recent translations:\n{sliding_window}")
+        if style:
+            context_parts.append(f"Required tone and style:\n{style}")
+        if audience:
+            context_parts.append(f"Target audience:\n{audience}")
+        if asr_ambiguities:
+            context_parts.append(f"Context-resolved ASR ambiguities:\n{asr_ambiguities}")
+        if neighboring_context:
+            context_parts.append(f"Read-only neighboring source subtitles:\n{neighboring_context}")
+
+        sections: list[str] = []
+        if context_parts:
+            sections.append("[Background Information]\n" + "\n\n".join(context_parts))
+        expected_ids = self._SEG_ID_RE.findall(user_input)
+        id_list = ", ".join(f'id="{line_id}"' for line_id in expected_ids)
+        count_rule = (
+            f"- Output exactly {len(expected_ids)} <seg> blocks, one for each segment id: {id_list}.\n"
+            if expected_ids
+            else ""
+        )
+        sections.append(
+            f"Please accurately translate the following subtitle text from {self.src_lang_display} "
+            f"into {self.target_lang_display}. "
+            "Note that you should only output the translated result without any additional explanation.\n\n"
+            "Delimiter rules:\n"
+            '- Retain every opening <seg id="N"> delimiter and every closing </seg> delimiter exactly.\n'
+            "- Only translate the text between each opening and closing tag.\n"
+            f"{count_rule}"
+            "- Do not merge, split, omit, or reorder subtitle lines.\n"
+            "- Do not add explanations, labels, Markdown, code fences, or any text outside the <seg> blocks.\n"
+            "- Keep the translation natural and concise for subtitles.\n\n"
+            "[Source Text]\n"
+            f"{user_input}"
+        )
+        return "\n\n".join(sections)
+
+
+def create_atomic_translate_prompter(
+    src_lang: str, target_lang: str, prompt_profile: str = "default"
+) -> AtomicTranslatePrompter:
+    if prompt_profile == HY_MT2_PROMPT_PROFILE:
+        return HyMT2AtomicTranslatePrompter(src_lang, target_lang)
+    return AtomicTranslatePrompter(src_lang, target_lang)
+
+
+def create_lean_translate_prompter(
+    src_lang: str, target_lang: str, prompt_profile: str = "default"
+) -> LeanTranslatePrompter:
+    if prompt_profile == HY_MT2_PROMPT_PROFILE:
+        return HyMT2DelimiterTranslatePrompter(src_lang, target_lang)
+    return LeanTranslatePrompter(src_lang, target_lang)
 
 
 class ContextReviewPrompterBase(Prompter, ABC):

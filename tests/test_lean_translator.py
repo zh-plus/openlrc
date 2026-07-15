@@ -9,10 +9,16 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from openlrc.agents import create_chatbot
+from openlrc.llama_resources import HY_MT2_PROMPT_PROFILE
 from openlrc.media_utils import get_similarity
-from openlrc.prompter import LeanContextReviewPrompter, LeanTranslatePrompter
+from openlrc.prompter import (
+    LeanContextReviewPrompter,
+    LeanTranslatePrompter,
+    create_atomic_translate_prompter,
+    create_lean_translate_prompter,
+)
 from openlrc.translate import LeanTranslator
-from openlrc.validators import LeanTranslateValidator
+from openlrc.validators import HyMT2DelimiterTranslateValidator, LeanTranslateValidator
 from tests.conftest import LIVE_API, TEST_LLM_API_KEY, TEST_MODELS
 
 
@@ -56,6 +62,16 @@ class TestLeanTranslateValidator(unittest.TestCase):
         parsed = LeanTranslateValidator.parse_anchored_translations(content)
         self.assertEqual(parsed, {1: "Hello"})
 
+    def test_parse_angle_bracket_anchor(self):
+        content = "#<1>\nHello\n#<2>\nWorld\n"
+        parsed = LeanTranslateValidator.parse_anchored_translations(content)
+        self.assertEqual(parsed, {1: "Hello", 2: "World"})
+
+    def test_parse_pure_markup_tag_skipped(self):
+        content = "#1\n</翻译>\n#2\nWorld\n"
+        parsed = LeanTranslateValidator.parse_anchored_translations(content)
+        self.assertEqual(parsed, {2: "World"})
+
     def test_validate_passes_above_threshold(self):
         validator = LeanTranslateValidator(expected_ids=[1, 2, 3, 4, 5])
         content = "#1\nA\n#2\nB\n#3\nC\n#4\nD\n"  # 4/5 = 80%
@@ -70,6 +86,45 @@ class TestLeanTranslateValidator(unittest.TestCase):
         validator = LeanTranslateValidator(expected_ids=[1, 2])
         self.assertFalse(validator.validate("", ""))
         self.assertFalse(validator.validate("", None))  # type: ignore[arg-type]
+
+
+class TestHyMT2DelimiterTranslateValidator(unittest.TestCase):
+    def test_parse_delimited_translations(self):
+        content = '<seg id="1">你好</seg>\n<seg id="2">世界</seg>'
+        parsed = HyMT2DelimiterTranslateValidator.parse_delimited_translations(content)
+        self.assertEqual(parsed, {1: "你好", 2: "世界"})
+
+    def test_parse_multiline_and_extra_text(self):
+        content = 'Note:\n<seg id="1">第一行\n第二行</seg>\nDone.'
+        parsed = HyMT2DelimiterTranslateValidator.parse_delimited_translations(content)
+        self.assertEqual(parsed, {1: "第一行 第二行"})
+
+    def test_parse_html_entities(self):
+        content = '<seg id="1">Tom &amp; Jerry &lt;3</seg>'
+        parsed = HyMT2DelimiterTranslateValidator.parse_delimited_translations(content)
+        self.assertEqual(parsed, {1: "Tom & Jerry <3"})
+
+    def test_validate_match_ratio(self):
+        validator = HyMT2DelimiterTranslateValidator(expected_ids=[1, 2, 3, 4, 5])
+        self.assertTrue(
+            validator.validate("", '<seg id="1">A</seg><seg id="2">B</seg><seg id="3">C</seg><seg id="4">D</seg>')
+        )
+        self.assertFalse(validator.validate("", '<seg id="1">A</seg><seg id="2">B</seg><seg id="3">C</seg>'))
+
+    def test_validate_accepts_anchor_fallback(self):
+        validator = HyMT2DelimiterTranslateValidator(expected_ids=[1, 2])
+        self.assertTrue(validator.validate("", "#<1>\n你好\n#<2>\n世界\n"))
+
+    def test_validate_rejects_duplicate_unexpected_and_out_of_order_ids(self):
+        validator = HyMT2DelimiterTranslateValidator(expected_ids=[1, 2, 3])
+
+        self.assertFalse(validator.validate("", '<seg id="1">A</seg><seg id="1">B</seg>'))
+        self.assertFalse(validator.validate("", '<seg id="1">A</seg><seg id="9">B</seg>'))
+        self.assertFalse(validator.validate("", '<seg id="2">B</seg><seg id="1">A</seg>'))
+        self.assertEqual(len(validator.issues), 3)
+        self.assertIn("Duplicate", validator.issues[0])
+        self.assertIn("Unexpected", validator.issues[1])
+        self.assertIn("out of order", validator.issues[2])
 
 
 class TestLeanTranslatePrompter(unittest.TestCase):
@@ -120,11 +175,7 @@ class TestLeanTranslatePrompter(unittest.TestCase):
     def test_context_layer_order(self):
         """Context layers appear in order: Summary > Characters > Terminology > Recent."""
         user = self.prompter.user(
-            "#1\nHello",
-            summary="sum",
-            characters="chars",
-            terminology="terms",
-            sliding_window="window",
+            "#1\nHello", summary="sum", characters="chars", terminology="terms", sliding_window="window"
         )
         idx_summary = user.index("Summary:")
         idx_chars = user.index("Characters:")
@@ -139,6 +190,51 @@ class TestLeanTranslatePrompter(unittest.TestCase):
         self.prompter.update_expected_ids([1, 2, 3])
         self.assertIsNotNone(self.prompter.validator)
         self.assertEqual(self.prompter.validator.expected_ids, {1, 2, 3})
+
+
+class TestHyMT2TranslatePrompter(unittest.TestCase):
+    def test_lean_prompt_omits_system_message(self):
+        prompter = create_lean_translate_prompter("en", "zh-cn", HY_MT2_PROMPT_PROFILE)
+        formatted = prompter.format_texts([(1, "Hello & <world>")])
+        user = prompter.user(formatted, terminology="- OpenLRC: OpenLRC")
+        messages = LeanTranslator._prompt_messages(prompter, user)
+
+        self.assertIsNone(prompter.system())
+        self.assertEqual([message["role"] for message in messages], ["user"])
+        self.assertEqual(formatted, '<seg id="1">Hello &amp; &lt;world&gt;</seg>')
+        self.assertIn("Please accurately translate the following subtitle text", user)
+        self.assertIn("without any additional explanation", user)
+        self.assertIn('Retain every opening <seg id="N"> delimiter', user)
+        self.assertIn("Output exactly 1 <seg> blocks", user)
+        self.assertNotIn("#<id>", user)
+        self.assertIn('<seg id="1">Hello &amp; &lt;world&gt;</seg>', user)
+
+    def test_lean_prompt_parses_delimited_output(self):
+        prompter = create_lean_translate_prompter("en", "zh-cn", HY_MT2_PROMPT_PROFILE)
+
+        parsed = prompter.parse_translations('<seg id="1">你好</seg>')
+
+        self.assertEqual(parsed, {1: "你好"})
+
+    def test_lean_prompt_falls_back_to_anchor_parser(self):
+        prompter = create_lean_translate_prompter("en", "zh-cn", HY_MT2_PROMPT_PROFILE)
+
+        parsed = prompter.parse_translations("#<1>\n你好\n")
+
+        self.assertEqual(parsed, {1: "你好"})
+
+    def test_lean_prompt_retry_instruction_uses_delimiters(self):
+        prompter = create_lean_translate_prompter("en", "zh-cn", HY_MT2_PROMPT_PROFILE)
+
+        self.assertIn('<seg id="N">translated text</seg>', prompter.retry_instruction())
+
+    def test_atomic_prompt_uses_hy_mt2_official_style(self):
+        prompter = create_atomic_translate_prompter("en", "zh-cn", HY_MT2_PROMPT_PROFILE)
+        user = prompter.user("Hello")
+
+        self.assertIn("Translate the following text into Chinese", user)
+        self.assertIn("only output the translated result", user)
+        self.assertIn("Hello", user)
 
 
 class TestLeanContextReviewPrompter(unittest.TestCase):
@@ -310,11 +406,7 @@ summary: John investigates a case."""
 @patch.dict(os.environ, {"OPENAI_API_KEY": "test-dummy"})
 class TestLeanTranslatorTranslate(unittest.TestCase):
     def _make_translator(self, enable_cr=True, cr_chatbot=None):
-        return LeanTranslator(
-            chatbot=_make_mock_chatbot(),
-            enable_cr=enable_cr,
-            cr_chatbot=cr_chatbot,
-        )
+        return LeanTranslator(chatbot=_make_mock_chatbot(), enable_cr=enable_cr, cr_chatbot=cr_chatbot)
 
     @patch("openlrc.translate.ContextReviewerAgent")
     def test_single_chunk_no_cr(self, mock_reviewer_cls):
@@ -381,7 +473,7 @@ class TestLeanTranslatorTranslate(unittest.TestCase):
         translator = self._make_translator(enable_cr=False)
         texts = [f"line{i}" for i in range(10)]
 
-        anchored = "\n".join(f"#{i+1}\ntrans{i+1}" for i in range(9))
+        anchored = "\n".join(f"#{i + 1}\ntrans{i + 1}" for i in range(9))
         translator.chatbot.get_content.return_value = anchored
         translator.chatbot.message.return_value = [MagicMock()]
 
@@ -393,6 +485,64 @@ class TestLeanTranslatorTranslate(unittest.TestCase):
         self.assertEqual(len(result), 10)
         self.assertEqual(result[9], "atomic10")
         mock_atomic.assert_called_once()
+
+    def test_try_single_attempt_uses_prompter_parser(self):
+        translator = self._make_translator(enable_cr=False)
+        prompter = LeanTranslatePrompter("en", "zh")
+        prompter.parse_translations = MagicMock(return_value={1: "你好"})  # type: ignore[method-assign]
+        translator.chatbot.get_content.return_value = "custom parser payload"
+        translator.chatbot.message.return_value = [MagicMock()]
+
+        result = translator._try_single_attempt(
+            translator.chatbot, prompter, [{"role": "user", "content": "Translate"}], [1], {1: "Hello"}, "en", "zh"
+        )
+
+        self.assertEqual(result, (["你好"], False))
+        prompter.parse_translations.assert_called_once_with("custom parser payload")
+
+    def test_delimiter_atomic_fill_on_partial_missing(self):
+        translator = self._make_translator(enable_cr=False)
+        prompter = create_lean_translate_prompter("en", "zh-cn", HY_MT2_PROMPT_PROFILE)
+        prompter.update_expected_ids([1, 2, 3, 4, 5])
+        translator.chatbot.get_content.return_value = (
+            '<seg id="1">一</seg><seg id="2">二</seg><seg id="3">三</seg><seg id="4">四</seg>'
+        )
+        translator.chatbot.message.return_value = [MagicMock()]
+
+        with patch.object(translator, "atomic_translate", return_value=["五"]) as mock_atomic:
+            result = translator._try_single_attempt(
+                translator.chatbot,
+                prompter,
+                [{"role": "user", "content": "Translate"}],
+                [1, 2, 3, 4, 5],
+                {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"},
+                "en",
+                "zh-cn",
+            )
+
+        self.assertEqual(result, (["一", "二", "三", "四", "五"], True))
+        mock_atomic.assert_called_once_with(translator.chatbot, ["five"], "en", "zh-cn")
+
+    def test_delimiter_alignment_does_not_shift_missing_middle_id(self):
+        translator = self._make_translator(enable_cr=False)
+        prompter = create_lean_translate_prompter("en", "zh-cn", HY_MT2_PROMPT_PROFILE)
+        translator.chatbot.get_content.return_value = (
+            '<seg id="1">一</seg><seg id="2">二</seg><seg id="4">四</seg><seg id="5">五</seg>'
+        )
+        translator.chatbot.message.return_value = [MagicMock()]
+
+        with patch.object(translator, "atomic_translate", return_value=["三"]):
+            result = translator._try_single_attempt(
+                translator.chatbot,
+                prompter,
+                [{"role": "user", "content": "Translate"}],
+                [1, 2, 3, 4, 5],
+                {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"},
+                "en",
+                "zh-cn",
+            )
+
+        self.assertEqual(result, (["一", "二", "三", "四", "五"], True))
 
     @patch("openlrc.translate.ContextReviewerAgent")
     def test_full_atomic_fallback_on_total_failure(self, mock_reviewer_cls):
@@ -508,11 +658,7 @@ class TestLeanTranslatorTranslate(unittest.TestCase):
     def test_retry_chatbot_used_on_primary_failure(self, mock_reviewer_cls):
         """When primary chatbot returns >20% missing, retry_chatbot is tried."""
         retry_bot = _make_mock_chatbot("retry-model")
-        translator = LeanTranslator(
-            chatbot=_make_mock_chatbot(),
-            retry_chatbot=retry_bot,
-            enable_cr=False,
-        )
+        translator = LeanTranslator(chatbot=_make_mock_chatbot(), retry_chatbot=retry_bot, enable_cr=False)
         texts = ["Hello", "World"]
 
         # Primary chatbot returns empty (total failure)
@@ -556,6 +702,8 @@ class TestLeanTranslatorTranslate(unittest.TestCase):
             result = translator.translate(texts, "en", "zh", compare_path=compare_path)
 
         self.assertEqual(len(result), 6)
+        self.assertEqual(translator.metrics["splits"], 1)
+        self.assertEqual(translator.metrics["max_split_depth"], 1)
 
     @patch("openlrc.translate.ContextReviewerAgent")
     def test_glossary_removal_retry(self, mock_reviewer_cls):

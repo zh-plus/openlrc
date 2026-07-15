@@ -44,6 +44,7 @@ class LocalLLMServer:
         idle_timeout: int = DEFAULT_LLAMA_IDLE_TIMEOUT,
         startup_timeout: int = DEFAULT_LLAMA_STARTUP_TIMEOUT,
         extra_args: list[str] | None = None,
+        allow_external: bool = True,
     ):
         self.server_path = server_path
         self.model_path = model_path
@@ -55,6 +56,7 @@ class LocalLLMServer:
         self.idle_timeout = idle_timeout
         self.startup_timeout = startup_timeout
         self.extra_args = list(extra_args or [])
+        self.allow_external = allow_external
 
         self._process: subprocess.Popen | None = None
         self._owns_process = False
@@ -178,6 +180,11 @@ class LocalLLMServer:
             response = requests.get(f"{self.base_url}/models", timeout=2)
             response.raise_for_status()
             if self._model_matches(response.json()):
+                if not self.allow_external and self._process is None:
+                    raise RuntimeError(
+                        f"An external llama-server is already listening at {self.base_url}. "
+                        "Staged local Hy-MT2 pipelines require an OpenLRC-owned server so the model can be unloaded."
+                    )
                 return True
             raise RuntimeError(
                 f"A server is listening at {self.base_url}, but it does not expose model alias {self.alias!r}."

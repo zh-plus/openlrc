@@ -1,14 +1,24 @@
 #  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
+import json
 import shutil
 import sys
+import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from openlrc.config import LocalLLMConfig
-from openlrc.llama_resources import DEFAULT_LLAMA_MODEL_ALIAS
+from openlrc.config import ContextLLMConfig, HyMT2Mode, LocalLLMConfig
+from openlrc.context import TranslationBrief
+from openlrc.llama_resources import (
+    DEFAULT_LLAMA_MODEL_ALIAS,
+    HY_MT2_7B_MODEL_ALIAS,
+    HY_MT2_7B_MODEL_FILE,
+    HY_MT2_PROMPT_PROFILE,
+)
+from openlrc.models import ModelProvider
 from openlrc.openlrc import LRCer, TranscriptionConfig, TranslationConfig
 from openlrc.transcribe import TranscriptionInfo
 from openlrc.utils import extend_filename
@@ -291,15 +301,232 @@ class TestLRCer(unittest.TestCase):
 
 
 class TestLRCerLocalLLM(unittest.TestCase):
+    def test_translate_clears_completed_checkpoint_but_keeps_incomplete_review(self):
+        lrcer = LRCer.local()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            transcribed = Path(tmpdir) / "sample_preprocessed_transcribed.json"
+            transcribed.write_text("{}", encoding="utf-8")
+            checkpoint = Path(tmpdir) / "sample_compare.json"
+            checkpoint.write_text("{}", encoding="utf-8")
+
+            with patch.object(lrcer, "_process_transcribed_file"):
+                lrcer.translate(transcribed)
+            self.assertFalse(checkpoint.exists())
+
+            checkpoint.write_text("{}", encoding="utf-8")
+
+            def mark_incomplete(*args, **kwargs):
+                lrcer.review_statuses["sample"] = {"incomplete": True, "failed_chunks": [1]}
+
+            with patch.object(lrcer, "_process_transcribed_file", side_effect=mark_incomplete):
+                lrcer.translate(transcribed)
+            self.assertTrue(checkpoint.exists())
+
+    def test_clear_temp_files_removes_only_current_input_artifacts(self):
+        lrcer = LRCer.local()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            folder = Path(tmpdir) / "preprocessed"
+            folder.mkdir()
+            audio = folder / "sample_preprocessed.wav"
+            derivative = folder / "sample_preprocessed_transcribed.json"
+            checkpoint = folder / "sample_compare.json"
+            unrelated = folder / "other_preprocessed.wav"
+            for path in (audio, derivative, checkpoint, unrelated):
+                path.write_text("data", encoding="utf-8")
+
+            lrcer.clear_temp_files([audio])
+
+            self.assertFalse(audio.exists())
+            self.assertFalse(derivative.exists())
+            self.assertFalse(checkpoint.exists())
+            self.assertTrue(unrelated.exists())
+            self.assertTrue(folder.exists())
+
     def test_local_constructor_uses_recommended_local_config(self):
         lrcer = LRCer.local(idle_timeout=12, port=9090)
 
         self.assertIsNotNone(lrcer._translation_config.local_llm)
         self.assertEqual(lrcer._translation_config.local_llm.idle_timeout, 12)
         self.assertEqual(lrcer._translation_config.local_llm.port, 9090)
-        self.assertEqual(lrcer._translation_config.translate_mode, "lean")
-        self.assertFalse(lrcer._translation_config.enable_cr)
+        self.assertEqual(lrcer._translation_config._translator_engine, "classic")
+        self.assertTrue(lrcer._translation_config.enable_cr)
         self.assertEqual(lrcer._translation_config.consumer_thread, 1)
+
+    def test_local_hy_mt2_constructor_uses_profile_config(self):
+        lrcer = LRCer.local_hy_mt2(idle_timeout=12, port=9090)
+
+        self.assertIsNotNone(lrcer._translation_config.local_llm)
+        self.assertEqual(lrcer._translation_config.local_llm.model_path, HY_MT2_7B_MODEL_FILE)
+        self.assertEqual(lrcer._translation_config.local_llm.alias, HY_MT2_7B_MODEL_ALIAS)
+        self.assertEqual(lrcer._translation_config.prompt_profile, HY_MT2_PROMPT_PROFILE)
+        self.assertEqual(lrcer._translation_config.chatbot.temperature, 0.7)
+        self.assertEqual(lrcer._translation_config.chatbot.top_p, 0.6)
+
+    def test_context_plus_stage_order(self):
+        context_llm = ContextLLMConfig.online(provider=ModelProvider.OPENAI, model="gpt-4.1-nano")
+        lrcer = LRCer.local_hy_mt2(mode=HyMT2Mode.CONTEXT_PLUS, context_llm=context_llm)
+        events: list[str] = []
+        translator = MagicMock()
+        translator.translate.return_value = ["草稿"]
+        translator.metrics = {"retries": 0, "splits": 0, "atomic_ids": []}
+
+        @contextmanager
+        def local_session():
+            events.append("hy-start")
+            try:
+                yield
+            finally:
+                events.append("hy-session-end")
+
+        transcribed = MagicMock()
+        transcribed.texts = ["source"]
+        transcribed.lang = "en"
+        transcribed.segments = [MagicMock(start=0.0, end=1.0)]
+
+        def prepare(*args, **kwargs):
+            events.append("context-cr")
+            return TranslationBrief(summary="summary"), {"schema_version": 2}
+
+        def close_primary():
+            events.append("hy-close")
+
+        def review(*args, **kwargs):
+            events.append("context-review")
+            return ["修订"]
+
+        with (
+            patch.object(lrcer, "_prepare_hymt2_brief", side_effect=prepare),
+            patch.object(lrcer, "_local_llm_session", side_effect=local_session),
+            patch.object(lrcer, "_create_translator", return_value=translator),
+            patch.object(lrcer, "_close_primary_local_stage", side_effect=close_primary),
+            patch.object(lrcer, "_review_hymt2_translations", side_effect=review),
+            patch("openlrc.openlrc.Subtitle.from_json", return_value=MagicMock()),
+            patch.object(lrcer, "post_process", return_value=MagicMock()),
+            patch("openlrc.openlrc.deepcopy", side_effect=lambda value: value),
+        ):
+            with self.subTest("staged order"):
+                output = TEST_DATA_DIR / "context-plus-output.json"
+                output.unlink(missing_ok=True)
+                lrcer._translate("sample", "zh-cn", transcribed, output)
+
+        self.assertEqual(events, ["context-cr", "hy-start", "hy-session-end", "hy-close", "context-review"])
+
+    def test_context_plus_only_applies_high_risk_revisions(self):
+        context_llm = ContextLLMConfig.online(provider=ModelProvider.OPENAI, model="gpt-4.1-nano")
+        lrcer = LRCer.local_hy_mt2(mode=HyMT2Mode.CONTEXT_PLUS, context_llm=context_llm)
+        bot = MagicMock()
+        bot.api_fees = []
+        bot.message.return_value = [MagicMock()]
+        bot.get_content.return_value = json.dumps(
+            {
+                "items": [
+                    {"id": 1, "risk": "low", "issues": [], "revised_translation": None},
+                    {"id": 2, "risk": "high", "issues": ["meaning"], "revised_translation": "修订二"},
+                ]
+            },
+            ensure_ascii=False,
+        )
+        translator = MagicMock()
+        translator.metrics = {"retries": 0, "splits": 0, "atomic_ids": []}
+        translator.make_chunks_by_tokens.return_value = [[(1, "one"), (2, "two")]]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoint = Path(tmpdir) / "compare.json"
+            checkpoint.write_text(
+                json.dumps({"compare": [{"idx": 1, "output": "草稿一"}, {"idx": 2, "output": "草稿二"}]})
+            )
+            with patch.object(lrcer, "_create_context_chatbot", return_value=(bot, None)):
+                output = lrcer._review_hymt2_translations(
+                    "sample",
+                    ["one", "two"],
+                    ["草稿一", "草稿二"],
+                    src_lang="en",
+                    target_lang="zh-cn",
+                    brief=TranslationBrief(summary="summary"),
+                    compare_path=checkpoint,
+                    translator=translator,
+                )
+
+            saved = json.loads(checkpoint.read_text())
+
+        self.assertEqual(output, ["草稿一", "修订二"])
+        self.assertEqual(saved["pipeline_stage"], "complete")
+        self.assertFalse(saved["review_incomplete"])
+        self.assertEqual(saved["raw_hymt2_translations"], ["草稿一", "草稿二"])
+        self.assertEqual(saved["final_translations"], ["草稿一", "修订二"])
+        self.assertEqual([item["output"] for item in saved["compare"]], ["草稿一", "草稿二"])
+
+    def test_context_plus_review_failure_keeps_hymt2_draft(self):
+        context_llm = ContextLLMConfig.online(provider=ModelProvider.OPENAI, model="gpt-4.1-nano")
+        lrcer = LRCer.local_hy_mt2(mode=HyMT2Mode.CONTEXT_PLUS, context_llm=context_llm)
+        bot = MagicMock()
+        bot.api_fees = []
+        bot.message.return_value = [MagicMock()]
+        bot.get_content.return_value = ""
+        translator = MagicMock()
+        translator.metrics = {"retries": 1, "splits": 0, "atomic_ids": []}
+        translator.make_chunks_by_tokens.return_value = [[(1, "one")]]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoint = Path(tmpdir) / "compare.json"
+            checkpoint.write_text(json.dumps({"compare": [{"idx": 1, "output": "草稿"}]}))
+            with patch.object(lrcer, "_create_context_chatbot", return_value=(bot, None)):
+                output = lrcer._review_hymt2_translations(
+                    "sample",
+                    ["one"],
+                    ["草稿"],
+                    src_lang="en",
+                    target_lang="zh-cn",
+                    brief=TranslationBrief(summary="summary"),
+                    compare_path=checkpoint,
+                    translator=translator,
+                )
+            saved = json.loads(checkpoint.read_text())
+
+        self.assertEqual(output, ["草稿"])
+        self.assertEqual(saved["pipeline_stage"], "review_incomplete")
+        self.assertTrue(saved["review_incomplete"])
+        self.assertEqual(saved["review_failed_chunks"], [1])
+        self.assertTrue(lrcer.review_statuses["sample"]["incomplete"])
+
+    def test_context_plus_resumes_incomplete_review_without_reloading_hymt2(self):
+        context_llm = ContextLLMConfig.online(provider=ModelProvider.OPENAI, model="gpt-4.1-nano")
+        lrcer = LRCer.local_hy_mt2(mode=HyMT2Mode.CONTEXT_PLUS, context_llm=context_llm)
+        transcribed = MagicMock()
+        transcribed.texts = ["source"]
+        transcribed.lang = "en"
+        translated_sub = MagicMock()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            translated_path = Path(tmpdir) / "sample_translated.json"
+            translated_path.write_text("{}", encoding="utf-8")
+            checkpoint = Path(tmpdir) / "sample_compare.json"
+            checkpoint.write_text(
+                json.dumps(
+                    {
+                        "compare": [{"chunk": 1, "idx": 1, "output": "草稿"}],
+                        "translation_brief": {"summary": "summary"},
+                        "raw_hymt2_translations": ["草稿"],
+                        "review_incomplete": True,
+                        "review_failed_chunks": [1],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch.object(lrcer, "_review_hymt2_translations", return_value=["修订"]) as review,
+                patch.object(lrcer, "_create_translator") as create_translator,
+                patch("openlrc.openlrc.deepcopy", return_value=translated_sub),
+                patch("openlrc.openlrc.Subtitle.from_json", return_value=translated_sub),
+                patch.object(lrcer, "post_process", return_value=translated_sub),
+            ):
+                lrcer._translate("sample", "zh-cn", transcribed, translated_path)
+
+        create_translator.assert_not_called()
+        review.assert_called_once()
+        self.assertIsNone(review.call_args.kwargs.get("translator"))
+        translated_sub.set_texts.assert_called_once_with(["修订"], lang="zh-cn")
 
     @patch("openlrc.agents.create_chatbot", side_effect=_mock_create_chatbot)
     @patch("openlrc.local_llm_server.LocalLLMServer")

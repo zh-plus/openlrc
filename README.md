@@ -80,8 +80,40 @@ Generate locally translated subtitles:
 uv run openlrc run video.mp4 --src-lang en --target-lang zh-cn --translation local
 ```
 
+Use the Hy-MT2 7B Q6_K local translation profile:
+
+```shell
+uv run openlrc setup llama --local-model-profile hy-mt2-7b
+uv run openlrc run video.mp4 --src-lang en --target-lang zh-cn --translation local --local-model-profile hy-mt2-7b
+```
+
+Hy-MT2 defaults to `fast` mode (delimiter translation, no Context Review).
+Context modes require an explicit general-purpose model:
+
+```shell
+# Fully local: Qwen context brief -> unload -> Hy-MT2 translation
+uv run openlrc run video.mp4 --src-lang en --target-lang zh-cn \
+  --translation local --local-model-profile hy-mt2-7b \
+  --hy-mt2-mode context --context-provider local --context-model qwen3.5-9b
+
+# Context plus: Qwen brief -> Hy-MT2 translation -> Qwen high-risk review
+uv run openlrc run video.mp4 --src-lang en --target-lang zh-cn \
+  --translation local --local-model-profile hy-mt2-7b \
+  --hy-mt2-mode context-plus --context-provider local --context-model qwen3.5-9b
+```
+
+Only one local LLM is resident during staged context modes. Hy-MT2 exposes only
+`fast`, `context`, and `context-plus`; its internal translator engine is not a
+user-facing option. Online translation and the general local Qwen profile use
+the classic OpenLRC context-aware pipeline by default.
+
 By default, `openlrc run` does not translate. Translation must be explicitly
 enabled with `--translation local` or `--translation online`.
+Temporary preprocessing/checkpoint files are removed after complete success.
+Use `--keep-temp` to retain them. An incomplete context-plus review always keeps
+its checkpoint so the next run can resume failed review chunks.
+The standalone `translate` command removes a completed checkpoint by default;
+use `--keep-checkpoint` when the compare JSON is needed for debugging.
 
 ## Python API
 
@@ -101,6 +133,18 @@ from openlrc import LRCer
 
 lrcer = LRCer.local()
 lrcer.run("video.mp4", src_lang="en", target_lang="zh-cn")
+```
+
+Hy-MT2 local translation shortcut:
+
+```python
+from openlrc import ContextLLMConfig, HyMT2Mode, LRCer
+
+lrcer = LRCer.local_hy_mt2()
+lrcer.run("video.mp4", src_lang="en", target_lang="zh-cn")
+
+context_llm = ContextLLMConfig.local_qwen35_9b()
+lrcer = LRCer.local_hy_mt2(mode=HyMT2Mode.CONTEXT, context_llm=context_llm)
 ```
 
 If OpenLRC starts the local `llama-server`, it closes it when the workflow ends.

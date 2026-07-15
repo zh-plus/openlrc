@@ -27,6 +27,12 @@ class TestLocalLLMServer(unittest.TestCase):
             mock_popen.assert_not_called()
             self.assertFalse(server._owns_process)
 
+    def test_staged_server_rejects_matching_external_server(self):
+        with patch("openlrc.local_llm_server.requests.get", return_value=_response_with_alias()):
+            server = LocalLLMServer(allow_external=False)
+            with self.assertRaisesRegex(RuntimeError, "require an OpenLRC-owned server"):
+                server.ensure_running()
+
     def test_raises_when_existing_server_has_wrong_alias(self):
         with patch("openlrc.local_llm_server.requests.get", return_value=_response_with_alias("other-model")):
             server = LocalLLMServer()

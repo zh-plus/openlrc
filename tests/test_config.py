@@ -1,11 +1,19 @@
 #  Copyright (C) 2026. Hao Zheng
 #  All rights reserved.
 
+import inspect
 import unittest
 from typing import get_args, get_type_hints
 
-from openlrc.config import LocalLLMConfig, TranscriptionConfig, TranslationConfig
-from openlrc.llama_resources import DEFAULT_LLAMA_MODEL_ALIAS, DEFAULT_LLAMA_MODEL_FILE
+from openlrc.config import ContextLLMConfig, HyMT2Mode, LocalLLMConfig, TranscriptionConfig, TranslationConfig
+from openlrc.llama_resources import (
+    DEFAULT_LLAMA_MODEL_ALIAS,
+    DEFAULT_LLAMA_MODEL_FILE,
+    HY_MT2_7B_MODEL_ALIAS,
+    HY_MT2_7B_MODEL_FILE,
+    HY_MT2_30B_A3B_PROFILE,
+    HY_MT2_PROMPT_PROFILE,
+)
 from openlrc.models import ModelConfig, ModelProvider
 
 
@@ -46,12 +54,69 @@ class TestLocalLLMConfig(unittest.TestCase):
         self.assertEqual(config.local_llm.model_path, DEFAULT_LLAMA_MODEL_FILE)
         self.assertEqual(config.local_llm.idle_timeout, 12)
         self.assertEqual(config.local_llm.port, 9090)
-        self.assertEqual(config.translate_mode, "lean")
-        self.assertFalse(config.enable_cr)
+        self.assertEqual(config._translator_engine, "classic")
+        self.assertTrue(config.enable_cr)
         self.assertEqual(config.consumer_thread, 1)
         self.assertEqual(config.fee_limit, 0.0)
         self.assertIs(config.chatbot.provider, ModelProvider.LOCAL_LLAMA)
         self.assertEqual(config.chatbot.name, DEFAULT_LLAMA_MODEL_ALIAS)
+        self.assertNotIn("translate_mode", inspect.signature(TranslationConfig.local_qwen35_9b).parameters)
+
+    def test_local_hy_mt2_7b_factory(self):
+        config = TranslationConfig.local_hy_mt2_7b(idle_timeout=12, port=9090)
+
+        self.assertIsNotNone(config.local_llm)
+        self.assertEqual(config.local_llm.model_path, HY_MT2_7B_MODEL_FILE)
+        self.assertEqual(config.local_llm.alias, HY_MT2_7B_MODEL_ALIAS)
+        self.assertEqual(config.local_llm.idle_timeout, 12)
+        self.assertEqual(config.local_llm.port, 9090)
+        self.assertEqual(config._translator_engine, "lean")
+        self.assertFalse(config.enable_cr)
+        self.assertEqual(config.consumer_thread, 1)
+        self.assertEqual(config.fee_limit, 0.0)
+        self.assertEqual(config.prompt_profile, HY_MT2_PROMPT_PROFILE)
+        self.assertIs(config.chatbot.provider, ModelProvider.LOCAL_LLAMA)
+        self.assertEqual(config.chatbot.name, HY_MT2_7B_MODEL_ALIAS)
+        self.assertEqual(config.chatbot.temperature, 0.7)
+        self.assertEqual(config.chatbot.top_p, 0.6)
+        self.assertEqual(config.chatbot.max_tokens, 4096)
+        self.assertEqual(config.chatbot.extra_body, {"top_k": 20, "repeat_penalty": 1.05})
+        self.assertIs(config.hy_mt2_mode, HyMT2Mode.FAST)
+
+    def test_hy_mt2_factory_does_not_expose_translation_engine(self):
+        self.assertNotIn("translate_mode", inspect.signature(TranslationConfig.local_hy_mt2_7b).parameters)
+        self.assertNotIn("translate_mode", inspect.signature(TranslationConfig).parameters)
+
+    def test_hy_mt2_context_requires_explicit_context_model(self):
+        with self.assertRaisesRegex(ValueError, "requires an explicit context_llm"):
+            TranslationConfig.local_hy_mt2_7b(mode=HyMT2Mode.CONTEXT)
+
+    def test_hy_mt2_context_accepts_online_context_model(self):
+        context_llm = ContextLLMConfig.online(provider=ModelProvider.OPENAI, model="gpt-4.1-nano")
+        config = TranslationConfig.local_hy_mt2_7b(mode="context", context_llm=context_llm)
+
+        self.assertIs(config.hy_mt2_mode, HyMT2Mode.CONTEXT)
+        self.assertIs(config.context_llm, context_llm)
+
+    def test_local_context_model_is_staged_without_idle_timer(self):
+        context_llm = ContextLLMConfig.local_qwen35_9b(model="qwen3.5-9b", port=9091)
+
+        self.assertIsNotNone(context_llm.local_llm)
+        self.assertEqual(context_llm.local_llm.port, 9091)
+        self.assertEqual(context_llm.local_llm.idle_timeout, 0)
+        self.assertIs(context_llm.chatbot.provider, ModelProvider.LOCAL_LLAMA)
+
+    def test_local_hy_mt2_30b_requires_explicit_model(self):
+        with self.assertRaises(ValueError):
+            TranslationConfig.local_hy_mt2(size=HY_MT2_30B_A3B_PROFILE)
+
+        config = TranslationConfig.local_hy_mt2(size=HY_MT2_30B_A3B_PROFILE, model="/models/hy-mt2-30b-a3b-q6.gguf")
+
+        self.assertIsNotNone(config.local_llm)
+        self.assertEqual(config.local_llm.model_path, "/models/hy-mt2-30b-a3b-q6.gguf")
+        self.assertEqual(config.chatbot.temperature, 0.7)
+        self.assertEqual(config.chatbot.top_p, 1.0)
+        self.assertEqual(config.chatbot.extra_body, {"top_k": -1, "repeat_penalty": 1.0})
 
 
 class TestModelConfig(unittest.TestCase):

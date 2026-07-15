@@ -7,7 +7,9 @@ import httpx
 import openai
 from pydantic import BaseModel
 
+from openlrc.agents import create_chatbot
 from openlrc.chatbot import ClaudeBot, GPTBot, route_chatbot
+from openlrc.models import ModelConfig, ModelProvider
 from tests.conftest import LIVE_API, TEST_LLM_API_KEY, TEST_LLM_BASE_URL, TEST_MODELS
 
 
@@ -215,6 +217,21 @@ class TestChatBot(unittest.TestCase):
         self.assertTrue(len(captured) > 0, "No API call was captured")
         self.assertEqual(captured[0], 0.7)
 
+    def test_model_config_sampling_forwarded_to_chatbot(self):
+        config = ModelConfig(
+            provider=ModelProvider.LOCAL_LLAMA,
+            name="hy-mt2-7b-local",
+            api_key="openlrc-local",
+            temperature=0.7,
+            top_p=0.6,
+        )
+
+        bot = create_chatbot(config, fee_limit=0.0)
+
+        self.assertEqual(bot.temperature, 0.7)
+        self.assertEqual(bot.top_p, 0.6)
+        self.assertIsNone(bot.agent_temperature(1.0))
+
 
 class TestExtraBody(unittest.TestCase):
     """Tests for the extra_body passthrough feature (issue #128)."""
@@ -237,9 +254,7 @@ class TestExtraBody(unittest.TestCase):
 
         def fake_create(**kwargs: object) -> None:
             captured.append(dict(kwargs))
-            raise openai.AuthenticationError(
-                message="test", response=httpx.Response(401), body=None
-            )
+            raise openai.AuthenticationError(message="test", response=httpx.Response(401), body=None)
 
         with patch.object(bot.client.chat.completions, "create", side_effect=fake_create):
             try:
@@ -257,10 +272,7 @@ class TestExtraBody(unittest.TestCase):
         # Non-native keys should be in extra_body
         self.assertIn("extra_body", call)
         self.assertEqual(call["extra_body"]["top_k"], 20)
-        self.assertEqual(
-            call["extra_body"]["chat_template_kwargs"],
-            {"enable_thinking": False},
-        )
+        self.assertEqual(call["extra_body"]["chat_template_kwargs"], {"enable_thinking": False})
 
         # Native keys should NOT be in extra_body
         self.assertNotIn("frequency_penalty", call["extra_body"])
@@ -275,9 +287,7 @@ class TestExtraBody(unittest.TestCase):
 
         def fake_create(**kwargs: object) -> None:
             captured.append(dict(kwargs))
-            raise openai.AuthenticationError(
-                message="test", response=httpx.Response(401), body=None
-            )
+            raise openai.AuthenticationError(message="test", response=httpx.Response(401), body=None)
 
         with patch.object(bot.client.chat.completions, "create", side_effect=fake_create):
             try:

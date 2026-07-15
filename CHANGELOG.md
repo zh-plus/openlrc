@@ -1,5 +1,96 @@
 # Changelog
 
+## OpenLRC Mac 0.2.2
+
+Hy-MT2 three-mode contextual translation pipeline release.
+
+### Added
+
+- Added Hy-MT2 `fast`, `context`, and `context-plus` modes. Context modes use an
+  explicitly configured general model to produce a structured Translation Brief;
+  context-plus scans every translated chunk and only replaces high-risk lines.
+- Added `HyMT2Mode` and `ContextLLMConfig` with online providers and managed local
+  Qwen3.5 9B support.
+- Added structured Translation Briefs for document summary, character names,
+  glossary, tone/style, target audience, and ASR ambiguities, with user glossary
+  entries taking precedence.
+- Added staged local model execution: general model -> unload -> Hy-MT2, followed
+  by Hy-MT2 -> unload -> general-model review in context-plus. Only one
+  OpenLRC-owned model remains resident at a time.
+- Added a conservative Hy-MT2 high-risk review protocol. Failed review chunks keep
+  the Hy-MT2 draft, continue processing, and mark the result `review_incomplete`.
+- Added versioned Hy-MT2 checkpoints containing the source fingerprint, mode,
+  Brief, raw Hy-MT2 translations, final translations, fallback metrics, review
+  progress, and risk results.
+
+### Changed
+
+- Removed lean/standard engine selection from the Hy-MT2 public surface and kept
+  only its three product modes. The former standard pipeline is now described as
+  classic; online translation and general local Qwen default to classic.
+- Switched Hy-MT2 delimiters to exact ID alignment and rejected duplicate,
+  unexpected, or out-of-order IDs. Small exact-ID gaps may still use atomic fill;
+  Hy-MT2 no longer uses `±3` fuzzy alignment.
+- Preserved the Translation Brief, glossary, recent translations, and two source
+  lines on either side during binary split and atomic fallback.
+- Recorded retry counts, split depth, atomic IDs, validator issues, and mode in
+  checkpoints; context-plus can resume unfinished review chunks without translating
+  the document again.
+- Made checkpoint writes atomic through a same-directory temporary file and replace.
+- Exposed incomplete review chunks in CLI results and allowed completed subtitle
+  tasks to resume only failed review chunks without reloading Hy-MT2.
+- Made successful `run` workflows clear per-input temporary files by default;
+  `--keep-temp` retains them, and incomplete review checkpoints are always kept.
+  Standalone `translate` removes completed checkpoints unless `--keep-checkpoint`
+  is provided.
+- Added `--hy-mt2-mode`, `--context-provider`, `--context-model`,
+  `--context-base-url`, and `--context-fee-limit` CLI options.
+- Updated the README and CLI reference for the new Hy-MT2 modes.
+
+### Verified
+
+- Verified the full pytest suite: `278 passed, 25 skipped`.
+- Verified Hy-MT2 delimiter translator tests: `65 passed, 5 skipped`.
+- Verified Ruff linting, touched-file formatting, and touched-module Pyright.
+- Verified real CLI smokes for `fast`, fully local `context`, and fully local
+  `context-plus` with Hy-MT2 7B Q6_K / Qwen3.5 9B. Output line counts matched and
+  no delimiter, anchor, or review JSON leaked into subtitles.
+
+## OpenLRC Mac 0.2.1
+
+Initial Hy-MT2 local translation profile release.
+
+### Added
+
+- Added Hy-MT2 local LLM profiles for `hy-mt2-7b` and
+  `hy-mt2-30b-a3b`.
+- Added the default Hy-MT2 7B Q6_K GGUF download profile using
+  `tencent/Hy-MT2-7B-GGUF` / `HY-MT2-7B-Q6_K.gguf`.
+- Added Hy-MT2 CLI support through `--local-model-profile`, including
+  `openlrc setup llama --local-model-profile hy-mt2-7b` and local
+  `run` / `translate` workflows.
+- Added `TranslationConfig.local_hy_mt2_7b(...)`,
+  `TranslationConfig.local_hy_mt2(...)`, and `LRCer.local_hy_mt2(...)`.
+- Added a Hy-MT2 delimiter prompt pipeline for lean local translation using
+  `<seg id="N">...</seg>` input/output blocks.
+
+### Changed
+
+- Mapped the Hy-MT2 official sampling parameters into the real local
+  `GPTBot` call path, including `temperature`, `top_p`, `top_k`,
+  `repeat_penalty`, and `max_tokens`.
+- Kept Qwen as the default bare `LRCer.local()` / `--translation local` model
+  while allowing Hy-MT2 to be selected explicitly by profile.
+- Updated lean translation so prompt-specific parsers and retry instructions
+  live on the prompter instead of being hard-coded to the `#id` anchor format.
+- Improved anchor fallback parsing to tolerate `#<1>` style model output.
+
+### Verified
+
+- Verified Hy-MT2 profile selection, model resource resolution, and the delimiter
+  prompt/parser path.
+- Verified a real local Hy-MT2 7B Q6_K translation probe.
+
 ## OpenLRC Mac 0.2.0
 
 Local translation and first-stage CLI release for the macOS fork.

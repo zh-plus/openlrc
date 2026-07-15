@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote
 
@@ -19,6 +20,15 @@ OPENLRC_LLAMA_MODEL_DIR = "OPENLRC_LLAMA_MODEL_DIR"
 DEFAULT_LLAMA_MODEL_REPO = "unsloth/Qwen3.5-9B-GGUF"
 DEFAULT_LLAMA_MODEL_FILE = "Qwen3.5-9B-Q4_K_M.gguf"
 DEFAULT_LLAMA_MODEL_ALIAS = "qwen3.5-9b-local"
+QWEN35_9B_PROFILE = "qwen3.5-9b"
+HY_MT2_7B_PROFILE = "hy-mt2-7b"
+HY_MT2_30B_A3B_PROFILE = "hy-mt2-30b-a3b"
+HY_MT2_PROMPT_PROFILE = "hy-mt2"
+HY_MT2_7B_MODEL_REPO = "tencent/Hy-MT2-7B-GGUF"
+HY_MT2_7B_MODEL_FILE = "HY-MT2-7B-Q6_K.gguf"
+HY_MT2_7B_Q4_MODEL_FILE = "Hy-MT2-7B-Q4_K_M.gguf"
+HY_MT2_7B_Q8_MODEL_FILE = "HY-MT2-7B-Q8_0.gguf"
+HY_MT2_7B_MODEL_ALIAS = "hy-mt2-7b-local"
 DEFAULT_LLAMA_HOST = "127.0.0.1"
 DEFAULT_LLAMA_PORT = 8088
 DEFAULT_LLAMA_CONTEXT_SIZE = 32768
@@ -27,11 +37,109 @@ DEFAULT_LLAMA_STARTUP_TIMEOUT = 120
 LOCAL_LLAMA_API_KEY = "openlrc-local"
 SETUP_COMMAND = "uv run python scripts/setup_llama_cpp.py"
 
+
+@dataclass(frozen=True)
+class LocalLLMProfile:
+    """Registered local llama.cpp model profile."""
+
+    name: str
+    server_alias: str
+    model_repo: str | None
+    model_file: str | None
+    prompt_profile: str = "default"
+    context_window: int = DEFAULT_LLAMA_CONTEXT_SIZE
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    repeat_penalty: float | None = None
+    max_tokens: int | None = None
+
+
+LOCAL_LLM_PROFILES: dict[str, LocalLLMProfile] = {
+    QWEN35_9B_PROFILE: LocalLLMProfile(
+        name=QWEN35_9B_PROFILE,
+        server_alias=DEFAULT_LLAMA_MODEL_ALIAS,
+        model_repo=DEFAULT_LLAMA_MODEL_REPO,
+        model_file=DEFAULT_LLAMA_MODEL_FILE,
+    ),
+    HY_MT2_7B_PROFILE: LocalLLMProfile(
+        name=HY_MT2_7B_PROFILE,
+        server_alias=HY_MT2_7B_MODEL_ALIAS,
+        model_repo=HY_MT2_7B_MODEL_REPO,
+        model_file=HY_MT2_7B_MODEL_FILE,
+        prompt_profile=HY_MT2_PROMPT_PROFILE,
+        temperature=0.7,
+        top_p=0.6,
+        top_k=20,
+        repeat_penalty=1.05,
+        max_tokens=4096,
+    ),
+    HY_MT2_30B_A3B_PROFILE: LocalLLMProfile(
+        name=HY_MT2_30B_A3B_PROFILE,
+        server_alias="hy-mt2-30b-a3b-local",
+        model_repo=None,
+        model_file=None,
+        prompt_profile=HY_MT2_PROMPT_PROFILE,
+        temperature=0.7,
+        top_p=1.0,
+        top_k=-1,
+        repeat_penalty=1.0,
+        max_tokens=4096,
+    ),
+}
+
+_PROFILE_ALIASES = {
+    "qwen3.5-9b": QWEN35_9B_PROFILE,
+    "qwen35-9b": QWEN35_9B_PROFILE,
+    DEFAULT_LLAMA_MODEL_ALIAS: QWEN35_9B_PROFILE,
+    "hy-mt2-7b": HY_MT2_7B_PROFILE,
+    "hymt2-7b": HY_MT2_7B_PROFILE,
+    "hy_mt2_7b": HY_MT2_7B_PROFILE,
+    "hy-mt2-7b-q6": HY_MT2_7B_PROFILE,
+    "hy-mt2-7b-q6-k": HY_MT2_7B_PROFILE,
+    HY_MT2_7B_MODEL_ALIAS: HY_MT2_7B_PROFILE,
+    "hy-mt2-30b-a3b": HY_MT2_30B_A3B_PROFILE,
+    "hymt2-30b-a3b": HY_MT2_30B_A3B_PROFILE,
+    "hy_mt2_30b_a3b": HY_MT2_30B_A3B_PROFILE,
+    "hy-mt2-30b-a3b-local": HY_MT2_30B_A3B_PROFILE,
+}
+
 _MODEL_ALIASES = {
     "qwen3.5-9b": DEFAULT_LLAMA_MODEL_FILE,
     "qwen35-9b": DEFAULT_LLAMA_MODEL_FILE,
     DEFAULT_LLAMA_MODEL_ALIAS: DEFAULT_LLAMA_MODEL_FILE,
+    "hy-mt2-7b": HY_MT2_7B_MODEL_FILE,
+    "hymt2-7b": HY_MT2_7B_MODEL_FILE,
+    "hy_mt2_7b": HY_MT2_7B_MODEL_FILE,
+    "hy-mt2-7b-q6": HY_MT2_7B_MODEL_FILE,
+    "hy-mt2-7b-q6-k": HY_MT2_7B_MODEL_FILE,
+    HY_MT2_7B_MODEL_ALIAS: HY_MT2_7B_MODEL_FILE,
+    "hy-mt2-7b-q4": HY_MT2_7B_Q4_MODEL_FILE,
+    "hy-mt2-7b-q4-k-m": HY_MT2_7B_Q4_MODEL_FILE,
+    "hy-mt2-7b-q8": HY_MT2_7B_Q8_MODEL_FILE,
+    "hy-mt2-7b-q8-0": HY_MT2_7B_Q8_MODEL_FILE,
 }
+
+
+def get_local_llm_profile(name: str) -> LocalLLMProfile:
+    normalized = _PROFILE_ALIASES.get(name.lower(), name.lower())
+    try:
+        return LOCAL_LLM_PROFILES[normalized]
+    except KeyError:
+        supported = ", ".join(sorted(LOCAL_LLM_PROFILES))
+        raise ValueError(f"Unsupported local LLM profile {name!r}. Choose from: {supported}.") from None
+
+
+def infer_local_llm_profile(model: str) -> str | None:
+    """Infer a profile from a semantic model alias when that mapping is unambiguous."""
+    profile_name = _PROFILE_ALIASES.get(model.lower())
+    if profile_name == HY_MT2_30B_A3B_PROFILE:
+        return None
+    return profile_name
+
+
+def is_hy_mt2_30b_profile_alias(value: str) -> bool:
+    return _PROFILE_ALIASES.get(value.lower()) == HY_MT2_30B_A3B_PROFILE
 
 
 def repo_root() -> Path:

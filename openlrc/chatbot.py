@@ -9,6 +9,7 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+from typing import Any
 
 import anthropic
 import httpx
@@ -38,11 +39,10 @@ def _register_chatbot(cls):
         if not isinstance(model, ModelInfo):
             continue
 
-        if model.provider in (
-            ModelProvider.OPENAI,
-            ModelProvider.THIRD_PARTY,
-            ModelProvider.LOCAL_LLAMA,
-        ) and cls.__name__ == "GPTBot":
+        if (
+            model.provider in (ModelProvider.OPENAI, ModelProvider.THIRD_PARTY, ModelProvider.LOCAL_LLAMA)
+            and cls.__name__ == "GPTBot"
+        ):
             model2chatbot[model.name] = cls
             if model.latest_alias:
                 model2chatbot[model.latest_alias] = cls
@@ -121,7 +121,7 @@ class ChatBot:
         When set, the result is clamped to at most ``min_tokens`` (cost control),
         with a warning if the estimate exceeds the budget.
         """
-        model_config = getattr(self, 'model_config', None)
+        model_config = getattr(self, "model_config", None)
         if model_config is None or model_config.max_tokens is None:
             return None
 
@@ -252,6 +252,13 @@ class ChatBot:
             logger.debug(f"Total bot translation fee: {sum(self.api_fees):.4f} USD")
 
         return results
+
+    def agent_temperature(self, fallback: float) -> float | None:
+        """Return an agent fallback temperature unless model config owns sampling."""
+        model_config = getattr(self, "model_config", None)
+        if model_config is not None and (model_config.temperature is not None or model_config.top_p is not None):
+            return None
+        return fallback
 
     def close(self):
         """Close the underlying HTTP client and release resources.
@@ -384,7 +391,7 @@ class GPTBot(ChatBot):
 
         # Build the kwargs dict from extra_body.
         # Native OpenAI keys become top-level kwargs; the rest go into extra_body.
-        native_kwargs: dict = {}
+        native_kwargs: dict[str, Any] = {}
         passthrough: dict = {}
         for key, value in self.extra_body.items():
             if key in self._NATIVE_EXTRA_KEYS:
@@ -563,16 +570,20 @@ class ClaudeBot(ChatBot):
         validated = False
         for i in range(self.retry):
             try:
-                response = self.client.messages.create(
-                    model=self.model_name,
-                    messages=messages,  # pyright: ignore[reportArgumentType]
-                    system=system_msg,
-                    temperature=effective_temperature,
-                    top_p=effective_top_p,
-                    stop_sequences=stop_sequences or omit,
-                    max_tokens=max_tokens,
+                request_kwargs: dict[str, Any] = {
+                    "model": self.model_name,
+                    "messages": messages,
+                    "system": system_msg,
+                    "stop_sequences": stop_sequences or omit,
+                    "max_tokens": max_tokens,
                     **native_kwargs,
-                )
+                }
+                if effective_temperature is not None:
+                    request_kwargs["temperature"] = effective_temperature
+                if effective_top_p is not None:
+                    request_kwargs["top_p"] = effective_top_p
+
+                response = self.client.messages.create(**request_kwargs)
                 self.update_fee(response)
 
                 if response.stop_reason == "max_tokens":

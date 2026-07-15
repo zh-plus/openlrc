@@ -9,12 +9,20 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from openlrc.llama_resources import DEFAULT_LLAMA_MODEL_FILE, DEFAULT_LLAMA_MODEL_REPO, user_llm_model_dir
+from openlrc.llama_resources import (
+    DEFAULT_LLAMA_MODEL_FILE,
+    DEFAULT_LLAMA_MODEL_REPO,
+    get_local_llm_profile,
+    user_llm_model_dir,
+)
 from openlrc.setup.llama_cpp import setup_llama_cpp
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build vendored llama.cpp and download the default local LLM model.")
+    parser.add_argument(
+        "--local-model-profile", default=None, help="Registered local LLM profile to download, e.g. hy-mt2-7b."
+    )
     parser.add_argument(
         "--model-repo",
         default=DEFAULT_LLAMA_MODEL_REPO,
@@ -38,6 +46,17 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.local_model_profile and not args.skip_models:
+        profile = get_local_llm_profile(args.local_model_profile)
+        if not profile.model_repo or not profile.model_file:
+            raise SystemExit(
+                f"{profile.name} has no downloadable default GGUF. Place a converted model locally instead."
+            )
+        if args.model_repo == DEFAULT_LLAMA_MODEL_REPO:
+            args.model_repo = profile.model_repo
+        if args.model_file == DEFAULT_LLAMA_MODEL_FILE:
+            args.model_file = profile.model_file
+
     result = setup_llama_cpp(
         model_repo=args.model_repo,
         model_file=args.model_file,

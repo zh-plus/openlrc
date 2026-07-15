@@ -18,8 +18,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from openlrc.whisper_types import Segment
 
-from openlrc.config import TranscriptionConfig, TranslationConfig
+from openlrc.config import ContextLLMConfig, HyMT2Mode, TranscriptionConfig, TranslationConfig
 from openlrc.defaults import (
+    BILINGUAL_SUFFIX,
     COMPARE_SUFFIX,
     NONTRANS_SUFFIX,
     PREPROCESSED_DIR,
@@ -29,7 +30,13 @@ from openlrc.defaults import (
     default_preprocess_options,
     default_whisper_cpp_options,
 )
-from openlrc.llama_resources import DEFAULT_LLAMA_IDLE_TIMEOUT, DEFAULT_LLAMA_PORT, LOCAL_LLAMA_API_KEY
+from openlrc.llama_resources import (
+    DEFAULT_LLAMA_IDLE_TIMEOUT,
+    DEFAULT_LLAMA_PORT,
+    HY_MT2_7B_PROFILE,
+    HY_MT2_PROMPT_PROFILE,
+    LOCAL_LLAMA_API_KEY,
+)
 from openlrc.logger import logger
 from openlrc.media_utils import extract_audio, get_audio_duration, get_file_type
 from openlrc.opt import SubtitleOptimizer
@@ -71,13 +78,17 @@ class LRCer:
         self.from_video = set()
         self.glossary = self.parse_glossary(self._translation_config.glossary)
         self.is_force_glossary_used = self._translation_config.is_force_glossary_used
-        self.translate_mode = self._translation_config.translate_mode
+        self._translator_engine = self._translation_config._translator_engine
         self.enable_cr = self._translation_config.enable_cr
         self.chunked_guideline = self._translation_config.chunked_guideline
+        self.prompt_profile = self._translation_config.prompt_profile
+        self.hy_mt2_mode = self._translation_config.hy_mt2_mode
+        self.context_llm = self._translation_config.context_llm
 
         self._lock = Lock()
         self.exception = None
         self.consumer_thread = self._translation_config.consumer_thread
+        self.review_statuses: dict[str, dict] = {}
 
         # Merge default options with provided options
         self.asr_options = {**default_whisper_cpp_options, **(self._transcription_config.asr_options or {})}
@@ -105,17 +116,31 @@ class LRCer:
         model: str = "qwen3.5-9b",
         idle_timeout: int = DEFAULT_LLAMA_IDLE_TIMEOUT,
         port: int = DEFAULT_LLAMA_PORT,
-        translate_mode: str = "lean",
         transcription: TranscriptionConfig | None = None,
     ) -> LRCer:
         """Create an LRCer configured for local whisper.cpp transcription and llama.cpp translation."""
         return cls(
             transcription=transcription,
-            translation=TranslationConfig.local_qwen35_9b(
-                model=model,
-                idle_timeout=idle_timeout,
-                port=port,
-                translate_mode=translate_mode,
+            translation=TranslationConfig.local_qwen35_9b(model=model, idle_timeout=idle_timeout, port=port),
+        )
+
+    @classmethod
+    def local_hy_mt2(
+        cls,
+        *,
+        size: str = HY_MT2_7B_PROFILE,
+        model: str | None = None,
+        idle_timeout: int = DEFAULT_LLAMA_IDLE_TIMEOUT,
+        port: int = DEFAULT_LLAMA_PORT,
+        transcription: TranscriptionConfig | None = None,
+        mode: HyMT2Mode | str = HyMT2Mode.FAST,
+        context_llm: ContextLLMConfig | None = None,
+    ) -> LRCer:
+        """Create an LRCer configured for local Hy-MT2 translation via llama.cpp."""
+        return cls(
+            transcription=transcription,
+            translation=TranslationConfig.local_hy_mt2(
+                size=size, model=model, idle_timeout=idle_timeout, port=port, mode=mode, context_llm=context_llm
             ),
         )
 
@@ -213,6 +238,7 @@ class LRCer:
                 idle_timeout=config.idle_timeout,
                 startup_timeout=config.startup_timeout,
                 extra_args=config.extra_args,
+                allow_external=self.hy_mt2_mode is HyMT2Mode.FAST,
             )
 
         return self._local_llm_server
@@ -268,14 +294,17 @@ class LRCer:
         self.close()
 
     def _create_translator(self, timestamps):
-        """Create a Translator instance based on translate_mode."""
-        factories = {"standard": self._create_standard_translator, "lean": self._create_lean_translator}
-        factory = factories.get(self.translate_mode)
+        """Create the classic translator or Hy-MT2's internal lean translator."""
+        mode = self._translator_engine
+        if self.prompt_profile == HY_MT2_PROMPT_PROFILE:
+            mode = "lean"
+        factories = {"classic": self._create_classic_translator, "lean": self._create_lean_translator}
+        factory = factories.get(mode)
         if factory is None:
-            raise ValueError(f"Unknown translate_mode: {self.translate_mode!r}. Choose from: {list(factories)}")
+            raise ValueError(f"Unknown translator engine: {mode!r}. Choose from: {list(factories)}")
         return factory(timestamps)
 
-    def _create_standard_translator(self, timestamps):
+    def _create_classic_translator(self, timestamps):
         from openlrc.translate import LLMTranslator
 
         if not self.enable_cr:
@@ -298,6 +327,7 @@ class LRCer:
             timestamps=timestamps,
             enable_cr=self.enable_cr,
             chunked_guideline=self.chunked_guideline,
+            prompt_profile=self.prompt_profile,
         )
 
     @staticmethod
@@ -449,8 +479,10 @@ class LRCer:
         """
         translated_path = extend_filename(transcribed_opt_sub.filename, TRANSLATED_SUFFIX)
         final_json_path = translated_path.with_name(f"{base_name}.json")
+        compare_path = translated_path.with_name(f"{base_name}{COMPARE_SUFFIX}.json")
+        resume_review = not skip_trans and self._has_incomplete_hymt2_review(compare_path)
 
-        if final_json_path.exists():
+        if final_json_path.exists() and not resume_review:
             return Subtitle.from_json(final_json_path)
 
         if skip_trans:
@@ -464,6 +496,14 @@ class LRCer:
         except Exception as e:
             self.exception = e
             return None
+
+    def _has_incomplete_hymt2_review(self, compare_path: Path) -> bool:
+        if self.prompt_profile != HY_MT2_PROMPT_PROFILE or self.hy_mt2_mode is not HyMT2Mode.CONTEXT_PLUS:
+            return False
+        from openlrc.hymt2_pipeline import load_checkpoint
+
+        checkpoint = load_checkpoint(compare_path)
+        return bool(checkpoint.get("review_incomplete"))
 
     def _generate_subtitle_files(self, subtitle, base_name, subtitle_format):
         """
@@ -534,7 +574,11 @@ class LRCer:
             self._handle_bilingual_subtitles(transcribed_path, base_name, transcribed_opt_sub, subtitle_format)
 
     def translate(
-        self, transcribed_paths: Path | list[Path], target_lang: str = "zh-cn", bilingual_sub: bool = False
+        self,
+        transcribed_paths: Path | list[Path],
+        target_lang: str = "zh-cn",
+        bilingual_sub: bool = False,
+        clear_checkpoint: bool = True,
     ) -> list[Path]:
         """
         Translate previously transcribed JSON files and generate subtitle files.
@@ -547,12 +591,15 @@ class LRCer:
             transcribed_paths (Union[Path, List[Path]]): Path(s) to transcribed JSON files.
             target_lang (str): Target language for translation. Default is 'zh-cn'.
             bilingual_sub (bool): Whether to generate bilingual subtitles. Default is False.
+            clear_checkpoint (bool): Remove a completed translation checkpoint.
+                Incomplete review checkpoints are always retained. Default is True.
 
         Returns:
             List[Path]: List of paths to the generated subtitle files.
         """
         self.transcribed_paths = []
         self.exception = None
+        self.review_statuses = {}
 
         if isinstance(transcribed_paths, Path):
             transcribed_paths = [transcribed_paths]
@@ -565,6 +612,12 @@ class LRCer:
             if self.exception:
                 traceback.print_exception(type(self.exception), self.exception, self.exception.__traceback__)
                 raise self.exception
+
+            base_name = self._get_base_name(transcribed_path)
+            status = self.review_statuses.get(base_name, {})
+            if clear_checkpoint and not status.get("incomplete"):
+                checkpoint = transcribed_path.parent / f"{base_name}{COMPARE_SUFFIX}.json"
+                checkpoint.unlink(missing_ok=True)
 
         logger.info(f"Total API fee used: {self.api_fee:.4f} USD")
 
@@ -619,6 +672,226 @@ class LRCer:
 
             logger.info(f"Translation fee til now: {self.api_fee:.4f} USD")
 
+    def _create_context_chatbot(self):
+        """Create the explicitly configured context model and optional owned local server."""
+        if self.context_llm is None:
+            raise ValueError(f"Hy-MT2 {self.hy_mt2_mode.value!r} mode requires context_llm.")
+
+        from openlrc.agents import create_chatbot
+
+        config = self.context_llm
+        model_config = deepcopy(config.chatbot)
+        server = None
+        if config.local_llm is not None:
+            from openlrc.local_llm_server import LocalLLMServer
+
+            local = config.local_llm
+            server = LocalLLMServer(
+                server_path=local.server_path,
+                model_path=local.model_path,
+                host=local.host,
+                port=local.port,
+                alias=local.alias,
+                ctx_size=local.ctx_size,
+                gpu_layers=local.gpu_layers,
+                idle_timeout=0,
+                startup_timeout=local.startup_timeout,
+                extra_args=local.extra_args,
+                allow_external=False,
+            )
+            try:
+                model_config.base_url = server.ensure_running(schedule_idle=False)
+                model_config.api_key = model_config.api_key or LOCAL_LLAMA_API_KEY
+            except Exception:
+                server.close()
+                raise
+
+        try:
+            chatbot = create_chatbot(model_config, config.fee_limit)
+        except Exception:
+            if server is not None:
+                server.close()
+            raise
+        return chatbot, server
+
+    def _close_primary_local_stage(self) -> None:
+        """Immediately unload an owned Hy-MT2 model between staged pipeline phases."""
+        if self._chatbot is not None:
+            self._chatbot.close()
+            self._chatbot = None
+        if self._retry_chatbot is not None:
+            self._retry_chatbot.close()
+            self._retry_chatbot = None
+        if self._local_llm_server is not None:
+            self._local_llm_server.close()
+            self._local_llm_server = None
+
+    @staticmethod
+    def _dump_model(model) -> dict:
+        return model.model_dump() if hasattr(model, "model_dump") else model.dict()
+
+    def _prepare_hymt2_brief(self, texts: list[str], *, src_lang: str, target_lang: str, info, compare_path: Path):
+        """Build or restore a structured brief before starting Hy-MT2."""
+        from openlrc.context import TranslationBrief
+        from openlrc.hymt2_pipeline import TranslationBriefAgent, load_checkpoint, save_checkpoint, source_fingerprint
+
+        assert self.context_llm is not None
+        context_model = str(self.context_llm.chatbot)
+        translation_model = str(self._translation_config.chatbot)
+        fingerprint = source_fingerprint(
+            texts,
+            src_lang=src_lang,
+            target_lang=target_lang,
+            glossary=info.glossary,
+            mode=self.hy_mt2_mode.value,
+            context_model=context_model,
+            translation_model=translation_model,
+        )
+        metadata = {
+            "schema_version": 2,
+            "source_fingerprint": fingerprint,
+            "hymt2_mode": self.hy_mt2_mode.value,
+            "context_model": context_model,
+            "translation_model": translation_model,
+            "pipeline_stage": "translation",
+        }
+        checkpoint = load_checkpoint(compare_path)
+        if checkpoint.get("source_fingerprint") == fingerprint and checkpoint.get("translation_brief"):
+            brief = TranslationBrief(**checkpoint["translation_brief"])
+            metadata["translation_brief"] = self._dump_model(brief)
+            return brief, metadata
+
+        chatbot, server = self._create_context_chatbot()
+        try:
+            brief = TranslationBriefAgent(chatbot=chatbot, src_lang=src_lang, target_lang=target_lang).build(
+                texts, title=info.title or "", glossary=info.glossary
+            )
+            self.api_fee += sum(chatbot.api_fees)
+        finally:
+            chatbot.close()
+            if server is not None:
+                server.close()
+
+        metadata["translation_brief"] = self._dump_model(brief)
+        save_checkpoint(compare_path, {"compare": [], **metadata})
+        return brief, metadata
+
+    @staticmethod
+    def _review_neighboring_context(texts: list[str], chunk: list[tuple[int, str]], radius: int = 2) -> str:
+        first = chunk[0][0] - 1
+        last = chunk[-1][0] - 1
+        start = max(0, first - radius)
+        end = min(len(texts), last + radius + 1)
+        return "\n".join(
+            f"[{index + 1}] {texts[index]}" for index in range(start, end) if index < first or index > last
+        )
+
+    def _review_hymt2_translations(
+        self,
+        audio_name: str,
+        texts: list[str],
+        translations: list[str],
+        *,
+        src_lang: str,
+        target_lang: str,
+        brief,
+        compare_path: Path,
+        translator=None,
+    ) -> list[str]:
+        """Run conservative whole-document risk review and resume per completed chunk."""
+        from openlrc.hymt2_pipeline import HyMT2RiskReviewAgent, load_checkpoint, save_checkpoint
+
+        checkpoint = load_checkpoint(compare_path)
+        review_results: dict[str, list[dict]] = checkpoint.get("review_results", {})
+        reviewed_chunks = set(checkpoint.get("reviewed_chunks", []))
+        failed_chunks = set(checkpoint.get("review_failed_chunks", []))
+        saved_chunk_ids = checkpoint.get("review_chunks")
+        if saved_chunk_ids:
+            chunks = [[(line_id, texts[line_id - 1]) for line_id in chunk_ids] for chunk_ids in saved_chunk_ids]
+        elif translator is not None:
+            chunks = translator.make_chunks_by_tokens(texts)
+        else:
+            grouped: dict[int, list[tuple[int, str]]] = {}
+            for item in checkpoint.get("compare", []):
+                line_id = int(item["idx"])
+                grouped.setdefault(int(item["chunk"]), []).append((line_id, texts[line_id - 1]))
+            chunks = list(grouped.values()) or [[(line_id, text) for line_id, text in enumerate(texts, 1)]]
+        checkpoint["review_chunks"] = [[line_id for line_id, _ in chunk] for chunk in chunks]
+        raw_translations = list(checkpoint.get("raw_hymt2_translations") or translations)
+        output = list(raw_translations)
+        checkpoint["raw_hymt2_translations"] = raw_translations
+
+        # Reapply already completed revisions before continuing a resumed review.
+        for items in review_results.values():
+            for item in items:
+                if item.get("risk") == "high" and item.get("revised_translation"):
+                    output[int(item["id"]) - 1] = item["revised_translation"]
+
+        chatbot, server = self._create_context_chatbot()
+        try:
+            reviewer = HyMT2RiskReviewAgent(chatbot=chatbot, src_lang=src_lang, target_lang=target_lang)
+            for chunk_index, chunk in enumerate(chunks, 1):
+                if chunk_index in reviewed_chunks:
+                    continue
+                mapping = {line_id: output[line_id - 1] for line_id, _ in chunk}
+                try:
+                    result = reviewer.review(
+                        chunk,
+                        mapping,
+                        brief=brief,
+                        neighboring_context=self._review_neighboring_context(texts, chunk),
+                        fallback_metadata=(
+                            translator.metrics if translator is not None else checkpoint.get("hymt2_metrics", {})
+                        ),
+                    )
+                    dumped_items = [self._dump_model(item) for item in result.items]
+                    review_results[str(chunk_index)] = dumped_items
+                    for item in result.items:
+                        if item.risk == "high" and item.revised_translation:
+                            output[item.id - 1] = item.revised_translation
+                    reviewed_chunks.add(chunk_index)
+                    failed_chunks.discard(chunk_index)
+                except Exception as exc:
+                    failed_chunks.add(chunk_index)
+                    logger.warning(f"Hy-MT2 risk review failed for chunk {chunk_index}; keeping draft: {exc}")
+
+                incomplete = bool(failed_chunks)
+                checkpoint.update(
+                    review_results=review_results,
+                    reviewed_chunks=sorted(reviewed_chunks),
+                    review_failed_chunks=sorted(failed_chunks),
+                    review_incomplete=incomplete,
+                    pipeline_stage="review",
+                    final_translations=output,
+                )
+                save_checkpoint(compare_path, checkpoint)
+            self.api_fee += sum(chatbot.api_fees)
+        finally:
+            chatbot.close()
+            if server is not None:
+                server.close()
+
+        incomplete = bool(failed_chunks)
+        checkpoint.update(
+            review_results=review_results,
+            reviewed_chunks=sorted(reviewed_chunks),
+            review_failed_chunks=sorted(failed_chunks),
+            review_incomplete=incomplete,
+            pipeline_stage="complete" if not incomplete else "review_incomplete",
+            final_translations=output,
+        )
+        save_checkpoint(compare_path, checkpoint)
+        self.review_statuses[audio_name] = {
+            "incomplete": incomplete,
+            "failed_chunks": sorted(failed_chunks),
+            "reviewed_chunks": len(reviewed_chunks),
+            "total_chunks": len(chunks),
+            "checkpoint": str(compare_path),
+        }
+        if incomplete:
+            logger.warning("Hy-MT2 context-plus completed with review_incomplete status.")
+        return output
+
     def _translate(self, audio_name, target_lang, transcribed_opt_sub, translated_path):
         """
         Perform translation of transcribed subtitles.
@@ -643,17 +916,68 @@ class LRCer:
 
         json_filename = Path(translated_path.parent / (audio_name + ".json"))
         compare_path = Path(translated_path.parent, f"{audio_name}{COMPARE_SUFFIX}.json")
-        if not translated_path.exists():
-            with self._local_llm_session():
-                timestamps = [(seg.start, seg.end) for seg in transcribed_opt_sub.segments]
-                translator = self._create_translator(timestamps)
+        resume_review = self._has_incomplete_hymt2_review(compare_path)
+        if resume_review:
+            from openlrc.context import TranslationBrief
+            from openlrc.hymt2_pipeline import load_checkpoint
 
-                target_texts = translator.translate(
+            checkpoint = load_checkpoint(compare_path)
+            translation_brief = TranslationBrief(**checkpoint["translation_brief"])
+            draft = checkpoint.get("raw_hymt2_translations") or Subtitle.from_json(translated_path).texts
+            target_texts = self._review_hymt2_translations(
+                audio_name,
+                transcribed_opt_sub.texts,
+                draft,
+                src_lang=transcribed_opt_sub.lang,
+                target_lang=target_lang,
+                brief=translation_brief,
+                compare_path=compare_path,
+            )
+            translated_sub = deepcopy(transcribed_opt_sub)
+            translated_sub.set_texts(target_texts, lang=target_lang)
+            translated_sub.save(translated_path, update_name=True)
+        elif not translated_path.exists():
+            translation_brief = None
+            checkpoint_metadata: dict = {}
+            if self.prompt_profile == HY_MT2_PROMPT_PROFILE and self.hy_mt2_mode is not HyMT2Mode.FAST:
+                translation_brief, checkpoint_metadata = self._prepare_hymt2_brief(
                     transcribed_opt_sub.texts,
                     src_lang=transcribed_opt_sub.lang,
                     target_lang=target_lang,
                     info=context,
                     compare_path=compare_path,
+                )
+
+            with self._local_llm_session():
+                timestamps = [(seg.start, seg.end) for seg in transcribed_opt_sub.segments]
+                translator = self._create_translator(timestamps)
+
+                translate_kwargs = {
+                    "src_lang": transcribed_opt_sub.lang,
+                    "target_lang": target_lang,
+                    "info": context,
+                    "compare_path": compare_path,
+                }
+                if self.prompt_profile == HY_MT2_PROMPT_PROFILE:
+                    translate_kwargs.update(
+                        translation_brief=translation_brief, checkpoint_metadata=checkpoint_metadata
+                    )
+                target_texts = translator.translate(transcribed_opt_sub.texts, **translate_kwargs)
+
+            if self.prompt_profile == HY_MT2_PROMPT_PROFILE and self.hy_mt2_mode is not HyMT2Mode.FAST:
+                self._close_primary_local_stage()
+
+            if self.prompt_profile == HY_MT2_PROMPT_PROFILE and self.hy_mt2_mode is HyMT2Mode.CONTEXT_PLUS:
+                assert translation_brief is not None
+                target_texts = self._review_hymt2_translations(
+                    audio_name,
+                    transcribed_opt_sub.texts,
+                    target_texts,
+                    src_lang=transcribed_opt_sub.lang,
+                    target_lang=target_lang,
+                    brief=translation_brief,
+                    compare_path=compare_path,
+                    translator=translator,
                 )
 
             with self._lock:
@@ -682,7 +1006,7 @@ class LRCer:
         skip_trans=False,
         noise_suppress=False,
         bilingual_sub=False,
-        clear_temp=False,
+        clear_temp=True,
         skip_preprocess=False,
     ) -> list[str]:
         """
@@ -720,8 +1044,8 @@ class LRCer:
             skip_trans (bool): Whether to skip the translation process. Default is False.
             noise_suppress (bool): Whether to suppress noise in the audio. Default is False.
             bilingual_sub (bool): Whether to generate bilingual subtitles. Default is False.
-            clear_temp (bool): Whether to clear all temporary files, including generated .wav from video.
-                               Set to False to keep intermediate results if errors occur. Default is False.
+            clear_temp (bool): Whether to clear temporary files after complete success.
+                               Incomplete review checkpoints are retained. Default is True.
             skip_preprocess (bool): Whether to skip the preprocessing step. When True, assumes that
                                preprocessed files already exist at the expected locations (as returned by
                                get_preprocessed_path()). This is useful when preprocessing and transcription
@@ -739,6 +1063,7 @@ class LRCer:
             - Temporary files are managed and can be cleared based on the clear_temp parameter.
         """
         self.transcribed_paths = []
+        self.review_statuses = {}
 
         if not paths:
             logger.warning("No audio/video file given. Skip LRCer.run()")
@@ -766,7 +1091,7 @@ class LRCer:
             for transcribed_path in transcribed_paths:
                 self._process_transcribed_file(transcribed_path, target_lang=None, skip_trans=True)
 
-            if clear_temp:
+            if clear_temp and not skip_preprocess:
                 logger.info("Clearing temporary folder...")
                 self.clear_temp_files(audio_paths)
 
@@ -793,9 +1118,15 @@ class LRCer:
 
         logger.info(f"Total API fee used: {self.api_fee:.4f} USD")
 
-        if clear_temp:
-            logger.info("Clearing temporary folder...")
-            self.clear_temp_files(audio_paths)
+        if clear_temp and not skip_preprocess:
+            incomplete = [name for name, status in self.review_statuses.items() if status.get("incomplete")]
+            if incomplete:
+                logger.warning(
+                    "Keeping temporary files so incomplete Hy-MT2 review can resume: " + ", ".join(incomplete)
+                )
+            else:
+                logger.info("Clearing temporary folder...")
+                self.clear_temp_files(audio_paths)
 
         return self.transcribed_paths
 
@@ -808,13 +1139,32 @@ class LRCer:
 
         This method removes temporary folders and generated wave files from video processing.
         """
-        temp_folders = {path.parent for path in paths}
-        for folder in temp_folders:
+        temp_folders: set[Path] = set()
+        for path in paths:
+            folder = path.parent
             if folder.name != PREPROCESSED_DIR:
                 raise ValueError(f"Not a temporary folder: {folder}")
+            temp_folders.add(folder)
+            base_name = path.stem.removesuffix(PREPROCESSED_SUFFIX)
+            exact_names = {
+                f"{base_name}.json",
+                f"{base_name}.lrc",
+                f"{base_name}.srt",
+                f"{base_name}{COMPARE_SUFFIX}.json",
+                f"{base_name}{BILINGUAL_SUFFIX}.json",
+            }
+            for candidate in folder.iterdir():
+                belongs_to_input = candidate.name == path.name or candidate.name.startswith(f"{path.stem}_")
+                if candidate.is_file() and (belongs_to_input or candidate.name in exact_names):
+                    candidate.unlink()
+                    logger.debug(f"Removed {candidate}")
 
-            shutil.rmtree(folder)
-            logger.debug(f"Removed {folder}")
+        for folder in temp_folders:
+            try:
+                folder.rmdir()
+                logger.debug(f"Removed empty temporary folder {folder}")
+            except OSError:
+                logger.debug(f"Kept non-empty temporary folder {folder}")
 
         for input_video_path in self.from_video:
             generated_wave = input_video_path.with_suffix(".wav")

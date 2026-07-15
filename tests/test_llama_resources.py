@@ -9,11 +9,17 @@ from unittest.mock import patch
 
 from openlrc.llama_resources import (
     DEFAULT_LLAMA_MODEL_FILE,
+    HY_MT2_7B_MODEL_FILE,
+    HY_MT2_7B_MODEL_REPO,
+    HY_MT2_7B_PROFILE,
+    HY_MT2_30B_A3B_PROFILE,
     OPENLRC_LLAMA_MODEL,
     OPENLRC_LLAMA_MODEL_DIR,
     OPENLRC_LLAMA_SERVER,
     SETUP_COMMAND,
     default_model_url,
+    get_local_llm_profile,
+    infer_local_llm_profile,
     normalize_llama_model_name,
     resolve_llama_cli,
     resolve_llama_model_path,
@@ -123,8 +129,27 @@ class TestLlamaResourceResolver(unittest.TestCase):
 
     def test_model_alias_and_url_helpers(self):
         self.assertEqual(normalize_llama_model_name("qwen3.5-9b"), DEFAULT_LLAMA_MODEL_FILE)
+        self.assertEqual(normalize_llama_model_name("hy-mt2-7b"), HY_MT2_7B_MODEL_FILE)
+        self.assertEqual(normalize_llama_model_name("hy-mt2-7b-q6"), HY_MT2_7B_MODEL_FILE)
+        self.assertEqual(normalize_llama_model_name("hy-mt2-7b-q4"), "Hy-MT2-7B-Q4_K_M.gguf")
         self.assertEqual(normalize_llama_model_name("custom-model"), "custom-model.gguf")
         self.assertEqual(
             default_model_url("org/repo", "model file.gguf", "main"),
             "https://huggingface.co/org/repo/resolve/main/model%20file.gguf",
         )
+
+    def test_hy_mt2_profile_registry(self):
+        profile = get_local_llm_profile(HY_MT2_7B_PROFILE)
+        self.assertEqual(profile.model_repo, HY_MT2_7B_MODEL_REPO)
+        self.assertEqual(profile.model_file, HY_MT2_7B_MODEL_FILE)
+        self.assertEqual(profile.temperature, 0.7)
+        self.assertEqual(profile.top_p, 0.6)
+        self.assertEqual(profile.top_k, 20)
+        self.assertEqual(profile.repeat_penalty, 1.05)
+        self.assertEqual(profile.max_tokens, 4096)
+        self.assertEqual(infer_local_llm_profile("hy-mt2-7b"), HY_MT2_7B_PROFILE)
+        self.assertIsNone(infer_local_llm_profile(HY_MT2_30B_A3B_PROFILE))
+
+        profile_30b = get_local_llm_profile(HY_MT2_30B_A3B_PROFILE)
+        self.assertIsNone(profile_30b.model_repo)
+        self.assertIsNone(profile_30b.model_file)

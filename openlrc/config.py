@@ -1,7 +1,8 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
 
 from openlrc.llama_resources import (
     DEFAULT_LLAMA_CONTEXT_SIZE,
@@ -11,7 +12,11 @@ from openlrc.llama_resources import (
     DEFAULT_LLAMA_MODEL_FILE,
     DEFAULT_LLAMA_PORT,
     DEFAULT_LLAMA_STARTUP_TIMEOUT,
+    HY_MT2_7B_PROFILE,
+    HY_MT2_30B_A3B_PROFILE,
     LOCAL_LLAMA_API_KEY,
+    LocalLLMProfile,
+    get_local_llm_profile,
     normalize_llama_model_name,
 )
 from openlrc.models import ModelConfig, ModelProvider
@@ -74,6 +79,85 @@ class LocalLLMConfig:
     extra_args: list[str] | None = None
 
 
+class HyMT2Mode(str, Enum):
+    """Execution modes for the Hy-MT2 translation pipeline."""
+
+    FAST = "fast"
+    CONTEXT = "context"
+    CONTEXT_PLUS = "context-plus"
+
+
+@dataclass
+class ContextLLMConfig:
+    """General-purpose model used to prepare and review Hy-MT2 translations."""
+
+    chatbot: ModelConfig
+    local_llm: LocalLLMConfig | None = None
+    fee_limit: float = 0.8
+
+    @classmethod
+    def online(
+        cls,
+        *,
+        provider: ModelProvider | str,
+        model: str,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        fee_limit: float = 0.8,
+        context_window: int | None = None,
+        max_tokens: int | None = None,
+    ) -> "ContextLLMConfig":
+        """Create an online or externally managed context-model configuration."""
+        return cls(
+            chatbot=ModelConfig(
+                provider=provider,
+                name=model,
+                base_url=base_url,
+                api_key=api_key,
+                context_window=context_window,
+                max_tokens=max_tokens,
+            ),
+            fee_limit=fee_limit,
+        )
+
+    @classmethod
+    def local_qwen35_9b(
+        cls,
+        *,
+        model: str = "qwen3.5-9b",
+        port: int = DEFAULT_LLAMA_PORT,
+        server_path: str = "",
+        host: str = DEFAULT_LLAMA_HOST,
+        ctx_size: int = DEFAULT_LLAMA_CONTEXT_SIZE,
+        gpu_layers: str | int = "all",
+        startup_timeout: int = DEFAULT_LLAMA_STARTUP_TIMEOUT,
+        extra_args: list[str] | None = None,
+    ) -> "ContextLLMConfig":
+        """Create a managed local Qwen configuration for staged Hy-MT2 context work."""
+        return cls(
+            chatbot=ModelConfig(
+                provider=ModelProvider.LOCAL_LLAMA,
+                name=DEFAULT_LLAMA_MODEL_ALIAS,
+                api_key=LOCAL_LLAMA_API_KEY,
+                context_window=ctx_size,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            ),
+            local_llm=LocalLLMConfig(
+                model_path=normalize_llama_model_name(model),
+                server_path=server_path,
+                host=host,
+                port=port,
+                alias=DEFAULT_LLAMA_MODEL_ALIAS,
+                ctx_size=ctx_size,
+                gpu_layers=gpu_layers,
+                idle_timeout=0,
+                startup_timeout=startup_timeout,
+                extra_args=extra_args,
+            ),
+            fee_limit=0.0,
+        )
+
+
 @dataclass
 class TranslationConfig:
     """
@@ -92,20 +176,19 @@ class TranslationConfig:
         retry_chatbot: Configuration for the fallback chatbot model for translation retries, or None.
         cr_chatbot: Configuration for the Context Review chatbot model, or None.
             When None and lean mode is active, the primary ``chatbot`` is used for CR.
-            Ignored in standard mode.
+            The classic pipeline uses the primary chatbot when this is None.
         fee_limit: Maximum fee per translation call in USD. Default: ``0.8``
         consumer_thread: Number of parallel translation threads. Default: ``4``
         glossary: Path to a JSON glossary file mapping source words to
             translations, or None.
         is_force_glossary_used: Force glossary usage in context. Default: ``False``
-        translate_mode: Translation strategy. ``"standard"`` uses
-            :class:`LLMTranslator`, ``"lean"`` uses :class:`LeanTranslator`.
-            Default: ``"standard"``
         enable_cr: Whether to run Context Review in lean mode.
-            Default: ``True``. Ignored in standard mode.
+            Default: ``True``. The classic pipeline always runs Context Review.
         chunked_guideline: Enable chunked guideline generation for long texts.
             When True, texts exceeding the CR model's context window are
             automatically split and merged. Default: ``False``
+        prompt_profile: Prompt family used by lean translation and atomic
+            fallback. Default: ``"default"``.
         local_llm: Local llama.cpp server configuration. When provided and
             enabled, OpenLRC starts or reuses a local OpenAI-compatible server.
     """
@@ -117,10 +200,13 @@ class TranslationConfig:
     consumer_thread: int = 4
     glossary: str | None = None
     is_force_glossary_used: bool = False
-    translate_mode: str = "standard"
     enable_cr: bool = True
     chunked_guideline: bool = False
+    prompt_profile: str = "default"
     local_llm: LocalLLMConfig | None = None
+    hy_mt2_mode: HyMT2Mode = HyMT2Mode.FAST
+    context_llm: ContextLLMConfig | None = None
+    _translator_engine: str = field(default="classic", init=False, repr=False)
 
     @classmethod
     def local_qwen35_9b(
@@ -129,7 +215,6 @@ class TranslationConfig:
         model: str = "qwen3.5-9b",
         idle_timeout: int = DEFAULT_LLAMA_IDLE_TIMEOUT,
         port: int = DEFAULT_LLAMA_PORT,
-        translate_mode: str = "lean",
         server_path: str = "",
         host: str = DEFAULT_LLAMA_HOST,
         ctx_size: int = DEFAULT_LLAMA_CONTEXT_SIZE,
@@ -159,7 +244,115 @@ class TranslationConfig:
             ),
             fee_limit=0.0,
             consumer_thread=1,
-            translate_mode=translate_mode,
-            enable_cr=False,
+            enable_cr=True,
             local_llm=local_llm,
         )
+
+    @classmethod
+    def local_hy_mt2_7b(
+        cls,
+        *,
+        model: str | None = None,
+        idle_timeout: int = DEFAULT_LLAMA_IDLE_TIMEOUT,
+        port: int = DEFAULT_LLAMA_PORT,
+        server_path: str = "",
+        host: str = DEFAULT_LLAMA_HOST,
+        ctx_size: int = DEFAULT_LLAMA_CONTEXT_SIZE,
+        gpu_layers: str | int = "all",
+        startup_timeout: int = DEFAULT_LLAMA_STARTUP_TIMEOUT,
+        extra_args: list[str] | None = None,
+        mode: HyMT2Mode | str = HyMT2Mode.FAST,
+        context_llm: ContextLLMConfig | None = None,
+    ) -> "TranslationConfig":
+        """Create the recommended local Hy-MT2 7B Q6_K translation configuration."""
+        return cls.local_hy_mt2(
+            size=HY_MT2_7B_PROFILE,
+            model=model,
+            idle_timeout=idle_timeout,
+            port=port,
+            server_path=server_path,
+            host=host,
+            ctx_size=ctx_size,
+            gpu_layers=gpu_layers,
+            startup_timeout=startup_timeout,
+            extra_args=extra_args,
+            mode=mode,
+            context_llm=context_llm,
+        )
+
+    @classmethod
+    def local_hy_mt2(
+        cls,
+        *,
+        size: str = HY_MT2_7B_PROFILE,
+        model: str | None = None,
+        idle_timeout: int = DEFAULT_LLAMA_IDLE_TIMEOUT,
+        port: int = DEFAULT_LLAMA_PORT,
+        server_path: str = "",
+        host: str = DEFAULT_LLAMA_HOST,
+        ctx_size: int = DEFAULT_LLAMA_CONTEXT_SIZE,
+        gpu_layers: str | int = "all",
+        startup_timeout: int = DEFAULT_LLAMA_STARTUP_TIMEOUT,
+        extra_args: list[str] | None = None,
+        mode: HyMT2Mode | str = HyMT2Mode.FAST,
+        context_llm: ContextLLMConfig | None = None,
+    ) -> "TranslationConfig":
+        """Create a local Hy-MT2 translation configuration.
+
+        The 30B-A3B profile intentionally has no bundled/default GGUF file.
+        Pass ``model`` as a local converted GGUF filename or path for that size.
+        """
+        profile = get_local_llm_profile(size)
+        mode = HyMT2Mode(mode)
+        if mode is not HyMT2Mode.FAST and context_llm is None:
+            raise ValueError(f"Hy-MT2 {mode.value!r} mode requires an explicit context_llm configuration.")
+        if profile.name == HY_MT2_30B_A3B_PROFILE and not model:
+            raise ValueError("Hy-MT2 30B-A3B requires an explicit local GGUF model path or filename.")
+
+        model_path = model or profile.model_file
+        if not model_path:
+            raise ValueError(f"Local LLM profile {profile.name!r} does not define a default GGUF model.")
+
+        local_llm = LocalLLMConfig(
+            model_path=normalize_llama_model_name(model_path),
+            server_path=server_path,
+            host=host,
+            port=port,
+            alias=profile.server_alias,
+            ctx_size=ctx_size,
+            gpu_layers=gpu_layers,
+            idle_timeout=idle_timeout,
+            startup_timeout=startup_timeout,
+            extra_args=extra_args,
+        )
+        config = cls(
+            chatbot=_local_profile_model_config(profile, ctx_size=ctx_size),
+            fee_limit=0.0,
+            consumer_thread=1,
+            enable_cr=False,
+            prompt_profile=profile.prompt_profile,
+            local_llm=local_llm,
+            hy_mt2_mode=mode,
+            context_llm=context_llm,
+        )
+        config._translator_engine = "lean"
+        return config
+
+
+def _local_profile_model_config(profile: LocalLLMProfile, *, ctx_size: int) -> ModelConfig:
+    extra_body: dict[str, object] = {}
+    if profile.top_k is not None:
+        extra_body["top_k"] = profile.top_k
+    if profile.repeat_penalty is not None:
+        extra_body["repeat_penalty"] = profile.repeat_penalty
+
+    return ModelConfig(
+        provider=ModelProvider.LOCAL_LLAMA,
+        name=profile.server_alias,
+        api_key=LOCAL_LLAMA_API_KEY,
+        context_window=ctx_size,
+        max_tokens=profile.max_tokens,
+        temperature=profile.temperature,
+        top_p=profile.top_p,
+        extra_body=extra_body or None,
+    )

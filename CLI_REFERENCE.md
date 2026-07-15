@@ -40,7 +40,7 @@ uv run openlrc --version
 当前输出类似：
 
 ```text
-OpenLRC Mac 0.2.0 (distribution: openlrc-mac; upstream base: OpenLRC 1.7.0a1)
+OpenLRC Mac 0.2.2 (distribution: openlrc-mac; upstream base: OpenLRC 1.7.0a1)
 ```
 
 ### `openlrc doctor`
@@ -139,10 +139,12 @@ uv run openlrc setup llama --force
 uv run openlrc setup llama --model-dir "/path/to/llm-models"
 uv run openlrc setup llama --model-repo "org/repo" --model-file "model.gguf"
 uv run openlrc setup llama --model-url "https://example.com/model.gguf"
+uv run openlrc setup llama --local-model-profile hy-mt2-7b
 ```
 
 参数说明：
 
+- `--local-model-profile qwen3.5-9b|hy-mt2-7b|hy-mt2-30b-a3b`: 使用已注册 profile 的下载默认值；`hy-mt2-30b-a3b` 不提供默认下载。
 - `--model-repo`: Hugging Face GGUF repo。
 - `--model-file`: GGUF 文件名。
 - `--revision`: Hugging Face revision，默认 `main`。
@@ -217,13 +219,36 @@ uv run openlrc translate preprocessed/input_preprocessed_transcribed.json --tran
 - `--translation local|online`: 翻译后端，必填。
 - `--target-lang`: 目标语言，默认 `zh-cn`。
 - `--bilingual-sub`: 同时生成双语字幕。
+- `--keep-checkpoint`: 调试时保留已经完成的翻译 checkpoint；默认在完整
+  成功后删除，review 不完整时始终保留。
 - `--llama-model`: 本地 GGUF 模型 alias、文件名或路径，默认 `qwen3.5-9b`。
+- `--local-model-profile`: 本地 LLM profile，决定采样参数和 prompt；支持 `qwen3.5-9b`、`hy-mt2-7b`、`hy-mt2-30b-a3b`。
 - `--llama-port`: 本地 `llama-server` 端口，默认 `8088`。
 - `--idle-timeout`: OpenLRC 自己启动的本地 server 空闲关闭时间，默认 `300` 秒。
-- `--translate-mode lean|standard`: 翻译策略，默认 `lean`。
+- `--hy-mt2-mode fast|context|context-plus`: Hy-MT2 管线模式，默认 `fast`。
+- `--context-provider openai|anthropic|google|litellm|third-party|local`: context/context-plus 使用的通用模型 provider。
+- `--context-model`: 通用模型名；local 时可传 Qwen alias、GGUF 文件名或路径。
+- `--context-base-url`: 自定义 OpenAI-compatible context endpoint；`third-party` 时必填。
+- `--context-fee-limit`: 通用模型单次调用费用上限，默认 `0.8` 美元。
 
-`--translation local` 会使用本地 `llama.cpp` / Qwen。`--translation online`
-会使用现有在线 LLM 配置，需要用户自己设置对应 provider 的 API key。
+`--translation local` 默认使用本地 `llama.cpp` / Qwen。传
+`--local-model-profile hy-mt2-7b`，或在未传 profile 时传
+`--llama-model hy-mt2-7b`，会使用 Hy-MT2 7B Q6_K 的官方参数和 prompt。
+`hy-mt2-30b-a3b` 必须同时通过 `--llama-model` 指向本地已转换 GGUF 文件。
+`--translation online` 会使用 classic OpenLRC 上下文管线，需要用户自己设置对应 provider 的 API key。
+默认本地 Qwen profile 同样使用 classic 管线。底层 lean translator 不再作为
+CLI 配置暴露，只由 Hy-MT2 三模式内部使用。
+
+Hy-MT2 三种模式：
+
+- `fast`: delimiter 翻译，不运行 CR，保持 0.2.1 默认行为。
+- `context`: 通用模型生成结构化 Translation Brief，然后由 Hy-MT2 翻译。
+- `context-plus`: 在 context 基础上重新加载同一个通用模型，扫描所有 chunk，只修正 high-risk 行。
+
+`context` / `context-plus` 必须显式传 `--context-provider` 和
+`--context-model`。纯本地模式严格按“通用模型 -> 卸载 -> Hy-MT2”顺序运行；
+context-plus 翻译后再卸载 Hy-MT2 并重新加载通用模型。Hy-MT2 不提供
+classic/lean engine 选择。
 
 ### `openlrc run`
 
@@ -261,12 +286,15 @@ uv run openlrc run input.mp4 --src-lang en --target-lang zh-cn --translation onl
 - `--vad-model`: VAD 模型名、文件名或路径；传空字符串可禁用 VAD。
 - `--noise-suppress`: 转写前启用降噪。
 - `--bilingual-sub`: 翻译时生成双语字幕。
-- `--clear-temp`: 成功后清理预处理临时文件。
+- `--clear-temp/--keep-temp`: 完整成功后默认清理当前输入的临时文件；
+  `--keep-temp` 可保留。若 context-plus review 不完整，则无论此选项如何都会
+  保留 checkpoint 供下次运行恢复。
 - `--skip-preprocess`: 使用已经存在的预处理音频文件。
 - `--llama-model`: 本地 GGUF 模型 alias、文件名或路径。
+- `--local-model-profile`: 本地 LLM profile，决定采样参数和 prompt。
 - `--llama-port`: 本地 `llama-server` 端口，默认 `8088`。
 - `--idle-timeout`: OpenLRC 自己启动的本地 server 空闲关闭时间，默认 `300` 秒。
-- `--translate-mode lean|standard`: 翻译策略，默认 `lean`。
+- Hy-MT2 的 `--hy-mt2-mode` 和 `--context-*` 参数与 `translate` 命令一致。
 
 `run` 和 `transcribe` 的核心区别：
 

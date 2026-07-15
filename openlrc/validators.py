@@ -1,6 +1,7 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 import abc
+import html
 import json
 import re
 
@@ -210,8 +211,9 @@ class LeanTranslateValidator(BaseValidator):
     least ``min_match_ratio`` of the expected line IDs are present.
     """
 
-    # Matches a line that is exactly ``#<digits>`` (with optional whitespace).
-    _ANCHOR_RE = re.compile(r"^\#(\d+)\s*$", re.MULTILINE)
+    # Matches a line that is exactly ``#<digits>`` or ``#digits``.
+    _ANCHOR_RE = re.compile(r"^\#<?(\d+)>?\s*$", re.MULTILINE)
+    _PURE_TAG_RE = re.compile(r"^</?[^>\n]+>$")
 
     def __init__(self, expected_ids: list[int], min_match_ratio: float = 0.8):
         self.expected_ids = set(expected_ids)
@@ -253,9 +255,84 @@ class LeanTranslateValidator(BaseValidator):
         for i in range(1, len(parts) - 1, 2):
             line_id = int(parts[i])
             raw_text = parts[i + 1].strip()
-            # Join multi-line translations into a single line.
-            translation = " ".join(line.strip() for line in raw_text.splitlines() if line.strip())
+            translation = cls.clean_translation(raw_text)
             if translation:
                 result[line_id] = translation
 
         return result
+
+    @classmethod
+    def clean_translation(cls, raw_text: str) -> str:
+        """Normalize model translation text into one subtitle line."""
+        return " ".join(
+            line.strip()
+            for line in raw_text.splitlines()
+            if line.strip() and not cls._PURE_TAG_RE.fullmatch(line.strip())
+        )
+
+
+class HyMT2DelimiterTranslateValidator(BaseValidator):
+    """Validator for Hy-MT2 delimiter-style subtitle output."""
+
+    _SEG_RE = re.compile(r"<seg\s+id=[\"']?(\d+)[\"']?\s*>(.*?)</seg>", re.DOTALL | re.IGNORECASE)
+
+    def __init__(self, expected_ids: list[int], min_match_ratio: float = 0.8):
+        self.expected_ids = list(expected_ids)
+        self.expected_id_set = set(expected_ids)
+        self.min_match_ratio = min_match_ratio
+        self.issues: list[str] = []
+
+    def _reject(self, issue: str) -> bool:
+        """Record a machine-readable checkpoint issue before rejecting output."""
+        self.issues.append(issue)
+        logger.warning(issue)
+        return False
+
+    def validate(self, user_input: str, generated_content: str) -> bool:
+        if not generated_content:
+            return self._reject("Empty or None response content.")
+
+        blocks = self.parse_delimited_blocks(generated_content)
+        block_ids = [line_id for line_id, _ in blocks]
+        if blocks:
+            if len(block_ids) != len(set(block_ids)):
+                return self._reject("Duplicate Hy-MT2 delimiter IDs found in response.")
+            if any(line_id not in self.expected_id_set for line_id in block_ids):
+                return self._reject("Unexpected Hy-MT2 delimiter ID found in response.")
+            expected_order = [line_id for line_id in self.expected_ids if line_id in set(block_ids)]
+            if block_ids != expected_order:
+                return self._reject("Hy-MT2 delimiter IDs are out of order.")
+
+        parsed = dict(blocks)
+        if not parsed:
+            parsed = LeanTranslateValidator.parse_anchored_translations(generated_content)
+        if not parsed:
+            return self._reject("No delimited or anchored translations found in response.")
+
+        matched = self.expected_id_set & parsed.keys()
+        ratio = len(matched) / len(self.expected_id_set) if self.expected_id_set else 0.0
+        if ratio < self.min_match_ratio:
+            return self._reject(
+                f"Delimiter match ratio {ratio:.0%} ({len(matched)}/{len(self.expected_id_set)})"
+                f" below threshold {self.min_match_ratio:.0%}."
+            )
+
+        return True
+
+    @classmethod
+    def parse_delimited_translations(cls, content: str) -> dict[int, str]:
+        """Parse ``<seg id="N">translation</seg>`` output into a mapping."""
+        return dict(cls.parse_delimited_blocks(content))
+
+    @classmethod
+    def parse_delimited_blocks(cls, content: str) -> list[tuple[int, str]]:
+        """Parse delimiter output while preserving ID order and duplicates."""
+        blocks: list[tuple[int, str]] = []
+        for match in cls._SEG_RE.finditer(content):
+            line_id = int(match.group(1))
+            raw_text = html.unescape(match.group(2).strip())
+            translation = LeanTranslateValidator.clean_translation(raw_text)
+            if translation:
+                blocks.append((line_id, translation))
+
+        return blocks

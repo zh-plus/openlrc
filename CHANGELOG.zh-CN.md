@@ -3,6 +3,91 @@
 这个文件只记录 OpenLRC Mac fork 自己的变更。英文版见
 [CHANGELOG.md](CHANGELOG.md) 中的 OpenLRC Mac 条目；两个文件需要同步更新。
 
+## OpenLRC Mac 0.2.2
+
+Hy-MT2 三模式上下文翻译管线版本。
+
+### 新增
+
+- 新增 Hy-MT2 `fast`、`context`、`context-plus` 三种模式：
+  - `fast` 直接执行 delimiter lean 翻译，不运行 Context Review；
+  - `context` 先由显式配置的通用模型生成结构化 Translation Brief，再由
+    Hy-MT2 翻译；
+  - `context-plus` 在翻译完成后使用同一通用模型扫描全部 chunk，只修正
+    high-risk 行。
+- 新增 `HyMT2Mode` 和 `ContextLLMConfig`，支持在线通用模型及本地
+  Qwen3.5 9B 上下文模型。
+- 新增结构化 Translation Brief，覆盖摘要、人物译名、术语、语气风格、
+  目标受众和 ASR 歧义；用户 glossary 与生成结果冲突时以用户配置为准。
+- 新增纯本地阶段式模型运行：`context` 按“通用模型 -> 卸载 -> Hy-MT2”
+  执行，`context-plus` 再卸载 Hy-MT2 并重新加载通用模型校对，任一时刻
+  只驻留一个 OpenLRC-owned 模型。
+- 新增 Hy-MT2 专用 high-risk review 协议。单个 review chunk 最终失败时
+  保留 Hy-MT2 草稿、继续其他 chunk，并标记 `review_incomplete`。
+- 新增版本化 Hy-MT2 checkpoint，保存 source fingerprint、模式、Brief、
+  原始 Hy-MT2 译文、最终译文、fallback metrics、review 进度和风险结果。
+
+### 变更
+
+- Hy-MT2 对外取消 lean/standard engine 配置，只保留三种产品模式；原
+  `standard` 管线对外改称 classic。在线翻译和通用本地 Qwen 默认使用 classic。
+- Hy-MT2 delimiter 改为精确 ID 对齐，拒绝重复、未知和乱序 ID；少量精确
+  ID 缺失仍允许 atomic fill，不再使用 `±3` fuzzy matching。
+- binary split 和 atomic fallback 现在保留 Translation Brief、glossary、
+  最近译文及目标行前后各两条源字幕。
+- checkpoint 额外记录 retry、split depth、atomic IDs、validator 问题和模式，
+  `context-plus` 可从未完成的 review chunk 恢复而无需重新翻译。
+- checkpoint 改为同目录临时文件写完后原子替换，避免中断留下半截 JSON。
+- CLI 最终结果显示 `review_incomplete` 和失败 chunk；已生成字幕的任务可在
+  下次运行只补跑失败 review，而不重新加载 Hy-MT2。
+- `run` 在完整成功后默认清理当前输入的临时文件；`--keep-temp` 可显式保留，
+  review 不完整时会强制保留 checkpoint。独立 `translate` 命令默认删除已完成
+  checkpoint，可用 `--keep-checkpoint` 保留。
+- CLI 新增 `--hy-mt2-mode`、`--context-provider`、`--context-model`、
+  `--context-base-url` 和 `--context-fee-limit`。
+- 更新 README 和 CLI reference，补充 Hy-MT2 三模式说明。
+
+### 验证
+
+- 完整 pytest 测试通过：`278 passed, 25 skipped`。
+- Hy-MT2 delimiter translator 测试通过：`65 passed, 5 skipped`。
+- Ruff lint、touched-file format check 和 touched-module Pyright 检查通过。
+- `fast`、纯本地 `context`、纯本地 `context-plus` 均通过真实 Hy-MT2 7B
+  Q6_K / Qwen3.5 9B CLI smoke；输出行数严格一致，无 delimiter、anchor 或
+  review JSON 泄漏。
+
+## OpenLRC Mac 0.2.1
+
+Hy-MT2 初始本地翻译 profile 版本。
+
+### 新增
+
+- 新增 `hy-mt2-7b` 和 `hy-mt2-30b-a3b` 两个本地 LLM profile。
+- 新增 Hy-MT2 7B Q6_K 默认 GGUF 下载 profile，使用
+  `tencent/Hy-MT2-7B-GGUF` / `HY-MT2-7B-Q6_K.gguf`。
+- 新增 Hy-MT2 CLI 支持，通过 `--local-model-profile` 接入
+  `openlrc setup llama --local-model-profile hy-mt2-7b` 以及本地
+  `run` / `translate` 工作流。
+- 新增 `TranslationConfig.local_hy_mt2_7b(...)`、
+  `TranslationConfig.local_hy_mt2(...)` 和 `LRCer.local_hy_mt2(...)`。
+- 新增 Hy-MT2 lean 本地翻译 delimiter prompt 管线，使用
+  `<seg id="N">...</seg>` 输入/输出块。
+
+### 变更
+
+- 将 Hy-MT2 官方采样参数接入真实本地 `GPTBot` 调用链，包括
+  `temperature`、`top_p`、`top_k`、`repeat_penalty` 和 `max_tokens`。
+- 保持 Qwen 作为裸 `LRCer.local()` / `--translation local` 默认模型，同时允许用户显式选择
+  Hy-MT2 profile。
+- 调整 lean 翻译流程，让 prompt-specific parser 和 retry instruction 下沉到 prompter，不再硬编码为
+  `#id` anchor 格式。
+- 改进 anchor fallback parser，兼容 `#<1>` 这类模型输出。
+
+### 验证
+
+- 验证 Hy-MT2 profile 解析、模型资源解析和 delimiter prompt/parser。
+- 通过真实 Hy-MT2 7B Q6_K 本地翻译 probe。
+
 ## OpenLRC Mac 0.2.0
 
 面向 macOS fork 的本地翻译和第一阶段 CLI 版本。

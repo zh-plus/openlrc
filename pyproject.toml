@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openlrc-mac"
-version = "0.2.0"
+version = "0.2.2"
 description = "macOS-focused OpenLRC fork with local whisper.cpp transcription and optional llama.cpp translation."
 authors = [
     { name = "OpenLRC Mac contributors" },
