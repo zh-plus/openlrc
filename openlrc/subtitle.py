@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
+from openlrc.checkpoint import save_json_checkpoint
 from openlrc.defaults import (
     BILINGUAL_SUFFIX,
     OPTIMIZED_SUFFIX,
@@ -91,8 +92,7 @@ class Subtitle:
     def save(self, filename: str | Path, update_name=False):
         results = {"language": self.lang, "segments": [seg.to_json() for seg in self.segments]}
 
-        with open(filename, "w", encoding="utf-8") as f:
-            json.dump(results, f, ensure_ascii=False, indent=4)
+        save_json_checkpoint(Path(filename), results)
 
         if update_name:
             self.filename = Path(filename)
@@ -297,8 +297,8 @@ class BilingualSubtitle:
         return f"{self.src_lang}-{self.target_lang}"
 
     @classmethod
-    def from_preprocessed(cls, preprocessed_folder, audio_name):
-        _opt = f"{audio_name}{PREPROCESSED_SUFFIX}{TRANSCRIBED_SUFFIX}{OPTIMIZED_SUFFIX}"
+    def from_preprocessed(cls, preprocessed_folder, audio_name, optimized_suffix: str = OPTIMIZED_SUFFIX):
+        _opt = f"{audio_name}{PREPROCESSED_SUFFIX}{TRANSCRIBED_SUFFIX}{optimized_suffix}"
         src_file = preprocessed_folder / f"{_opt}.json"
         target_file = preprocessed_folder / f"{_opt}{TRANSLATED_SUFFIX}.json"
 
@@ -316,8 +316,7 @@ class BilingualSubtitle:
         """Save the bilingual subtitle to a JSON file."""
         results = {"language": self.lang, "segments": [seg.to_json() for seg in self.segments]}
 
-        with open(filename, "w", encoding="utf-8") as f:
-            json.dump(results, f, ensure_ascii=False, indent=4)
+        save_json_checkpoint(Path(filename), results)
 
         if update_name:
             self.filename = Path(filename)

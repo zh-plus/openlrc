@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from dataclasses import dataclass
 from enum import Enum
@@ -16,7 +17,18 @@ from rich.console import Console
 from rich.table import Table
 
 from openlrc import __app_name__, __dist_name__, __upstream_version__, __version__
-from openlrc.config import ContextLLMConfig, HyMT2Mode, TranscriptionConfig
+from openlrc.config import (
+    ContextLLMConfig,
+    EditConfig,
+    GlossaryOptions,
+    HyMT2Mode,
+    SubtitleOptimizationMode,
+    TranscriptionConfig,
+    TranslationConfig,
+    normalize_hymt2_mode,
+)
+from openlrc.context import TranslationBriefInput
+from openlrc.editing import EditAction, EditSeverity, parse_segment_ids
 from openlrc.llama_resources import (
     DEFAULT_LLAMA_IDLE_TIMEOUT,
     DEFAULT_LLAMA_MODEL_FILE,
@@ -62,8 +74,10 @@ app = typer.Typer(
 )
 setup_app = typer.Typer(help="Build local toolchains and download models.", no_args_is_help=True, add_completion=False)
 models_app = typer.Typer(help="Inspect local model state.", no_args_is_help=True, add_completion=False)
+glossary_app = typer.Typer(help="Validate and inspect task glossaries.", no_args_is_help=True, add_completion=False)
 app.add_typer(setup_app, name="setup")
 app.add_typer(models_app, name="models")
+app.add_typer(glossary_app, name="glossary")
 
 
 class TranslationBackend(str, Enum):
@@ -195,6 +209,72 @@ def _transcription_config(whisper_model: str, vad_model: str) -> TranscriptionCo
     return TranscriptionConfig(whisper_model=whisper_model, vad_model=vad_model)
 
 
+def _glossary_and_edit_options(
+    *, glossary: Path | None, force_glossary: bool, glossary_strict: bool, edit_rounds: int, enable_restore: bool
+) -> tuple[str | None, GlossaryOptions, EditConfig]:
+    if not 0 <= edit_rounds <= 3:
+        raise typer.BadParameter("--edit-rounds must be between 0 and 3.")
+    return (
+        str(glossary) if glossary is not None else None,
+        GlossaryOptions(strict=glossary_strict, force=force_glossary),
+        EditConfig(
+            enabled=False, max_rounds=edit_rounds, semantic_review=edit_rounds > 0, restore_enabled=enable_restore
+        ),
+    )
+
+
+def _translation_brief_input(
+    *, summary: str | None, characters: str | None, tone_style: str | None
+) -> TranslationBriefInput | None:
+    """Parse strict CLI brief fields while preserving omitted versus explicitly empty values."""
+    if summary is None and characters is None and tone_style is None:
+        return None
+
+    parsed_characters = None
+    if characters is not None:
+        raw = characters
+        if raw.startswith("@"):
+            path_text = raw[1:]
+            if not path_text:
+                raise typer.BadParameter("Expected a UTF-8 JSON file after '@'.", param_hint="--brief-characters")
+            path = Path(path_text)
+            try:
+                raw = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as exc:
+                raise typer.BadParameter(
+                    f"Cannot read brief characters file {path}: {exc}", param_hint="--brief-characters"
+                ) from exc
+        try:
+            parsed_characters = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise typer.BadParameter(
+                f"Brief characters must be valid JSON: {exc.msg}", param_hint="--brief-characters"
+            ) from exc
+        if not isinstance(parsed_characters, list):
+            raise typer.BadParameter("Brief characters JSON must be an array.", param_hint="--brief-characters")
+
+    try:
+        return TranslationBriefInput(summary=summary, characters=parsed_characters, tone_style=tone_style)
+    except ValueError as exc:
+        raise typer.BadParameter(f"Invalid Translation Brief: {exc}") from exc
+
+
+def _brief_is_complete(brief: TranslationBriefInput | None) -> bool:
+    return brief is not None and brief.is_complete
+
+
+def _context_model_required(
+    *, mode: HyMT2Mode, translation_brief: TranslationBriefInput | None, edit_rounds: int, semantic_editor: bool
+) -> bool:
+    if mode is HyMT2Mode.PRO:
+        return True
+    if mode is HyMT2Mode.NORMAL:
+        return not _brief_is_complete(translation_brief)
+    if mode is HyMT2Mode.NORMAL_PLUS:
+        return not _brief_is_complete(translation_brief) or (semantic_editor and edit_rounds > 0)
+    return False
+
+
 def _lrcer_cls():
     from openlrc.openlrc import LRCer
 
@@ -249,8 +329,11 @@ def _context_llm_config(
     base_url: str | None,
     fee_limit: float,
     port: int,
+    required: bool = True,
 ) -> ContextLLMConfig | None:
     if mode is HyMT2Mode.FAST:
+        return None
+    if provider is None and not model and not required:
         return None
     if provider is None or not model:
         raise typer.BadParameter(f"--hy-mt2-mode {mode.value} requires both --context-provider and --context-model.")
@@ -285,14 +368,31 @@ def _lrcer_for_run(
     context_model: str | None,
     context_base_url: str | None,
     context_fee_limit: float,
+    subtitle_optimization: SubtitleOptimizationMode,
+    glossary: Path | None = None,
+    force_glossary: bool = False,
+    glossary_strict: bool = True,
+    edit_rounds: int = 1,
+    enable_restore: bool = False,
+    translation_brief: TranslationBriefInput | None = None,
 ) -> LRCer:
     lrcer_cls = _lrcer_cls()
+    hy_mt2_mode = normalize_hymt2_mode(hy_mt2_mode)
     transcription = _transcription_config(whisper_model, vad_model)
+    glossary_value, glossary_options, edit_config = _glossary_and_edit_options(
+        glossary=glossary,
+        force_glossary=force_glossary,
+        glossary_strict=glossary_strict,
+        edit_rounds=edit_rounds,
+        enable_restore=enable_restore,
+    )
     if translation == TranslationBackend.local:
         profile_name, selected_model = _selected_profile_and_model(
             local_model_profile=local_model_profile, llama_model=llama_model
         )
         if profile_name != QWEN35_9B_PROFILE:
+            if hy_mt2_mode is HyMT2Mode.FAST and translation_brief is not None:
+                raise typer.BadParameter("Translation Brief is not supported in Hy-MT2 fast mode.")
             context_llm = _context_llm_config(
                 mode=hy_mt2_mode,
                 provider=context_provider,
@@ -300,6 +400,9 @@ def _lrcer_for_run(
                 base_url=context_base_url,
                 fee_limit=context_fee_limit,
                 port=llama_port,
+                required=_context_model_required(
+                    mode=hy_mt2_mode, translation_brief=translation_brief, edit_rounds=edit_rounds, semantic_editor=True
+                ),
             )
             return lrcer_cls.local_hy_mt2(
                 size=profile_name,
@@ -309,13 +412,35 @@ def _lrcer_for_run(
                 transcription=transcription,
                 mode=hy_mt2_mode,
                 context_llm=context_llm,
+                subtitle_optimization=subtitle_optimization,
+                glossary=glossary_value,
+                glossary_options=glossary_options,
+                edit_config=edit_config,
+                translation_brief=translation_brief,
             )
+        if translation_brief is not None:
+            raise typer.BadParameter("Translation Brief requires a Hy-MT2 local model profile.")
         if hy_mt2_mode is not HyMT2Mode.FAST or context_provider is not None or context_model is not None:
             raise typer.BadParameter("Hy-MT2 context options require a Hy-MT2 local model profile.")
         return lrcer_cls.local(
-            model=selected_model or llama_model, idle_timeout=idle_timeout, port=llama_port, transcription=transcription
+            model=selected_model or llama_model,
+            idle_timeout=idle_timeout,
+            port=llama_port,
+            transcription=transcription,
+            subtitle_optimization=subtitle_optimization,
+            glossary=glossary_value,
+            glossary_options=glossary_options,
+            edit_config=edit_config,
         )
-    return lrcer_cls(transcription=transcription)
+    if translation_brief is not None:
+        raise typer.BadParameter("Translation Brief requires a Hy-MT2 local translation backend.")
+    return lrcer_cls(
+        transcription=transcription,
+        translation=TranslationConfig(
+            glossary=glossary_value, glossary_options=glossary_options, edit_config=edit_config
+        ),
+        subtitle_optimization=subtitle_optimization,
+    )
 
 
 def _lrcer_for_translation(
@@ -330,13 +455,31 @@ def _lrcer_for_translation(
     context_model: str | None,
     context_base_url: str | None,
     context_fee_limit: float,
+    subtitle_optimization: SubtitleOptimizationMode,
+    glossary: Path | None = None,
+    force_glossary: bool = False,
+    glossary_strict: bool = True,
+    edit_rounds: int = 1,
+    enable_restore: bool = False,
+    translation_brief: TranslationBriefInput | None = None,
+    semantic_editor: bool = True,
 ) -> LRCer:
     lrcer_cls = _lrcer_cls()
+    hy_mt2_mode = normalize_hymt2_mode(hy_mt2_mode)
+    glossary_value, glossary_options, edit_config = _glossary_and_edit_options(
+        glossary=glossary,
+        force_glossary=force_glossary,
+        glossary_strict=glossary_strict,
+        edit_rounds=edit_rounds,
+        enable_restore=enable_restore,
+    )
     if translation == TranslationOnlyBackend.local:
         profile_name, selected_model = _selected_profile_and_model(
             local_model_profile=local_model_profile, llama_model=llama_model
         )
         if profile_name != QWEN35_9B_PROFILE:
+            if hy_mt2_mode is HyMT2Mode.FAST and translation_brief is not None:
+                raise typer.BadParameter("Translation Brief is not supported in Hy-MT2 fast mode.")
             context_llm = _context_llm_config(
                 mode=hy_mt2_mode,
                 provider=context_provider,
@@ -344,6 +487,12 @@ def _lrcer_for_translation(
                 base_url=context_base_url,
                 fee_limit=context_fee_limit,
                 port=llama_port,
+                required=_context_model_required(
+                    mode=hy_mt2_mode,
+                    translation_brief=translation_brief,
+                    edit_rounds=edit_rounds,
+                    semantic_editor=semantic_editor,
+                ),
             )
             return lrcer_cls.local_hy_mt2(
                 size=profile_name,
@@ -352,11 +501,33 @@ def _lrcer_for_translation(
                 port=llama_port,
                 mode=hy_mt2_mode,
                 context_llm=context_llm,
+                subtitle_optimization=subtitle_optimization,
+                glossary=glossary_value,
+                glossary_options=glossary_options,
+                edit_config=edit_config,
+                translation_brief=translation_brief,
             )
+        if translation_brief is not None:
+            raise typer.BadParameter("Translation Brief requires a Hy-MT2 local model profile.")
         if hy_mt2_mode is not HyMT2Mode.FAST or context_provider is not None or context_model is not None:
             raise typer.BadParameter("Hy-MT2 context options require a Hy-MT2 local model profile.")
-        return lrcer_cls.local(model=selected_model or llama_model, idle_timeout=idle_timeout, port=llama_port)
-    return lrcer_cls()
+        return lrcer_cls.local(
+            model=selected_model or llama_model,
+            idle_timeout=idle_timeout,
+            port=llama_port,
+            subtitle_optimization=subtitle_optimization,
+            glossary=glossary_value,
+            glossary_options=glossary_options,
+            edit_config=edit_config,
+        )
+    if translation_brief is not None:
+        raise typer.BadParameter("Translation Brief requires a Hy-MT2 local translation backend.")
+    return lrcer_cls(
+        translation=TranslationConfig(
+            glossary=glossary_value, glossary_options=glossary_options, edit_config=edit_config
+        ),
+        subtitle_optimization=subtitle_optimization,
+    )
 
 
 def _print_outputs(outputs: list[Path] | list[str], review_statuses: dict[str, dict] | None = None) -> None:
@@ -376,7 +547,11 @@ def _print_outputs(outputs: list[Path] | list[str], review_statuses: dict[str, d
         if status:
             if status.get("incomplete"):
                 failed = status.get("failed_chunks", [])
-                status_text = f"[yellow]incomplete ({len(failed)} chunk(s) kept as Hy-MT2 draft)[/yellow]"
+                unresolved = status.get("unresolved_issues", 0)
+                detail = (
+                    f"{len(failed)} chunk(s) kept as Hy-MT2 draft" if failed else f"{unresolved} unresolved issue(s)"
+                )
+                status_text = f"[yellow]incomplete ({detail})[/yellow]"
             else:
                 status_text = "[green]complete[/green]"
         row = [str(index), str(output)]
@@ -386,9 +561,15 @@ def _print_outputs(outputs: list[Path] | list[str], review_statuses: dict[str, d
     console.print(table)
     for name, status in review_statuses.items():
         if status.get("incomplete"):
+            failed = status.get("failed_chunks", [])
+            unresolved = status.get("unresolved_issues", 0)
+            if failed:
+                detail = f"chunks {failed} kept their Hy-MT2 draft"
+            else:
+                detail = f"{unresolved} unresolved issue(s) remain"
             console.print(
-                f"[yellow]Review incomplete for {name}: chunks {status.get('failed_chunks', [])} kept their "
-                "Hy-MT2 draft. Temporary checkpoint retained for the next run.[/yellow]"
+                f"[yellow]Editing incomplete for {name}: {detail}. "
+                "Temporary checkpoint retained for the next run.[/yellow]"
             )
 
 
@@ -445,6 +626,82 @@ def doctor(
 def models_status() -> None:
     """Show installed status for the default local models."""
     _render_checks("OpenLRC model status", _model_checks())
+
+
+@glossary_app.command("validate")
+def glossary_validate(
+    path: Annotated[Path, typer.Argument(help="Glossary JSON path.")],
+    source_language: Annotated[
+        str | None, typer.Option("--source-language", help="Expected source language code.")
+    ] = None,
+    target_language: Annotated[
+        str | None, typer.Option("--target-language", help="Expected target language code.")
+    ] = None,
+    strict: Annotated[bool, typer.Option("--strict/--no-strict", help="Reject same-priority conflicts.")] = True,
+) -> None:
+    """Validate glossary JSON, schema version, languages, and conflicts."""
+    from openlrc.glossary import GlossaryService
+
+    service = GlossaryService(strict=strict)
+    catalog, conflicts = service.load(path, source_language=source_language, target_language=target_language)
+    console.print(
+        f"[green]Valid glossary[/green]: {len(catalog.entries)} entries, {len(conflicts)} reported conflicts."
+    )
+
+
+@glossary_app.command("inspect")
+def glossary_inspect(
+    path: Annotated[Path, typer.Argument(help="Glossary JSON path.")],
+    strict: Annotated[bool, typer.Option("--strict/--no-strict", help="Reject same-priority conflicts.")] = True,
+    force: Annotated[bool, typer.Option("--force", help="Show enabled task entries as required.")] = False,
+) -> None:
+    """Show normalized glossary entries, priority, and conflicts."""
+    from openlrc.glossary import GlossaryService
+
+    service = GlossaryService(strict=strict, force=force)
+    catalog, conflicts = service.load(path)
+    state = service.merge(catalog, load_conflicts=conflicts)
+    table = Table(title=f"Glossary: {catalog.name or path.name}")
+    table.add_column("Source")
+    table.add_column("Target")
+    table.add_column("Required")
+    table.add_column("Aliases")
+    for entry in state.merged_entries:
+        table.add_row(entry.source, entry.target, "yes" if entry.required else "no", ", ".join(entry.aliases))
+    console.print(table)
+    console.print(f"Fingerprint: {state.fingerprint}")
+    if state.conflicts:
+        console.print(f"[yellow]Conflicts: {len(state.conflicts)} (deterministic first-item precedence)[/yellow]")
+
+
+@glossary_app.command("check")
+def glossary_check(
+    path: Annotated[Path, typer.Argument(help="Glossary JSON path.")],
+    source_path: Annotated[Path, typer.Option("--source", help="Source subtitle JSON.")],
+    target_path: Annotated[Path, typer.Option("--target", help="Translated subtitle JSON.")],
+    output: Annotated[Path | None, typer.Option("--output", help="Compliance report JSON path.")] = None,
+    strict: Annotated[bool, typer.Option("--strict/--no-strict", help="Reject same-priority conflicts.")] = True,
+    force: Annotated[bool, typer.Option("--force", help="Treat enabled task entries as required.")] = False,
+) -> None:
+    """Check glossary compliance without loading a model."""
+    from openlrc.checkpoint import save_json_checkpoint
+    from openlrc.glossary import GlossaryService
+    from openlrc.subtitle import Subtitle
+
+    source = Subtitle.from_json(source_path)
+    target = Subtitle.from_json(target_path)
+    service = GlossaryService(strict=strict, force=force)
+    catalog, conflicts = service.load(path, source_language=source.lang, target_language=target.lang)
+    state = service.merge(catalog, load_conflicts=conflicts)
+    checked = service.check(state, source.texts, target.texts)
+    report_path = output or target_path.with_name(f"{target_path.stem}.glossary-report.json")
+    save_json_checkpoint(report_path, checked.model_dump(mode="json"))
+    console.print(
+        f"Glossary compliance: {checked.metrics.required_compliant} required compliant, "
+        f"{checked.metrics.required_noncompliant} required unresolved. Report: {report_path}"
+    )
+    if checked.metrics.required_noncompliant:
+        raise typer.Exit(code=1)
 
 
 @setup_app.command("whisper")
@@ -561,9 +818,39 @@ def translate(
     translation: Annotated[TranslationOnlyBackend, typer.Option("--translation", help="Translation backend to use.")],
     target_lang: Annotated[str, typer.Option("--target-lang", help="Target language code.")] = "zh-cn",
     bilingual_sub: Annotated[bool, typer.Option("--bilingual-sub", help="Generate bilingual subtitle files.")] = False,
+    subtitle_optimization: Annotated[
+        SubtitleOptimizationMode, typer.Option("--subtitle-optimization", help="Subtitle cleanup profile.")
+    ] = SubtitleOptimizationMode.AGGRESSIVE,
     keep_checkpoint: Annotated[
         bool, typer.Option("--keep-checkpoint", help="Keep a completed translation checkpoint for debugging.")
     ] = False,
+    glossary: Annotated[Path | None, typer.Option("--glossary", help="Task glossary JSON path.")] = None,
+    force_glossary: Annotated[
+        bool, typer.Option("--force-glossary", help="Treat enabled task glossary entries as required.")
+    ] = False,
+    glossary_strict: Annotated[
+        bool,
+        typer.Option(
+            "--glossary-strict/--no-glossary-strict",
+            help="Reject same-priority glossary conflicts instead of reporting first-item precedence.",
+        ),
+    ] = True,
+    edit_rounds: Annotated[
+        int, typer.Option("--edit-rounds", min=0, max=3, help="Semantic edit rounds; 0 runs deterministic checks only.")
+    ] = 1,
+    enable_restore: Annotated[
+        bool, typer.Option("--enable-restore", help="Keep a compact edit session after successful translation.")
+    ] = False,
+    brief_summary: Annotated[
+        str | None, typer.Option("--brief-summary", help="Human-supplied global Translation Brief summary.")
+    ] = None,
+    brief_characters: Annotated[
+        str | None,
+        typer.Option("--brief-characters", help="Strict character JSON array, or @PATH to a UTF-8 JSON file."),
+    ] = None,
+    brief_tone_style: Annotated[
+        str | None, typer.Option("--brief-tone-style", help="Human-supplied global tone and style guidance.")
+    ] = None,
     llama_model: Annotated[
         str, typer.Option("--llama-model", help="Local GGUF model alias, filename, or path.")
     ] = QWEN35_9B_PROFILE,
@@ -592,6 +879,9 @@ def translate(
     ] = 0.8,
 ) -> None:
     """Translate existing transcription JSON files."""
+    translation_brief = _translation_brief_input(
+        summary=brief_summary, characters=brief_characters, tone_style=brief_tone_style
+    )
     lrcer = _lrcer_for_translation(
         translation=translation,
         llama_model=llama_model,
@@ -603,6 +893,13 @@ def translate(
         context_model=context_model,
         context_base_url=context_base_url,
         context_fee_limit=context_fee_limit,
+        subtitle_optimization=subtitle_optimization,
+        glossary=glossary,
+        force_glossary=force_glossary,
+        glossary_strict=glossary_strict,
+        edit_rounds=edit_rounds,
+        enable_restore=enable_restore,
+        translation_brief=translation_brief,
     )
     try:
         outputs = lrcer.translate(
@@ -631,6 +928,9 @@ def run(
         bool, typer.Option("--noise-suppress", help="Apply noise suppression before transcription.")
     ] = False,
     bilingual_sub: Annotated[bool, typer.Option("--bilingual-sub", help="Generate bilingual subtitle files.")] = False,
+    subtitle_optimization: Annotated[
+        SubtitleOptimizationMode, typer.Option("--subtitle-optimization", help="Subtitle cleanup profile.")
+    ] = SubtitleOptimizationMode.AGGRESSIVE,
     clear_temp: Annotated[
         bool,
         typer.Option(
@@ -641,6 +941,33 @@ def run(
     skip_preprocess: Annotated[
         bool, typer.Option("--skip-preprocess", help="Use existing preprocessed audio files.")
     ] = False,
+    glossary: Annotated[Path | None, typer.Option("--glossary", help="Task glossary JSON path.")] = None,
+    force_glossary: Annotated[
+        bool, typer.Option("--force-glossary", help="Treat enabled task glossary entries as required.")
+    ] = False,
+    glossary_strict: Annotated[
+        bool,
+        typer.Option(
+            "--glossary-strict/--no-glossary-strict",
+            help="Reject same-priority glossary conflicts instead of reporting first-item precedence.",
+        ),
+    ] = True,
+    edit_rounds: Annotated[
+        int, typer.Option("--edit-rounds", min=0, max=3, help="Semantic edit rounds; 0 runs deterministic checks only.")
+    ] = 1,
+    enable_restore: Annotated[
+        bool, typer.Option("--enable-restore", help="Keep a compact edit session after successful translation.")
+    ] = False,
+    brief_summary: Annotated[
+        str | None, typer.Option("--brief-summary", help="Human-supplied global Translation Brief summary.")
+    ] = None,
+    brief_characters: Annotated[
+        str | None,
+        typer.Option("--brief-characters", help="Strict character JSON array, or @PATH to a UTF-8 JSON file."),
+    ] = None,
+    brief_tone_style: Annotated[
+        str | None, typer.Option("--brief-tone-style", help="Human-supplied global tone and style guidance.")
+    ] = None,
     llama_model: Annotated[
         str, typer.Option("--llama-model", help="Local GGUF model alias, filename, or path.")
     ] = QWEN35_9B_PROFILE,
@@ -669,6 +996,9 @@ def run(
     ] = 0.8,
 ) -> None:
     """Run the transcription pipeline and optionally translate subtitles."""
+    translation_brief = _translation_brief_input(
+        summary=brief_summary, characters=brief_characters, tone_style=brief_tone_style
+    )
     lrcer = _lrcer_for_run(
         translation=translation,
         whisper_model=whisper_model,
@@ -682,6 +1012,13 @@ def run(
         context_model=context_model,
         context_base_url=context_base_url,
         context_fee_limit=context_fee_limit,
+        subtitle_optimization=subtitle_optimization,
+        glossary=glossary,
+        force_glossary=force_glossary,
+        glossary_strict=glossary_strict,
+        edit_rounds=edit_rounds,
+        enable_restore=enable_restore,
+        translation_brief=translation_brief,
     )
     try:
         outputs = lrcer.run(
@@ -695,6 +1032,155 @@ def run(
             skip_preprocess=skip_preprocess,
         )
         _print_outputs(outputs, lrcer.review_statuses)
+    finally:
+        lrcer.close()
+
+
+@app.command("edit")
+def edit_command(
+    source_path: Annotated[Path, typer.Option("--source", help="Source subtitle JSON.")],
+    target_path: Annotated[Path, typer.Option("--target", help="Current translated subtitle JSON.")],
+    action: Annotated[EditAction, typer.Option("--action", help="Independent edit action.")],
+    ids: Annotated[str | None, typer.Option("--ids", help="Subtitle IDs/ranges, for example 12,18-24.")] = None,
+    restore_round: Annotated[int | None, typer.Option("--round", min=0, help="Historical round to restore.")] = None,
+    session: Annotated[Path | None, typer.Option("--session", help="Edit session JSON path.")] = None,
+    output: Annotated[Path | None, typer.Option("--output", help="Output translation JSON path.")] = None,
+    markdown_report: Annotated[
+        bool, typer.Option("--markdown-report", help="Write the edit report as Markdown.")
+    ] = False,
+    glossary: Annotated[Path | None, typer.Option("--glossary", help="Task glossary JSON path.")] = None,
+    force_glossary: Annotated[
+        bool, typer.Option("--force-glossary", help="Treat enabled task glossary entries as required.")
+    ] = False,
+    glossary_strict: Annotated[
+        bool, typer.Option("--glossary-strict/--no-glossary-strict", help="Glossary conflict policy.")
+    ] = True,
+    brief_summary: Annotated[
+        str | None, typer.Option("--brief-summary", help="Human-supplied global Translation Brief summary.")
+    ] = None,
+    brief_characters: Annotated[
+        str | None,
+        typer.Option("--brief-characters", help="Strict character JSON array, or @PATH to a UTF-8 JSON file."),
+    ] = None,
+    brief_tone_style: Annotated[
+        str | None, typer.Option("--brief-tone-style", help="Human-supplied global tone and style guidance.")
+    ] = None,
+    llama_model: Annotated[
+        str | None, typer.Option("--llama-model", help="Explicit Hy-MT2 GGUF alias, filename, or path.")
+    ] = None,
+    local_model_profile: Annotated[
+        LocalModelProfile | None, typer.Option("--local-model-profile", help="Explicit Hy-MT2 model profile.")
+    ] = None,
+    llama_port: Annotated[int, typer.Option("--llama-port", help="Local llama-server port.")] = DEFAULT_LLAMA_PORT,
+    hy_mt2_mode: Annotated[HyMT2Mode, typer.Option("--hy-mt2-mode", help="Hy-MT2 edit mode.")] = HyMT2Mode.FAST,
+    context_provider: Annotated[
+        ContextProvider | None, typer.Option("--context-provider", help="Explicit context-model provider.")
+    ] = None,
+    context_model: Annotated[
+        str | None, typer.Option("--context-model", help="Explicit context-model name or local model path.")
+    ] = None,
+    context_base_url: Annotated[
+        str | None, typer.Option("--context-base-url", help="Custom context-model endpoint.")
+    ] = None,
+    context_fee_limit: Annotated[
+        float, typer.Option("--context-fee-limit", help="Maximum context-model fee per call.")
+    ] = 0.8,
+) -> None:
+    """Verify, review, retranslate, or restore existing subtitles without ASR."""
+    translation_brief = _translation_brief_input(
+        summary=brief_summary, characters=brief_characters, tone_style=brief_tone_style
+    )
+    if action in {EditAction.VERIFY, EditAction.RESTORE} and translation_brief is not None:
+        raise typer.BadParameter(f"Translation Brief is not supported by edit {action.value}.")
+    selected_ids = None
+    if action in {EditAction.REVIEW, EditAction.RETRANSLATE}:
+        if ids is None:
+            raise typer.BadParameter("review and retranslate require --ids.")
+        selected_ids = parse_segment_ids(ids)
+    elif ids is not None:
+        raise typer.BadParameter("--ids is only valid for review and retranslate.")
+
+    glossary_value, glossary_options, edit_config = _glossary_and_edit_options(
+        glossary=glossary,
+        force_glossary=force_glossary,
+        glossary_strict=glossary_strict,
+        edit_rounds=1,
+        enable_restore=True,
+    )
+    lrcer_cls = _lrcer_cls()
+    if action in {EditAction.VERIFY, EditAction.RESTORE}:
+        lrcer = lrcer_cls(
+            translation=TranslationConfig(
+                glossary=glossary_value,
+                glossary_options=glossary_options,
+                edit_config=edit_config,
+                translation_brief=translation_brief,
+            )
+        )
+    elif action is EditAction.REVIEW:
+        context_llm = _context_llm_config(
+            mode=HyMT2Mode.NORMAL,
+            provider=context_provider,
+            model=context_model,
+            base_url=context_base_url,
+            fee_limit=context_fee_limit,
+            port=llama_port,
+        )
+        lrcer = lrcer_cls(
+            translation=TranslationConfig(
+                context_llm=context_llm,
+                glossary=glossary_value,
+                glossary_options=glossary_options,
+                edit_config=edit_config,
+                translation_brief=translation_brief,
+            )
+        )
+    else:
+        if llama_model is None and local_model_profile is None:
+            raise typer.BadParameter("retranslate requires --llama-model or --local-model-profile for Hy-MT2.")
+        selected_profile = local_model_profile
+        inferred = infer_local_llm_profile(llama_model or "")
+        if selected_profile is None and inferred == QWEN35_9B_PROFILE:
+            raise typer.BadParameter("retranslate requires a Hy-MT2 model, not bare Qwen.")
+        lrcer = _lrcer_for_translation(
+            translation=TranslationOnlyBackend.local,
+            llama_model=llama_model or QWEN35_9B_PROFILE,
+            local_model_profile=selected_profile,
+            llama_port=llama_port,
+            idle_timeout=0,
+            hy_mt2_mode=hy_mt2_mode,
+            context_provider=context_provider,
+            context_model=context_model,
+            context_base_url=context_base_url,
+            context_fee_limit=context_fee_limit,
+            subtitle_optimization=SubtitleOptimizationMode.RELAXED,
+            glossary=glossary,
+            force_glossary=force_glossary,
+            glossary_strict=glossary_strict,
+            edit_rounds=0,
+            enable_restore=True,
+            translation_brief=translation_brief,
+            semantic_editor=False,
+        )
+    try:
+        result = lrcer.edit(
+            source_path,
+            target_path,
+            action=action.value,
+            segment_ids=selected_ids,
+            restore_round=restore_round,
+            session_path=session,
+            output_path=output,
+            markdown_report=markdown_report,
+        )
+        console.print(
+            f"Edit {action.value}: {len(result.changed_ids)} changed IDs, "
+            f"{len(result.unresolved_issues)} unresolved issues. Report: {result.report_path}"
+        )
+        if action is EditAction.VERIFY and any(
+            issue.severity is EditSeverity.ERROR for issue in result.unresolved_issues
+        ):
+            raise typer.Exit(code=1)
     finally:
         lrcer.close()
 

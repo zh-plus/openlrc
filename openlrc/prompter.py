@@ -346,9 +346,9 @@ class HyMT2DelimiterTranslatePrompter(LeanTranslatePrompter):
         terminology: str = "",
         sliding_window: str = "",
         style: str = "",
-        audience: str = "",
-        asr_ambiguities: str = "",
         neighboring_context: str = "",
+        story_so_far: str = "",
+        current_scene: str = "",
     ) -> str:
         context_parts: list[str] = []
         if summary:
@@ -361,12 +361,12 @@ class HyMT2DelimiterTranslatePrompter(LeanTranslatePrompter):
             context_parts.append(f"Recent translations:\n{sliding_window}")
         if style:
             context_parts.append(f"Required tone and style:\n{style}")
-        if audience:
-            context_parts.append(f"Target audience:\n{audience}")
-        if asr_ambiguities:
-            context_parts.append(f"Context-resolved ASR ambiguities:\n{asr_ambiguities}")
         if neighboring_context:
             context_parts.append(f"Read-only neighboring source subtitles:\n{neighboring_context}")
+        if story_so_far:
+            context_parts.append(f"Story so far after this source chunk:\n{story_so_far}")
+        if current_scene:
+            context_parts.append(f"Current scene for this source chunk:\n{current_scene}")
 
         sections: list[str] = []
         if context_parts:

@@ -1,9 +1,13 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
+import warnings
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 
+from openlrc.context import TranslationBriefInput, normalize_translation_brief_input
+from openlrc.glossary import GlossaryCatalog
 from openlrc.llama_resources import (
     DEFAULT_LLAMA_CONTEXT_SIZE,
     DEFAULT_LLAMA_HOST,
@@ -83,8 +87,63 @@ class HyMT2Mode(str, Enum):
     """Execution modes for the Hy-MT2 translation pipeline."""
 
     FAST = "fast"
+    NORMAL = "normal"
+    NORMAL_PLUS = "normal-plus"
+    # Deprecated public aliases retained for the 0.3.x compatibility window.
     CONTEXT = "context"
     CONTEXT_PLUS = "context-plus"
+    PRO = "pro"
+
+    @property
+    def canonical(self) -> "HyMT2Mode":
+        if self is HyMT2Mode.CONTEXT:
+            return HyMT2Mode.NORMAL
+        if self is HyMT2Mode.CONTEXT_PLUS:
+            return HyMT2Mode.NORMAL_PLUS
+        return self
+
+
+def normalize_hymt2_mode(mode: HyMT2Mode | str) -> HyMT2Mode:
+    """Return the canonical product mode for public and checkpoint use."""
+    selected = HyMT2Mode(mode)
+    if selected in {HyMT2Mode.CONTEXT, HyMT2Mode.CONTEXT_PLUS}:
+        warnings.warn(
+            f"Hy-MT2 mode {selected.value!r} is deprecated; use {selected.canonical.value!r}.",
+            FutureWarning,
+            stacklevel=2,
+        )
+    return selected.canonical
+
+
+class SubtitleOptimizationMode(str, Enum):
+    """Subtitle cleanup profiles applied around translation."""
+
+    AGGRESSIVE = "aggressive"
+    RELAXED = "relaxed"
+
+
+@dataclass
+class GlossaryOptions:
+    """Glossary validation and reporting behavior."""
+
+    strict: bool = True
+    force: bool = False
+    report_matches: bool = True
+
+
+@dataclass
+class EditConfig:
+    """Deterministic and semantic subtitle editing behavior."""
+
+    enabled: bool = False
+    max_rounds: int = 1
+    semantic_review: bool = True
+    deterministic_checks: bool = True
+    restore_enabled: bool = False
+
+    def __post_init__(self) -> None:
+        if isinstance(self.max_rounds, bool) or not 0 <= self.max_rounds <= 3:
+            raise ValueError("EditConfig.max_rounds must be between 0 and 3.")
 
 
 @dataclass
@@ -181,6 +240,9 @@ class TranslationConfig:
         consumer_thread: Number of parallel translation threads. Default: ``4``
         glossary: Path to a JSON glossary file mapping source words to
             translations, or None.
+        translation_brief: Optional fixed summary, character mappings, and
+            tone/style sections for a full or partial Hy-MT2 Translation Brief.
+            An empty mapping is treated as no manual Brief.
         is_force_glossary_used: Force glossary usage in context. Default: ``False``
         enable_cr: Whether to run Context Review in lean mode.
             Default: ``True``. The classic pipeline always runs Context Review.
@@ -198,8 +260,11 @@ class TranslationConfig:
     cr_chatbot: ModelConfig | None = None
     fee_limit: float = 0.8
     consumer_thread: int = 4
-    glossary: str | None = None
+    glossary: dict | str | Path | GlossaryCatalog | None = None
     is_force_glossary_used: bool = False
+    glossary_options: GlossaryOptions = field(default_factory=GlossaryOptions)
+    edit_config: EditConfig = field(default_factory=EditConfig)
+    translation_brief: TranslationBriefInput | dict | None = None
     enable_cr: bool = True
     chunked_guideline: bool = False
     prompt_profile: str = "default"
@@ -221,6 +286,9 @@ class TranslationConfig:
         gpu_layers: str | int = "all",
         startup_timeout: int = DEFAULT_LLAMA_STARTUP_TIMEOUT,
         extra_args: list[str] | None = None,
+        glossary: dict | str | Path | GlossaryCatalog | None = None,
+        glossary_options: GlossaryOptions | None = None,
+        edit_config: EditConfig | None = None,
     ) -> "TranslationConfig":
         """Create the recommended local Qwen3.5 9B translation configuration."""
         local_llm = LocalLLMConfig(
@@ -246,6 +314,9 @@ class TranslationConfig:
             consumer_thread=1,
             enable_cr=True,
             local_llm=local_llm,
+            glossary=glossary,
+            glossary_options=glossary_options or GlossaryOptions(),
+            edit_config=edit_config or EditConfig(),
         )
 
     @classmethod
@@ -263,6 +334,10 @@ class TranslationConfig:
         extra_args: list[str] | None = None,
         mode: HyMT2Mode | str = HyMT2Mode.FAST,
         context_llm: ContextLLMConfig | None = None,
+        glossary: dict | str | Path | GlossaryCatalog | None = None,
+        glossary_options: GlossaryOptions | None = None,
+        edit_config: EditConfig | None = None,
+        translation_brief: TranslationBriefInput | dict | None = None,
     ) -> "TranslationConfig":
         """Create the recommended local Hy-MT2 7B Q6_K translation configuration."""
         return cls.local_hy_mt2(
@@ -278,6 +353,10 @@ class TranslationConfig:
             extra_args=extra_args,
             mode=mode,
             context_llm=context_llm,
+            glossary=glossary,
+            glossary_options=glossary_options,
+            edit_config=edit_config,
+            translation_brief=translation_brief,
         )
 
     @classmethod
@@ -296,6 +375,10 @@ class TranslationConfig:
         extra_args: list[str] | None = None,
         mode: HyMT2Mode | str = HyMT2Mode.FAST,
         context_llm: ContextLLMConfig | None = None,
+        glossary: dict | str | Path | GlossaryCatalog | None = None,
+        glossary_options: GlossaryOptions | None = None,
+        edit_config: EditConfig | None = None,
+        translation_brief: TranslationBriefInput | dict | None = None,
     ) -> "TranslationConfig":
         """Create a local Hy-MT2 translation configuration.
 
@@ -303,8 +386,25 @@ class TranslationConfig:
         Pass ``model`` as a local converted GGUF filename or path for that size.
         """
         profile = get_local_llm_profile(size)
-        mode = HyMT2Mode(mode)
-        if mode is not HyMT2Mode.FAST and context_llm is None:
+        mode = normalize_hymt2_mode(mode)
+        brief_input = normalize_translation_brief_input(translation_brief)
+        if mode is HyMT2Mode.FAST and brief_input is not None:
+            raise ValueError("Hy-MT2 fast mode does not use a Translation Brief.")
+        resolved_edit_config = edit_config or EditConfig(enabled=mode in {HyMT2Mode.NORMAL_PLUS, HyMT2Mode.PRO})
+        needs_context = bool(
+            mode is not HyMT2Mode.FAST
+            and (
+                mode is HyMT2Mode.PRO
+                or brief_input is None
+                or not brief_input.is_complete
+                or (
+                    mode is HyMT2Mode.NORMAL_PLUS
+                    and resolved_edit_config.semantic_review
+                    and resolved_edit_config.max_rounds > 0
+                )
+            )
+        )
+        if needs_context and context_llm is None:
             raise ValueError(f"Hy-MT2 {mode.value!r} mode requires an explicit context_llm configuration.")
         if profile.name == HY_MT2_30B_A3B_PROFILE and not model:
             raise ValueError("Hy-MT2 30B-A3B requires an explicit local GGUF model path or filename.")
@@ -334,6 +434,10 @@ class TranslationConfig:
             local_llm=local_llm,
             hy_mt2_mode=mode,
             context_llm=context_llm,
+            glossary=glossary,
+            glossary_options=glossary_options or GlossaryOptions(),
+            edit_config=resolved_edit_config,
+            translation_brief=brief_input,
         )
         config._translator_engine = "lean"
         return config

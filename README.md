@@ -11,8 +11,8 @@ workflows:
   and Metal acceleration.
 - Optional local translation with [llama.cpp](https://github.com/ggml-org/llama.cpp)
   and a Qwen GGUF model.
-- A first-stage `openlrc` / `openlrc-mac` CLI for setup, diagnostics, model
-  status, transcription, translation, and full subtitle generation.
+- An `openlrc` / `openlrc-mac` CLI for setup, diagnostics, model status,
+  transcription, translation, glossary compliance, and transactional editing.
 
 The distribution name is `openlrc-mac`. The Python import package remains
 `openlrc` for compatibility with upstream-style scripts.
@@ -25,6 +25,10 @@ Working:
 - Build and use local `llama.cpp` for opt-in Qwen translation.
 - Generate `.lrc` and `.srt` subtitles through the existing OpenLRC pipeline.
 - Run common workflows from the CLI without editing Python scripts.
+- Load versioned task glossaries, report deterministic compliance, and run
+  auditable line-scoped subtitle edits without repeating ASR.
+- Supply a complete or partial Translation Brief, locking known story,
+  character-name, and tone/style guidance while inference fills only omissions.
 
 Still in progress:
 
@@ -91,29 +95,97 @@ Hy-MT2 defaults to `fast` mode (delimiter translation, no Context Review).
 Context modes require an explicit general-purpose model:
 
 ```shell
-# Fully local: Qwen context brief -> unload -> Hy-MT2 translation
+# Normal: Qwen context brief -> unload -> Hy-MT2 translation
 uv run openlrc run video.mp4 --src-lang en --target-lang zh-cn \
   --translation local --local-model-profile hy-mt2-7b \
-  --hy-mt2-mode context --context-provider local --context-model qwen3.5-9b
+  --hy-mt2-mode normal --context-provider local --context-model qwen3.5-9b
 
-# Context plus: Qwen brief -> Hy-MT2 translation -> Qwen high-risk review
+# Normal Plus: Qwen brief -> Hy-MT2 deterministic repair -> Qwen semantic edit
 uv run openlrc run video.mp4 --src-lang en --target-lang zh-cn \
   --translation local --local-model-profile hy-mt2-7b \
-  --hy-mt2-mode context-plus --context-provider local --context-model qwen3.5-9b
+  --hy-mt2-mode normal-plus --context-provider local --context-model qwen3.5-9b
+
+# Pro: Qwen brief + per-chunk timeline -> Hy-MT2 -> Qwen high-risk review
+uv run openlrc run video.mp4 --src-lang en --target-lang zh-cn \
+  --translation local --local-model-profile hy-mt2-7b \
+  --hy-mt2-mode pro --context-provider local --context-model qwen3.5-9b
 ```
 
-Only one local LLM is resident during staged context modes. Hy-MT2 exposes only
-`fast`, `context`, and `context-plus`; its internal translator engine is not a
-user-facing option. Online translation and the general local Qwen profile use
-the classic OpenLRC context-aware pipeline by default.
+Only one local LLM is resident during staged context modes. Hy-MT2 exposes
+`fast`, `normal`, `normal-plus`, and `pro`; the deprecated `context` and
+`context-plus` values are accepted as aliases for one compatibility release.
+Its internal translator engine is not a user-facing option. Pro precomputes a bounded per-chunk ContextTimeline
+with the same chunk boundaries used for translation and review. Online
+translation and the general local Qwen profile use the classic OpenLRC
+context-aware pipeline by default.
+
+Hy-MT2 context preparation keeps a concise source-language summary, optional
+tone/style guidance, and Timeline state in the source language. Only character
+names and glossary terms carry source-to-target mappings. Character descriptions,
+target-audience guesses, and pre-translation ASR interpretations are excluded
+from the Brief and Hy-MT2 prompt. Control instructions remain English and
+Timeline generation is target-agnostic.
+
+If you already know the work, you can supply all or part of the Translation
+Brief instead of relying entirely on model inference:
+
+```shell
+uv run openlrc run movie.mp4 --src-lang en --target-lang zh-cn \
+  --translation local --local-model-profile hy-mt2-7b --hy-mt2-mode normal \
+  --brief-summary "A dry workplace comedy about a failed product launch." \
+  --brief-characters '@characters.json' \
+  --brief-tone-style "Keep the dialogue understated and conversational."
+```
+
+`--brief-characters` accepts an inline JSON array or `@PATH` to a UTF-8 JSON
+file, for example
+`[{"source_name":"John","target_name":"强尼"}]`. Supplied fields are
+locked; a context model fills only missing fields. Supplying summary,
+characters, and tone/style makes the Brief fully manual and skips automatic
+Brief and terminology extraction. User terminology remains a separate task
+glossary supplied through `--glossary`; it takes precedence over conflicting
+manual or automatically inferred character mappings and is injected only once.
+
+Subtitle cleanup defaults to the historical `aggressive` profile. Use the
+alignment-safe `relaxed` profile to preserve short/repeated lines, `<unk>`
+segments, line count, ordering, and timestamps:
+
+```shell
+uv run openlrc run video.mp4 --translation local \
+  --subtitle-optimization relaxed
+```
 
 By default, `openlrc run` does not translate. Translation must be explicitly
 enabled with `--translation local` or `--translation online`.
 Temporary preprocessing/checkpoint files are removed after complete success.
-Use `--keep-temp` to retain them. An incomplete context-plus review always keeps
-its checkpoint so the next run can resume failed review chunks.
+Use `--keep-temp` to retain them. An incomplete Normal Plus or Pro edit always
+keeps its checkpoint so the next run can resume unfinished chunks.
 The standalone `translate` command removes a completed checkpoint by default;
 use `--keep-checkpoint` when the compare JSON is needed for debugging.
+
+Task glossaries accept the legacy JSON mapping or the versioned catalog schema.
+They are never applied by blind text replacement: OpenLRC checks the translated
+output and reports unresolved required terms instead.
+
+```shell
+uv run openlrc glossary validate glossary.json --source-language en --target-language zh-cn
+uv run openlrc translate preprocessed/input_preprocessed_transcribed.json \
+  --translation local --local-model-profile hy-mt2-7b --hy-mt2-mode normal-plus \
+  --context-provider local --context-model qwen3.5-9b \
+  --glossary glossary.json --force-glossary --edit-rounds 2 --enable-restore
+```
+
+Independent editing consumes source and translated JSON directly and does not
+rerun transcription. `verify` and `restore` are offline; `review` requires an
+explicit context model; `retranslate` requires an explicit Hy-MT2 model.
+
+```shell
+uv run openlrc edit --source source.json --target translated.json --action verify
+uv run openlrc edit --source source.json --target translated.json \
+  --action review --ids 12,18-24 --context-provider local --context-model qwen3.5-9b
+uv run openlrc edit --source source.json --target translated.json \
+  --action restore --round 0 --session translated.edit-session.json
+```
 
 ## Python API
 
@@ -138,13 +210,23 @@ lrcer.run("video.mp4", src_lang="en", target_lang="zh-cn")
 Hy-MT2 local translation shortcut:
 
 ```python
-from openlrc import ContextLLMConfig, HyMT2Mode, LRCer
+from openlrc import ContextLLMConfig, HyMT2Mode, LRCer, TranslationBriefInput
 
 lrcer = LRCer.local_hy_mt2()
 lrcer.run("video.mp4", src_lang="en", target_lang="zh-cn")
 
 context_llm = ContextLLMConfig.local_qwen35_9b()
-lrcer = LRCer.local_hy_mt2(mode=HyMT2Mode.CONTEXT, context_llm=context_llm)
+lrcer = LRCer.local_hy_mt2(
+    mode=HyMT2Mode.NORMAL,
+    context_llm=context_llm,
+    translation_brief=TranslationBriefInput(
+        summary="A dry workplace comedy about a failed product launch.",
+        tone_style="Keep the dialogue understated and conversational.",
+    ),
+)
+
+# Existing translations can be verified without loading a model.
+result = LRCer().edit("source.json", "translated.json", action="verify")
 ```
 
 If OpenLRC starts the local `llama-server`, it closes it when the workflow ends.

@@ -9,6 +9,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from openlrc.agents import create_chatbot
+from openlrc.chunking import CHUNK_PLANNER_VERSION, chunk_plan_signature, plan_translation_chunks
+from openlrc.context import CharacterBrief, ContextTimeline, GlossaryBrief, ProChunkContext, TranslationBrief
+from openlrc.glossary import GlossaryCatalog, GlossaryEntry, GlossaryService
 from openlrc.llama_resources import HY_MT2_PROMPT_PROFILE
 from openlrc.media_utils import get_similarity
 from openlrc.prompter import (
@@ -235,6 +238,19 @@ class TestHyMT2TranslatePrompter(unittest.TestCase):
         self.assertIn("Translate the following text into Chinese", user)
         self.assertIn("only output the translated result", user)
         self.assertIn("Hello", user)
+
+    def test_pro_prompt_includes_story_and_current_scene(self):
+        prompter = create_lean_translate_prompter("en", "zh-cn", HY_MT2_PROMPT_PROFILE)
+        user = prompter.user(
+            prompter.format_texts([(1, "He followed her.")]),
+            story_so_far="The detective is following a suspect.",
+            current_scene="They are crossing a station platform.",
+        )
+
+        self.assertIn("Story so far after this source chunk", user)
+        self.assertIn("The detective is following a suspect.", user)
+        self.assertIn("Current scene for this source chunk", user)
+        self.assertIn("They are crossing a station platform.", user)
 
 
 class TestLeanContextReviewPrompter(unittest.TestCase):
@@ -523,6 +539,35 @@ class TestLeanTranslatorTranslate(unittest.TestCase):
         self.assertEqual(result, (["一", "二", "三", "四", "五"], True))
         mock_atomic.assert_called_once_with(translator.chatbot, ["five"], "en", "zh-cn")
 
+    def test_delimiter_atomic_fill_keeps_pro_context_and_neighbors(self):
+        translator = self._make_translator(enable_cr=False)
+        prompter = create_lean_translate_prompter("en", "zh-cn", HY_MT2_PROMPT_PROFILE)
+        prompter.update_expected_ids([1, 2, 3, 4, 5])
+        translator.chatbot.get_content.return_value = (
+            '<seg id="1">一</seg><seg id="2">二</seg><seg id="3">三</seg><seg id="4">四</seg>'
+        )
+        translator.chatbot.message.return_value = [MagicMock()]
+
+        with patch.object(translator, "atomic_translate", return_value=["五"]) as mock_atomic:
+            result = translator._try_single_attempt(
+                translator.chatbot,
+                prompter,
+                [{"role": "user", "content": "Translate"}],
+                [1, 2, 3, 4, 5],
+                {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"},
+                "en",
+                "zh-cn",
+                prompt_context={"story_so_far": "Ongoing investigation", "current_scene": "At the station"},
+                all_texts=["one", "two", "three", "four", "five", "six"],
+            )
+
+        self.assertEqual(result, (["一", "二", "三", "四", "五"], True))
+        kwargs = mock_atomic.call_args.kwargs
+        self.assertIn("Ongoing investigation", kwargs["guideline"])
+        self.assertIn("At the station", kwargs["guideline"])
+        self.assertIn("[4] four", kwargs["contexts"][0])
+        self.assertIn("[6] six", kwargs["contexts"][0])
+
     def test_delimiter_alignment_does_not_shift_missing_middle_id(self):
         translator = self._make_translator(enable_cr=False)
         prompter = create_lean_translate_prompter("en", "zh-cn", HY_MT2_PROMPT_PROFILE)
@@ -568,8 +613,11 @@ class TestLeanTranslatorTranslate(unittest.TestCase):
         translator = self._make_translator(enable_cr=False)
         translator.chunk_size = 3
         texts = [f"text{i}" for i in range(6)]
+        plans = translator.plan_chunks(texts)
 
         saved_state = {
+            "chunk_planner_version": CHUNK_PLANNER_VERSION,
+            "chunk_signature": chunk_plan_signature(plans),
             "compare": [
                 {"chunk": 1, "idx": i + 1, "method": "chunked", "model": "None", "input": f"text{i}", "output": f"t{i}"}
                 for i in range(3)
@@ -620,6 +668,135 @@ class TestLeanTranslatorTranslate(unittest.TestCase):
         self.assertIn("hello: 你好", user_content)
         self.assertIn("world: 世界", user_content)
         mock_reviewer_cls.assert_not_called()
+
+    @patch("openlrc.translate.ContextReviewerAgent")
+    def test_hy_mt2_pro_uses_aligned_timeline_and_records_metadata(self, mock_reviewer_cls):
+        translator = LeanTranslator(
+            chatbot=_make_mock_chatbot(), enable_cr=False, prompt_profile=HY_MT2_PROMPT_PROFILE, chunk_size=2
+        )
+        texts = ["He arrived.", "She left."]
+        plans = plan_translation_chunks(texts, chunk_size=2, token_budget=translator.MAX_CHUNK_TOKENS)
+        timeline = ContextTimeline(
+            chunk_signature=chunk_plan_signature(plans),
+            chunks=[
+                ProChunkContext(
+                    chunk_id=1,
+                    segment_ids=[1, 2],
+                    story_so_far="A meeting has ended.",
+                    current_scene="The two characters are leaving.",
+                )
+            ],
+        )
+        captured_messages = []
+
+        def capture_message(messages, **kwargs):
+            captured_messages.append(messages)
+            return [MagicMock()]
+
+        translator.chatbot.message.side_effect = capture_message
+        translator.chatbot.get_content.return_value = '<seg id="1">他到了。</seg><seg id="2">她离开了。</seg>'
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            compare_path = Path(tmpdir) / "compare.json"
+            result = translator.translate(
+                texts,
+                "en",
+                "zh-cn",
+                compare_path=compare_path,
+                translation_brief=TranslationBrief(summary="A short meeting."),
+                checkpoint_metadata={"schema_version": 3, "hymt2_mode": "pro"},
+                chunk_plans=plans,
+                context_timeline=timeline,
+            )
+            saved = json.loads(compare_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(result, ["他到了。", "她离开了。"])
+        prompt = captured_messages[0][0]["content"]
+        self.assertIn("A meeting has ended.", prompt)
+        self.assertIn("The two characters are leaving.", prompt)
+        self.assertEqual(saved["compare"][0]["mode"], "pro")
+        self.assertEqual(saved["compare"][0]["timeline_chunk_id"], 1)
+        self.assertEqual(saved["raw_hymt2_translations"], result)
+        self.assertEqual(saved["pipeline_stage"], "translation")
+        mock_reviewer_cls.assert_not_called()
+
+    @patch("openlrc.translate.ContextReviewerAgent")
+    def test_hy_mt2_pro_resumes_translation_with_matching_timeline_chunk(self, mock_reviewer_cls):
+        translator = LeanTranslator(
+            chatbot=_make_mock_chatbot(), enable_cr=False, prompt_profile=HY_MT2_PROMPT_PROFILE, chunk_size=2
+        )
+        texts = ["one", "two", "three", "four"]
+        plans = plan_translation_chunks(texts, chunk_size=2, token_budget=translator.MAX_CHUNK_TOKENS)
+        timeline = ContextTimeline(
+            chunk_signature=chunk_plan_signature(plans),
+            chunks=[
+                ProChunkContext(chunk_id=1, segment_ids=[1, 2], story_so_far="story one", current_scene="scene one"),
+                ProChunkContext(chunk_id=2, segment_ids=[3, 4], story_so_far="story two", current_scene="scene two"),
+            ],
+        )
+        translator.chatbot.message.return_value = [MagicMock()]
+        translator.chatbot.get_content.return_value = '<seg id="3">三</seg><seg id="4">四</seg>'
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            compare_path = Path(tmpdir) / "compare.json"
+            compare_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 3,
+                        "hymt2_mode": "pro",
+                        "chunk_planner_version": CHUNK_PLANNER_VERSION,
+                        "chunk_signature": timeline.chunk_signature,
+                        "compare": [
+                            {"chunk": 1, "idx": 1, "input": "one", "output": "一"},
+                            {"chunk": 1, "idx": 2, "input": "two", "output": "二"},
+                        ],
+                        "recent_pairs": [[1, "one", "一"], [2, "two", "二"]],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            result = translator.translate(
+                texts,
+                "en",
+                "zh-cn",
+                compare_path=compare_path,
+                translation_brief=TranslationBrief(summary="Counting"),
+                checkpoint_metadata={
+                    "schema_version": 3,
+                    "hymt2_mode": "pro",
+                    "context_timeline": timeline.model_dump(),
+                },
+                chunk_plans=plans,
+                context_timeline=timeline,
+            )
+            saved = json.loads(compare_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(result, ["一", "二", "三", "四"])
+        prompt = translator.chatbot.message.call_args.args[0][0]["content"]
+        self.assertIn("story two", prompt)
+        self.assertNotIn("story one", prompt)
+        self.assertEqual(saved["raw_hymt2_translations"], result)
+        mock_reviewer_cls.assert_not_called()
+
+    def test_hy_mt2_pro_rejects_misaligned_timeline(self):
+        translator = LeanTranslator(chatbot=_make_mock_chatbot(), enable_cr=False, prompt_profile=HY_MT2_PROMPT_PROFILE)
+        texts = ["one"]
+        plans = plan_translation_chunks(texts)
+        timeline = ContextTimeline(
+            chunk_signature=chunk_plan_signature(plans),
+            chunks=[ProChunkContext(chunk_id=1, segment_ids=[99], story_so_far="story", current_scene="scene")],
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir, self.assertRaisesRegex(ValueError, "does not align"):
+            translator.translate(
+                texts,
+                "en",
+                "zh-cn",
+                compare_path=Path(tmpdir) / "compare.json",
+                chunk_plans=plans,
+                context_timeline=timeline,
+            )
 
     @patch("openlrc.translate.ContextReviewerAgent")
     def test_user_glossary_merged_with_cr(self, mock_reviewer_cls):
@@ -794,6 +971,116 @@ class TestLeanTranslatorTranslate(unittest.TestCase):
         # api_fee should include fees from index 3 onward (after the 3 pre-existing entries)
         # The mock_message appends 0.05 each call; at least one call for translation
         self.assertGreater(translator.api_fee, 0)
+
+
+class TestTargetedTranslation(unittest.TestCase):
+    def test_selected_ids_are_grouped_by_original_parent_chunk(self):
+        bot = _make_mock_chatbot()
+        translator = LeanTranslator(chatbot=bot, enable_cr=False, prompt_profile=HY_MT2_PROMPT_PROFILE, chunk_size=2)
+        texts = ["one", "two", "three", "four"]
+        plans = plan_translation_chunks(texts, chunk_size=2, token_budget=1000)
+
+        with patch.object(
+            translator, "_translate_lean_chunk", side_effect=[(["一"], False), (["四"], False)]
+        ) as translate_chunk:
+            result = translator.translate_targeted(
+                texts,
+                ["旧一", "旧二", "旧三", "旧四"],
+                [1, 4],
+                src_lang="en",
+                target_lang="zh-cn",
+                translation_brief=TranslationBrief(summary="summary"),
+                chunk_plans=plans,
+            )
+
+        self.assertEqual(result, {1: "一", 4: "四"})
+        self.assertEqual(translate_chunk.call_count, 2)
+        self.assertEqual(translate_chunk.call_args_list[0].args[2], [1])
+        self.assertEqual(translate_chunk.call_args_list[1].args[2], [4])
+
+    def test_targeted_pro_translation_rejects_misaligned_timeline(self):
+        bot = _make_mock_chatbot()
+        translator = LeanTranslator(chatbot=bot, enable_cr=False, prompt_profile=HY_MT2_PROMPT_PROFILE)
+        plans = plan_translation_chunks(["one", "two"], chunk_size=2, token_budget=1000)
+        timeline = ContextTimeline(
+            chunk_signature="signature", chunks=[ProChunkContext(chunk_id=1, segment_ids=[2, 1])]
+        )
+
+        with self.assertRaisesRegex(ValueError, "does not align"):
+            translator.translate_targeted(
+                ["one", "two"],
+                ["一", "二"],
+                [1],
+                src_lang="en",
+                target_lang="zh-cn",
+                translation_brief=TranslationBrief(summary="summary"),
+                chunk_plans=plans,
+                context_timeline=timeline,
+            )
+
+    def test_completed_parent_chunk_is_skipped_and_each_new_chunk_is_checkpointed(self):
+        bot = _make_mock_chatbot()
+        translator = LeanTranslator(chatbot=bot, enable_cr=False, prompt_profile=HY_MT2_PROMPT_PROFILE, chunk_size=2)
+        texts = ["one", "two", "three", "four"]
+        plans = plan_translation_chunks(texts, chunk_size=2, token_budget=1000)
+        checkpoint = MagicMock()
+
+        with patch.object(translator, "_translate_lean_chunk", return_value=(["四"], False)) as translate_chunk:
+            result = translator.translate_targeted(
+                texts,
+                ["旧一", "旧二", "旧三", "旧四"],
+                [1, 4],
+                src_lang="en",
+                target_lang="zh-cn",
+                chunk_plans=plans,
+                completed_results={1: "一"},
+                checkpoint_hook=checkpoint,
+            )
+
+        self.assertEqual(result, {1: "一", 4: "四"})
+        translate_chunk.assert_called_once()
+        checkpoint.assert_called_once_with({1: "一", 4: "四"}, 2)
+
+    def test_preceding_window_scans_only_until_token_budget_is_full(self):
+        texts = [f"source {index}" for index in range(1000)]
+        translations = [f"target {index}" for index in range(1000)]
+
+        with patch("openlrc.translate.get_text_token_number", return_value=1) as token_count:
+            window = LeanTranslator._build_preceding_window(texts, translations, before_id=1000, budget=4)
+
+        self.assertEqual(window.count("\n") + 1, 4)
+        self.assertEqual(token_count.call_count, 5)
+
+
+class TestTerminologyResolution(unittest.TestCase):
+    def test_task_glossary_overrides_brief_without_duplicate_prompt_entry(self):
+        brief = TranslationBrief(summary="summary", glossary=[GlossaryBrief(source="Case", target="案子")])
+
+        terminology = LeanTranslator._terminology_text(brief, {"case": "案件"}, None, base_terminology="- CASE: 箱子")
+
+        self.assertEqual(terminology.casefold().count("case:"), 1)
+        self.assertIn("- case: 案件", terminology)
+        self.assertNotIn("案子", terminology)
+        self.assertNotIn("箱子", terminology)
+
+    def test_manual_glossary_overrides_character_and_is_rendered_only_once(self):
+        brief = TranslationBrief(
+            summary="summary",
+            characters=[CharacterBrief(source_name="John", target_name="约翰")],
+            glossary=[GlossaryBrief(source="John", target="约翰")],
+        )
+        state = GlossaryService().merge(
+            GlossaryCatalog(entries=[GlossaryEntry(source="john", target="强尼")]), brief=brief
+        )
+
+        characters, consumed = LeanTranslator._characters_with_task_glossary(brief, state.merged_entries)
+        terminology = LeanTranslator._terminology_text(
+            brief, None, state.merged_entries, excluded_task_sources=consumed
+        )
+
+        self.assertEqual(characters, "- John -> 强尼")
+        self.assertNotIn("john", terminology.casefold())
+        self.assertEqual(state.prompt_mapping(), {"john": "强尼"})
 
 
 @unittest.skipUnless(LIVE_API, "Requires OPENLRC_TEST_LIVE_API=1 and valid API keys")

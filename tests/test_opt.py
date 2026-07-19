@@ -6,6 +6,7 @@ import os
 import unittest
 from pathlib import Path
 
+from openlrc.config import SubtitleOptimizationMode
 from openlrc.opt import SubtitleOptimizer
 from openlrc.subtitle import Subtitle
 
@@ -88,3 +89,38 @@ class TestSubtitleOptimizer(unittest.TestCase):
         self.assertEqual(len(optimized_subtitle["segments"]), 8)
 
         os.remove(output_path)
+
+    def test_relaxed_source_preserves_segments_text_and_timing(self):
+        long_repeat = "verylong" * 60
+        subtitle = Subtitle(
+            language="en",
+            filename="relaxed.json",
+            segments=[
+                {"start": 0.0, "end": 0.3, "text": "  One  "},
+                {"start": 0.4, "end": 0.7, "text": "One"},
+                {"start": 0.8, "end": 1.1, "text": "haaaaa"},
+                {"start": 1.2, "end": 2.0, "text": long_repeat},
+                {"start": 2.1, "end": 2.4, "text": "<unk>"},
+                {"start": 2.5, "end": 2.8, "text": "   "},
+            ],
+        )
+        timings = [(segment.start, segment.end) for segment in subtitle.segments]
+
+        optimizer = SubtitleOptimizer(subtitle)
+        optimizer.perform_all(mode=SubtitleOptimizationMode.RELAXED, stage="source", extend_time=True)
+
+        self.assertEqual(len(optimizer.subtitle.segments), 6)
+        self.assertEqual(optimizer.subtitle.texts, ["One", "One", "haaaaa", long_repeat, "<unk>", ""])
+        self.assertEqual([(segment.start, segment.end) for segment in optimizer.subtitle.segments], timings)
+
+    def test_relaxed_target_only_normalizes_target_text(self):
+        subtitle = Subtitle(
+            language="zh-cn", filename="target.json", segments=[{"start": 0.0, "end": 0.3, "text": "  繁體字幕!  "}]
+        )
+
+        optimizer = SubtitleOptimizer(subtitle)
+        optimizer.perform_all(mode="relaxed", stage="target", extend_time=True)
+
+        self.assertEqual(len(optimizer.subtitle.segments), 1)
+        self.assertEqual(optimizer.subtitle.texts, ["繁体字幕！"])
+        self.assertEqual((optimizer.subtitle.segments[0].start, optimizer.subtitle.segments[0].end), (0.0, 0.3))

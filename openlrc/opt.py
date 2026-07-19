@@ -3,9 +3,11 @@
 
 import re
 from pathlib import Path
+from typing import Literal
 
 import zhconv
 
+from openlrc.config import SubtitleOptimizationMode
 from openlrc.defaults import OPTIMIZED_SUFFIX
 from openlrc.logger import logger
 from openlrc.subtitle import BilingualSubtitle, Subtitle
@@ -238,7 +240,14 @@ class SubtitleOptimizer:
             if i == len(self.subtitle.segments) - 1 or self.subtitle.segments[i + 1].start - element.end > 0.5:
                 element.end += 0.5
 
-    def perform_all(self, steps: list[str] | None = None, extend_time=False):
+    def perform_all(
+        self,
+        steps: list[str] | None = None,
+        extend_time: bool = False,
+        *,
+        mode: SubtitleOptimizationMode | str = SubtitleOptimizationMode.AGGRESSIVE,
+        stage: Literal["source", "target"] = "source",
+    ):
         """
         Perform all or specified optimization operations.
 
@@ -246,26 +255,46 @@ class SubtitleOptimizer:
             steps (list of str): List of method names to be executed in order.
                                  If None, a default sequence of operations will be executed.
             extend_time (bool): Whether to extend the subtitle time for each element.
+            mode: Aggressive preserves the historical cleanup pipeline. Relaxed
+                only performs alignment-safe cleanup.
+            stage: Whether the subtitle is source text before translation or
+                target text after translation.
         """
+        mode = SubtitleOptimizationMode(mode)
+        if stage not in {"source", "target"}:
+            raise ValueError(f"Invalid optimization stage: {stage!r}")
+
         # Check steps is valid
         if steps and any(step not in dir(self) for step in steps):
             invalid_steps = ", ".join(s for s in steps if s not in dir(self))
             raise ValueError(f"Invalid steps: {invalid_steps}")
 
         if steps is None:
-            steps = ["merge_same", "merge_short", "merge_repeat", "cut_long", "remove_unk", "remove_empty", "strip"]
-            if self.lang.lower() in ["zh-cn", "zh"]:
-                steps.append("traditional2mandarin")
-            if self.lang.lower() in ["zh-cn", "zh", "zh-tw"]:
-                steps.append("punctuation_optimization")
+            if mode is SubtitleOptimizationMode.AGGRESSIVE:
+                steps = ["merge_same", "merge_short", "merge_repeat", "cut_long", "remove_unk", "remove_empty", "strip"]
+            else:
+                steps = ["strip"]
+
+            if mode is SubtitleOptimizationMode.AGGRESSIVE or stage == "target":
+                if self.lang.lower() in ["zh-cn", "zh"]:
+                    steps.append("traditional2mandarin")
+                if self.lang.lower() in ["zh-cn", "zh", "zh-tw"]:
+                    steps.append("punctuation_optimization")
+
+        before_count = len(self.subtitle.segments)
+        logger.info(f"Subtitle optimization mode={mode.value}, stage={stage}, segments={before_count}.")
 
         for step in steps:
             method = getattr(self, step, None)
             if method:
                 method()
 
-        if extend_time:
+        if extend_time and mode is SubtitleOptimizationMode.AGGRESSIVE:
             self.extend_time()
+
+        after_count = len(self.subtitle.segments)
+        if mode is SubtitleOptimizationMode.AGGRESSIVE and after_count < before_count:
+            logger.warning(f"Aggressive subtitle optimization reduced segments from {before_count} to {after_count}.")
 
         # Finally check to notify users
         self.check()

@@ -4,8 +4,10 @@
 import json
 import os
 import re
+import unicodedata
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Sequence
 from itertools import zip_longest
 from pathlib import Path
 
@@ -14,8 +16,10 @@ import requests
 from openlrc.agents import ChunkedTranslatorAgent, ContextReviewerAgent
 from openlrc.chatbot import ChatBot
 from openlrc.checkpoint import save_json_checkpoint
-from openlrc.context import TranslateInfo, TranslationBrief, TranslationContext
+from openlrc.chunking import CHUNK_PLANNER_VERSION, TranslationChunkPlan, chunk_plan_signature, plan_translation_chunks
+from openlrc.context import ContextTimeline, TranslateInfo, TranslationBrief, TranslationContext
 from openlrc.exceptions import ChatBotException, LengthExceedException
+from openlrc.glossary import GlossaryOrigin, GlossaryService, ResolvedGlossaryEntry
 from openlrc.logger import logger
 from openlrc.prompter import (
     LeanContextReviewPrompter,
@@ -76,6 +80,7 @@ class BaseLLMTranslator(Translator):
             "max_split_depth": 0,
             "atomic_ids": [],
             "validator_issues": [],
+            "glossary_removed_retry_chunks": [],
         }
 
     @staticmethod
@@ -117,8 +122,8 @@ class BaseLLMTranslator(Translator):
            current position.
         3. **Line-count cap:** A chunk never exceeds ``chunk_size`` lines.
 
-        A small trailing chunk (< chunk_size/2 lines *and* < MAX_CHUNK_TOKENS/2 tokens)
-        is merged into the previous chunk, unless a scene boundary separates them.
+        A small trailing chunk may be merged only when no scene boundary separates it
+        and the combined chunk still satisfies both line and token caps.
 
         Args:
             texts: List of subtitle texts.
@@ -126,109 +131,17 @@ class BaseLLMTranslator(Translator):
         Returns:
             List of chunks, each chunk a list of ``(line_number, text)`` tuples.
         """
-        if not texts:
-            return []
+        return [plan.pairs() for plan in self.plan_chunks(texts)]
 
-        timestamps = self.timestamps
-        # Validate timestamps length if provided.
-        if timestamps is not None and len(timestamps) != len(texts):
-            logger.warning(
-                f"Timestamps length ({len(timestamps)}) != texts length ({len(texts)}), ignoring timestamps."
-            )
-            timestamps = None
-
-        # Pre-compute token counts for each line.
-        token_counts = [get_text_token_number(t) for t in texts]
-
-        chunks: list[list[tuple[int, str]]] = []
-        current_chunk: list[tuple[int, str]] = []
-        current_tokens = 0
-
-        for idx, text in enumerate(texts):
-            line_number = idx + 1
-            line_tokens = token_counts[idx]
-
-            # Check scene boundary: gap between previous line's end and current line's start.
-            if timestamps and current_chunk and idx > 0:
-                prev_end = timestamps[idx - 1][1]
-                cur_start = timestamps[idx][0]
-                if prev_end is not None and (cur_start - prev_end) > self.SCENE_THRESHOLD:
-                    chunks.append(current_chunk)
-                    current_chunk = []
-                    current_tokens = 0
-
-            # Check token budget or line-count cap — need to flush before adding.
-            if current_chunk and (
-                current_tokens + line_tokens > self.MAX_CHUNK_TOKENS or len(current_chunk) >= self.chunk_size
-            ):
-                # Try to split at the largest time gap within the current chunk.
-                split_idx = self._find_best_split(current_chunk, timestamps)
-                if split_idx is not None and split_idx > 0:
-                    chunks.append(current_chunk[:split_idx])
-                    leftover = current_chunk[split_idx:]
-                    current_chunk = leftover
-                    current_tokens = sum(token_counts[c[0] - 1] for c in current_chunk)
-                else:
-                    chunks.append(current_chunk)
-                    current_chunk = []
-                    current_tokens = 0
-
-            current_chunk.append((line_number, text))
-            current_tokens += line_tokens
-
-        if current_chunk:
-            chunks.append(current_chunk)
-
-        # Merge small trailing chunk into the previous one, unless a scene boundary separates them.
-        if len(chunks) >= 2:
-            tail = chunks[-1]
-            is_small_tail = (
-                len(tail) < self.chunk_size / 2
-                and sum(token_counts[c[0] - 1] for c in tail) < self.MAX_CHUNK_TOKENS / 2
-            )
-
-            # Check for scene boundary between the two chunks.
-            scene_break = False
-            if timestamps and is_small_tail:
-                prev_last = chunks[-2][-1][0] - 1  # 0-based index of last line in previous chunk
-                tail_first = tail[0][0] - 1  # 0-based index of first line in tail
-                prev_end = timestamps[prev_last][1]
-                cur_start = timestamps[tail_first][0]
-                if prev_end is not None and (cur_start - prev_end) > self.SCENE_THRESHOLD:
-                    scene_break = True
-
-            if is_small_tail and not scene_break:
-                chunks[-2].extend(tail)
-                chunks.pop()
-
-        return chunks
-
-    @staticmethod
-    def _find_best_split(
-        chunk: list[tuple[int, str]], timestamps: list[tuple[float, float | None]] | None
-    ) -> int | None:
-        """Find the index within *chunk* that has the largest time gap before it.
-
-        Returns the chunk-local index (1..len-1) of the best split point,
-        or *None* if timestamps are unavailable or the chunk has fewer than 2 lines.
-        """
-        if not timestamps or len(chunk) < 2:
-            return None
-
-        best_gap = -1.0
-        best_idx = None
-        for i in range(1, len(chunk)):
-            prev_global = chunk[i - 1][0] - 1  # 0-based index into timestamps
-            cur_global = chunk[i][0] - 1
-            prev_end = timestamps[prev_global][1]
-            cur_start = timestamps[cur_global][0]
-            if prev_end is not None:
-                gap = cur_start - prev_end
-                if gap > best_gap:
-                    best_gap = gap
-                    best_idx = i
-
-        return best_idx
+    def plan_chunks(self, texts: list[str]) -> list[TranslationChunkPlan]:
+        """Return the shared translation plan used by context, translation, and review."""
+        return plan_translation_chunks(
+            texts,
+            timestamps=self.timestamps,
+            chunk_size=self.chunk_size,
+            token_budget=self.MAX_CHUNK_TOKENS,
+            scene_threshold=self.SCENE_THRESHOLD,
+        )
 
     def _estimate_output_tokens(self, chunk: list[tuple[int, str]]) -> int:
         """Estimate how many output tokens this chunk is likely to require."""
@@ -473,7 +386,7 @@ class LeanTranslator(BaseLLMTranslator):
         )
 
     @staticmethod
-    def _build_sliding_window(recent_pairs: list[tuple[int, str, str] | list], budget: int) -> str:
+    def _build_sliding_window(recent_pairs: Sequence[tuple[int, str, str] | list], budget: int) -> str:
         """Build a sliding-window context string from recent translation pairs.
 
         Args:
@@ -496,6 +409,100 @@ class LeanTranslator(BaseLLMTranslator):
             used += tokens
         return "\n".join(reversed(lines))
 
+    @staticmethod
+    def _build_preceding_window(texts: list[str], translations: list[str], *, before_id: int, budget: int) -> str:
+        """Build bounded history directly from the nearest preceding lines."""
+        lines: list[str] = []
+        used = 0
+        for line_id in range(before_id - 1, 0, -1):
+            entry = f"#{line_id} {texts[line_id - 1]} | {translations[line_id - 1]}"
+            tokens = get_text_token_number(entry)
+            if used + tokens > budget:
+                break
+            lines.append(entry)
+            used += tokens
+        return "\n".join(reversed(lines))
+
+    @staticmethod
+    def _terminology_text(
+        translation_brief: TranslationBrief | None,
+        glossary: dict[str, str] | None,
+        resolved_glossary: Sequence[ResolvedGlossaryEntry] | None,
+        *,
+        base_terminology: str = "",
+        excluded_task_sources: set[str] | None = None,
+    ) -> str:
+        """Render one normalized terminology source for every translation prompt."""
+        excluded_task_sources = excluded_task_sources or set()
+        if resolved_glossary is not None:
+            entries = [
+                (item.source, item.target)
+                for item in resolved_glossary
+                if item.enabled
+                and not (
+                    item.origin == GlossaryOrigin.TASK
+                    and " ".join(unicodedata.normalize("NFKC", item.source).split()).casefold() in excluded_task_sources
+                )
+            ]
+        else:
+            ordered: dict[str, tuple[str, str]] = {}
+            unparsed: list[str] = []
+
+            # Older Context Review responses expose a pre-rendered glossary.
+            # Parse the common YAML/Markdown bullets so later, higher-priority
+            # sources can replace them instead of being appended a second time.
+            for raw_line in base_terminology.splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+                value = line[1:].strip() if line.startswith("-") else line
+                delimiter = " -> " if " -> " in value else ": " if ": " in value else None
+                if delimiter is None:
+                    unparsed.append(raw_line)
+                    continue
+                source, target = (item.strip() for item in value.split(delimiter, 1))
+                if not source or not target:
+                    unparsed.append(raw_line)
+                    continue
+                key = " ".join(unicodedata.normalize("NFKC", source).split()).casefold()
+                ordered[key] = (source, target)
+            if translation_brief is not None:
+                for item in translation_brief.glossary:
+                    key = " ".join(unicodedata.normalize("NFKC", item.source).split()).casefold()
+                    ordered[key] = (item.source, item.target)
+            for source, target in (glossary or {}).items():
+                key = " ".join(unicodedata.normalize("NFKC", source).split()).casefold()
+                ordered[key] = (source, target)
+            entries = list(ordered.values())
+            return "\n".join([*unparsed, *(f"- {source}: {target}" for source, target in entries)])
+        return "\n".join(f"- {source}: {target}" for source, target in entries)
+
+    @staticmethod
+    def _characters_with_task_glossary(
+        translation_brief: TranslationBrief, resolved_glossary: Sequence[ResolvedGlossaryEntry] | None
+    ) -> tuple[str, set[str]]:
+        """Apply explicit task terms to matching Brief characters once in the prompt."""
+        if resolved_glossary is None:
+            return translation_brief.characters_text(), set()
+
+        task_entries = [item for item in resolved_glossary if item.enabled and item.origin == GlossaryOrigin.TASK]
+        lines: list[str] = []
+        consumed_sources: set[str] = set()
+        for character in translation_brief.characters:
+            selected = next(
+                (
+                    entry
+                    for entry in task_entries
+                    if GlossaryService._entry_matches_source(entry, character.source_name)
+                ),
+                None,
+            )
+            target = selected.target if selected is not None else character.target_name
+            lines.append(f"- {character.source_name} -> {target}")
+            if selected is not None:
+                consumed_sources.add(" ".join(unicodedata.normalize("NFKC", selected.source).split()).casefold())
+        return "\n".join(lines), consumed_sources
+
     def translate(
         self,
         texts: str | list[str],
@@ -505,6 +512,9 @@ class LeanTranslator(BaseLLMTranslator):
         compare_path: Path = Path("translate_intermediate.json"),
         translation_brief: TranslationBrief | None = None,
         checkpoint_metadata: dict | None = None,
+        chunk_plans: list[TranslationChunkPlan] | None = None,
+        context_timeline: ContextTimeline | None = None,
+        resolved_glossary: Sequence[ResolvedGlossaryEntry] | None = None,
     ) -> list[str]:
         """Translate *texts* using the lean single-task prompt strategy."""
         if info is None:
@@ -522,15 +532,42 @@ class LeanTranslator(BaseLLMTranslator):
         terminology = ""
         guideline = ""
         style = ""
-        audience = ""
-        asr_ambiguities = ""
 
         cr_fee_start = len(self.cr_chatbot.api_fees) if self.cr_chatbot else 0
         retry_fee_start = len(self.retry_chatbot.api_fees) if self.retry_chatbot else 0
         fee_start = len(self.chatbot.api_fees)
 
+        plans = chunk_plans or self.plan_chunks(texts)
+        planner_signature = chunk_plan_signature(plans, timestamps=self.timestamps)
+        if checkpoint_metadata and checkpoint_metadata.get("chunk_signature") not in {None, planner_signature}:
+            raise ValueError("Checkpoint chunk signature does not match the active translation plan.")
+        checkpoint_metadata = {
+            **(checkpoint_metadata or {}),
+            "chunk_planner_version": CHUNK_PLANNER_VERSION,
+            "chunk_signature": planner_signature,
+        }
+
         # Load checkpoint
         translations, compare_list, start_chunk, ctx = self._load_checkpoint(compare_path)
+        if compare_list and (
+            ctx.get("chunk_planner_version") != CHUNK_PLANNER_VERSION or ctx.get("chunk_signature") != planner_signature
+        ):
+            logger.warning("Discarding translation progress created by an incompatible chunk planner.")
+            translations = []
+            compare_list = []
+            start_chunk = 0
+            for key in (
+                "recent_pairs",
+                "raw_hymt2_translations",
+                "final_translations",
+                "review_chunks",
+                "reviewed_chunks",
+                "review_failed_chunks",
+                "review_results",
+                "review_incomplete",
+                "review_protocol_version",
+            ):
+                ctx.pop(key, None)
         recent_pairs: list[tuple[int, str, str] | list] = ctx.get("recent_pairs", [])
         guideline = ctx.get("guideline", "")
 
@@ -556,25 +593,37 @@ class LeanTranslator(BaseLLMTranslator):
 
         if translation_brief is not None:
             summary = translation_brief.summary
-            characters = translation_brief.characters_text()
-            terminology = translation_brief.glossary_text()
+            characters, character_term_sources = self._characters_with_task_glossary(
+                translation_brief, resolved_glossary
+            )
             style = translation_brief.tone_style
-            audience = translation_brief.target_audience
-            asr_ambiguities = translation_brief.ambiguities_text()
+        else:
+            character_term_sources = set()
 
-        # Inject user-provided glossary into terminology so it always
-        # reaches the translation prompt, regardless of CR.
-        if info.glossary:
-            user_glossary = "\n".join(f"- {k}: {v}" for k, v in info.glossary.items())
-            terminology = f"{terminology}\n{user_glossary}" if terminology else user_glossary
+        terminology = self._terminology_text(
+            translation_brief,
+            info.glossary,
+            resolved_glossary,
+            base_terminology=terminology,
+            excluded_task_sources=character_term_sources,
+        )
 
         # --- Chunk and translate --------------------------------------
-        chunks = self.make_chunks_by_tokens(texts)
+        chunks = [plan.pairs() for plan in plans]
+        if context_timeline is not None:
+            if len(context_timeline.chunks) != len(plans):
+                raise ValueError("ContextTimeline chunk count does not match the translation plan.")
+            for plan, dynamic_context in zip(plans, context_timeline.chunks):
+                if dynamic_context.chunk_id != plan.chunk_id or dynamic_context.segment_ids != plan.segment_ids:
+                    raise ValueError(f"ContextTimeline does not align with translation chunk {plan.chunk_id}.")
         logger.info(f"Translating {info.title}: {len(chunks)} chunks, {len(texts)} lines in total.")
 
         for i, chunk in list(enumerate(chunks, start=1))[start_chunk:]:
             expected_ids = [line_id for line_id, _ in chunk]
             source_texts = {line_id: text for line_id, text in chunk}
+            dynamic_context = context_timeline.context_for(i) if context_timeline is not None else None
+            story_so_far = dynamic_context.story_so_far if dynamic_context else ""
+            current_scene = dynamic_context.current_scene if dynamic_context else ""
 
             # Build prompts (with and without terminology for glossary-removal retry)
             window_str = self._build_sliding_window(recent_pairs, self.SLIDING_WINDOW_BUDGET)
@@ -585,8 +634,9 @@ class LeanTranslator(BaseLLMTranslator):
                 characters=characters,
                 terminology=terminology,
                 sliding_window=window_str,
+                **({"style": style} if getattr(prompter, "exact_id_alignment", False) else {}),
                 **(
-                    {"style": style, "audience": audience, "asr_ambiguities": asr_ambiguities}
+                    {"story_so_far": story_so_far, "current_scene": current_scene}
                     if getattr(prompter, "exact_id_alignment", False)
                     else {}
                 ),
@@ -598,8 +648,9 @@ class LeanTranslator(BaseLLMTranslator):
                     characters=characters,
                     terminology="",
                     sliding_window=window_str,
+                    **({"style": style} if getattr(prompter, "exact_id_alignment", False) else {}),
                     **(
-                        {"style": style, "audience": audience, "asr_ambiguities": asr_ambiguities}
+                        {"story_so_far": story_so_far, "current_scene": current_scene}
                         if getattr(prompter, "exact_id_alignment", False)
                         else {}
                     ),
@@ -626,8 +677,8 @@ class LeanTranslator(BaseLLMTranslator):
                     "terminology": terminology,
                     "sliding_window": window_str,
                     "style": style,
-                    "audience": audience,
-                    "asr_ambiguities": asr_ambiguities,
+                    "story_so_far": story_so_far,
+                    "current_scene": current_scene,
                 },
                 all_texts=texts,
             )
@@ -641,7 +692,14 @@ class LeanTranslator(BaseLLMTranslator):
 
             # Build compare list and save checkpoint
             context_obj = TranslationContext(guideline=guideline)
-            compare_list.extend(self._generate_compare_list(chunk, translated, i, used_atomic, context_obj))
+            compare_records = self._generate_compare_list(chunk, translated, i, used_atomic, context_obj)
+            mode = (checkpoint_metadata or {}).get("hymt2_mode")
+            if mode:
+                for record in compare_records:
+                    record["mode"] = mode
+                    if dynamic_context is not None:
+                        record["timeline_chunk_id"] = dynamic_context.chunk_id
+            compare_list.extend(compare_records)
             self._save_checkpoint(
                 compare_path,
                 compare_list,
@@ -650,6 +708,11 @@ class LeanTranslator(BaseLLMTranslator):
                     "guideline": guideline,
                     "recent_pairs": recent_pairs,
                     "hymt2_metrics": self.metrics,
+                    **(
+                        {"raw_hymt2_translations": translations, "pipeline_stage": "translation"}
+                        if mode == "pro"
+                        else {}
+                    ),
                 },
             )
 
@@ -663,6 +726,111 @@ class LeanTranslator(BaseLLMTranslator):
 
         logger.info(f"Translation complete for {info.title}. Fee: {self.api_fee:.4f} USD")
         return translations
+
+    def translate_targeted(
+        self,
+        texts: list[str],
+        current_translations: list[str],
+        segment_ids: list[int],
+        *,
+        src_lang: str,
+        target_lang: str,
+        info: TranslateInfo | None = None,
+        translation_brief: TranslationBrief | None = None,
+        chunk_plans: list[TranslationChunkPlan] | None = None,
+        context_timeline: ContextTimeline | None = None,
+        resolved_glossary: Sequence[ResolvedGlossaryEntry] | None = None,
+        completed_results: dict[int, str] | None = None,
+        checkpoint_hook: Callable[[dict[int, str], int], None] | None = None,
+    ) -> dict[int, str]:
+        """Retranslate selected IDs while preserving their original parent chunks."""
+        if len(texts) != len(current_translations):
+            raise ValueError("Source and current translation counts must match for targeted translation.")
+        selected = sorted(set(segment_ids))
+        if not selected or selected[0] < 1 or selected[-1] > len(texts):
+            raise ValueError("Targeted translation IDs must be within the source subtitle range.")
+        info = info or TranslateInfo()
+        plans = chunk_plans or self.plan_chunks(texts)
+        if context_timeline is not None:
+            if len(context_timeline.chunks) != len(plans):
+                raise ValueError("ContextTimeline chunk count does not match targeted translation plans.")
+            for plan, chunk_context in zip(plans, context_timeline.chunks):
+                if plan.chunk_id != chunk_context.chunk_id or plan.segment_ids != chunk_context.segment_ids:
+                    raise ValueError(f"ContextTimeline does not align with translation chunk {plan.chunk_id}.")
+
+        summary = translation_brief.summary if translation_brief is not None else ""
+        if translation_brief is not None:
+            characters, character_term_sources = self._characters_with_task_glossary(
+                translation_brief, resolved_glossary
+            )
+        else:
+            characters, character_term_sources = "", set()
+        terminology = self._terminology_text(
+            translation_brief, info.glossary, resolved_glossary, excluded_task_sources=character_term_sources
+        )
+        style = translation_brief.tone_style if translation_brief is not None else ""
+
+        prompter = create_lean_translate_prompter(src_lang, target_lang, self.prompt_profile)
+        selected_set = set(selected)
+        results: dict[int, str] = {
+            int(line_id): value for line_id, value in (completed_results or {}).items() if int(line_id) in selected_set
+        }
+        fee_start = len(self.chatbot.api_fees)
+        for plan in plans:
+            active_ids = [line_id for line_id in plan.segment_ids if line_id in selected_set and line_id not in results]
+            if not active_ids:
+                continue
+            chunk = [(line_id, texts[line_id - 1]) for line_id in active_ids]
+            source_map = dict(chunk)
+            sliding_window = self._build_preceding_window(
+                texts, current_translations, before_id=active_ids[0], budget=self.SLIDING_WINDOW_BUDGET
+            )
+            neighboring_context = "\n".join(self._neighbor_context(texts, line_id) for line_id in active_ids)
+            dynamic_context = context_timeline.context_for(plan.chunk_id) if context_timeline is not None else None
+            prompt_context = {
+                "summary": summary,
+                "characters": characters,
+                "terminology": terminology,
+                "sliding_window": sliding_window,
+                "style": style,
+                "neighboring_context": neighboring_context,
+                "story_so_far": dynamic_context.story_so_far if dynamic_context else "",
+                "current_scene": dynamic_context.current_scene if dynamic_context else "",
+            }
+            user_context = prompt_context
+            if not getattr(prompter, "exact_id_alignment", False):
+                user_context = {
+                    key: value
+                    for key, value in prompt_context.items()
+                    if key in {"summary", "characters", "terminology", "sliding_window"}
+                }
+            formatted = prompter.format_texts(chunk)
+            user_msg = prompter.user(formatted, **user_context)
+            user_msg_no_glossary = None
+            if terminology:
+                without_glossary = dict(user_context)
+                without_glossary["terminology"] = ""
+                user_msg_no_glossary = prompter.user(formatted, **without_glossary)
+            prompter.update_expected_ids(active_ids)
+            translated, _ = self._translate_lean_chunk(
+                prompter,
+                user_msg,
+                active_ids,
+                source_map,
+                src_lang,
+                target_lang,
+                user_msg_no_glossary=user_msg_no_glossary,
+                prompt_context=prompt_context,
+                all_texts=texts,
+            )
+            results.update(zip(active_ids, translated))
+            if checkpoint_hook is not None:
+                checkpoint_hook(dict(results), plan.chunk_id)
+
+        self.api_fee += sum(self.chatbot.api_fees[fee_start:])
+        if sorted(results) != selected:
+            raise ValueError("Targeted translation did not return every requested subtitle ID.")
+        return results
 
     def _translate_lean_chunk(
         self,
@@ -775,6 +943,8 @@ class LeanTranslator(BaseLLMTranslator):
             else:
                 # Retry: append retry instruction; use glossary-removal variant if available.
                 retry_user = user_msg_no_glossary if user_msg_no_glossary else user_msg
+                if user_msg_no_glossary and list(expected_ids) not in self.metrics["glossary_removed_retry_chunks"]:
+                    self.metrics["glossary_removed_retry_chunks"].append(list(expected_ids))
                 messages = self._prompt_messages(prompter, retry_user, extra_user=prompter.retry_instruction())
 
             try:

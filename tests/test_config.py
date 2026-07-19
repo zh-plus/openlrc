@@ -3,9 +3,20 @@
 
 import inspect
 import unittest
+from pathlib import Path
 from typing import get_args, get_type_hints
 
-from openlrc.config import ContextLLMConfig, HyMT2Mode, LocalLLMConfig, TranscriptionConfig, TranslationConfig
+from openlrc.config import (
+    ContextLLMConfig,
+    EditConfig,
+    HyMT2Mode,
+    LocalLLMConfig,
+    SubtitleOptimizationMode,
+    TranscriptionConfig,
+    TranslationConfig,
+)
+from openlrc.context import TranslationBriefInput
+from openlrc.glossary import GlossaryCatalog
 from openlrc.llama_resources import (
     DEFAULT_LLAMA_MODEL_ALIAS,
     DEFAULT_LLAMA_MODEL_FILE,
@@ -24,7 +35,8 @@ class TestTranslationConfigAnnotations(unittest.TestCase):
         self.assertEqual(set(get_args(hints["chatbot"])), {ModelConfig, type(None)})
         self.assertEqual(set(get_args(hints["retry_chatbot"])), {ModelConfig, type(None)})
         self.assertEqual(set(get_args(hints["cr_chatbot"])), {ModelConfig, type(None)})
-        self.assertEqual(set(get_args(hints["glossary"])), {str, type(None)})
+        self.assertEqual(set(get_args(hints["glossary"])), {dict, str, Path, GlossaryCatalog, type(None)})
+        self.assertEqual(set(get_args(hints["translation_brief"])), {TranslationBriefInput, dict, type(None)})
         self.assertEqual(set(get_args(hints["local_llm"])), {LocalLLMConfig, type(None)})
 
 
@@ -38,6 +50,12 @@ class TestTranscriptionConfig(unittest.TestCase):
 
         with self.assertRaises(TypeError):
             TranscriptionConfig(vad_options={"threshold": 0.5})
+
+
+class TestSubtitleOptimizationMode(unittest.TestCase):
+    def test_public_values(self):
+        self.assertEqual(SubtitleOptimizationMode.AGGRESSIVE.value, "aggressive")
+        self.assertEqual(SubtitleOptimizationMode.RELAXED.value, "relaxed")
 
 
 class TestLocalLLMConfig(unittest.TestCase):
@@ -95,7 +113,60 @@ class TestLocalLLMConfig(unittest.TestCase):
         context_llm = ContextLLMConfig.online(provider=ModelProvider.OPENAI, model="gpt-4.1-nano")
         config = TranslationConfig.local_hy_mt2_7b(mode="context", context_llm=context_llm)
 
-        self.assertIs(config.hy_mt2_mode, HyMT2Mode.CONTEXT)
+        self.assertIs(config.hy_mt2_mode, HyMT2Mode.NORMAL)
+        self.assertIs(config.context_llm, context_llm)
+
+    def test_complete_manual_brief_removes_normal_context_dependency(self):
+        manual = TranslationBriefInput(summary="A complete story summary.", characters=[], tone_style="")
+
+        config = TranslationConfig.local_hy_mt2_7b(mode="normal", translation_brief=manual)
+
+        self.assertIsNone(config.context_llm)
+        self.assertIs(config.translation_brief, manual)
+
+    def test_partial_manual_brief_still_requires_context_model(self):
+        with self.assertRaisesRegex(ValueError, "requires an explicit context_llm"):
+            TranslationConfig.local_hy_mt2_7b(
+                mode="normal", translation_brief=TranslationBriefInput(summary="A fixed summary.")
+            )
+
+    def test_empty_manual_brief_mapping_keeps_automatic_context_behavior(self):
+        context = ContextLLMConfig.online(provider="openai", model="general-model")
+
+        config = TranslationConfig.local_hy_mt2_7b(mode="normal", context_llm=context, translation_brief={})
+
+        self.assertIsNone(config.translation_brief)
+
+    def test_complete_normal_plus_round_zero_can_skip_context_model(self):
+        manual = TranslationBriefInput(summary="A complete story summary.", characters=[], tone_style="")
+
+        config = TranslationConfig.local_hy_mt2_7b(
+            mode="normal-plus", translation_brief=manual, edit_config=EditConfig(max_rounds=0, semantic_review=False)
+        )
+
+        self.assertIsNone(config.context_llm)
+
+    def test_complete_normal_plus_semantic_round_still_requires_context_model(self):
+        manual = TranslationBriefInput(summary="A complete story summary.", characters=[], tone_style="")
+
+        with self.assertRaisesRegex(ValueError, "requires an explicit context_llm"):
+            TranslationConfig.local_hy_mt2_7b(mode="normal-plus", translation_brief=manual)
+
+    def test_fast_rejects_manual_brief(self):
+        manual = TranslationBriefInput(summary="A complete story summary.", characters=[], tone_style="")
+
+        with self.assertRaisesRegex(ValueError, "fast mode does not use"):
+            TranslationConfig.local_hy_mt2_7b(translation_brief=manual)
+
+    def test_hy_mt2_pro_requires_and_accepts_context_model(self):
+        with self.assertRaisesRegex(ValueError, "requires an explicit context_llm"):
+            TranslationConfig.local_hy_mt2_7b(mode=HyMT2Mode.PRO)
+
+        context_llm = ContextLLMConfig.online(provider=ModelProvider.OPENAI, model="gpt-4.1-nano")
+        config = TranslationConfig.local_hy_mt2_7b(mode="pro", context_llm=context_llm)
+
+        self.assertEqual(HyMT2Mode.PRO.value, "pro")
+        self.assertIs(config.hy_mt2_mode, HyMT2Mode.PRO)
         self.assertIs(config.context_llm, context_llm)
 
     def test_local_context_model_is_staged_without_idle_timer(self):

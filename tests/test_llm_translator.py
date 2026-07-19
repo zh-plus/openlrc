@@ -110,12 +110,12 @@ class TestMakeChunksByTokens(unittest.TestCase):
         translator = self._make_translator()
         self.assertEqual(translator.make_chunks_by_tokens([]), [])
 
-    def test_small_tail_merged(self):
-        """A small trailing chunk is merged into the previous one."""
+    def test_small_tail_does_not_break_line_cap(self):
+        """A small trailing chunk stays separate when merging would exceed chunk_size."""
         translator = self._make_translator(chunk_size=5, max_chunk_tokens=10000)
-        texts = [f"text{i}" for i in range(7)]  # 5 + 2, tail 2 < 5/2 → merge
+        texts = [f"text{i}" for i in range(7)]
         chunks = translator.make_chunks_by_tokens(texts)
-        self.assertEqual(len(chunks), 1)  # All merged into one chunk.
+        self.assertEqual([len(chunk) for chunk in chunks], [5, 2])
 
     def test_best_split_at_largest_gap(self):
         """When token budget is exceeded, split at the largest time gap."""
@@ -560,9 +560,7 @@ class TestCheckpoint(unittest.TestCase):
     def test_save_load_roundtrip(self):
         """Data survives a save -> load roundtrip with identical semantics."""
         translator = self._make_translator()
-        compare_list = [
-            {"chunk": 3, "idx": 7, "method": "chunked", "model": "gpt-4", "input": "hi", "output": "嗨"},
-        ]
+        compare_list = [{"chunk": 3, "idx": 7, "method": "chunked", "model": "gpt-4", "input": "hi", "output": "嗨"}]
         context = {"summaries": ["s1", "s2", "s3"], "scene": "beach", "guideline": "Keep it casual."}
 
         with tempfile.TemporaryDirectory() as tmpdir:

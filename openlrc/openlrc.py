@@ -6,25 +6,43 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import shutil
+import time
 import traceback
 from contextlib import nullcontext
 from copy import deepcopy
+from dataclasses import asdict
 from pathlib import Path
 from pprint import pformat
 from queue import Queue
 from threading import Lock
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
+    from openlrc.context import TranslationBriefInput
+    from openlrc.editing import EditResult
+    from openlrc.glossary import GlossaryCatalog
     from openlrc.whisper_types import Segment
 
-from openlrc.config import ContextLLMConfig, HyMT2Mode, TranscriptionConfig, TranslationConfig
+from openlrc.config import (
+    ContextLLMConfig,
+    EditConfig,
+    GlossaryOptions,
+    HyMT2Mode,
+    SubtitleOptimizationMode,
+    TranscriptionConfig,
+    TranslationConfig,
+    normalize_hymt2_mode,
+)
 from openlrc.defaults import (
     BILINGUAL_SUFFIX,
     COMPARE_SUFFIX,
+    EDIT_REPORT_SUFFIX,
+    EDIT_SESSION_SUFFIX,
     NONTRANS_SUFFIX,
+    OPTIMIZED_SUFFIX,
     PREPROCESSED_DIR,
     PREPROCESSED_SUFFIX,
+    RELAXED_OPTIMIZED_SUFFIX,
     TRANSCRIBED_SUFFIX,
     TRANSLATED_SUFFIX,
     default_preprocess_options,
@@ -67,28 +85,58 @@ class LRCer:
     """
 
     def __init__(
-        self, *, transcription: TranscriptionConfig | None = None, translation: TranslationConfig | None = None
+        self,
+        *,
+        transcription: TranscriptionConfig | None = None,
+        translation: TranslationConfig | None = None,
+        subtitle_optimization: SubtitleOptimizationMode | str = SubtitleOptimizationMode.AGGRESSIVE,
     ):
         self._transcription_config = transcription or TranscriptionConfig()
         self._translation_config = translation or TranslationConfig()
+        self.subtitle_optimization = SubtitleOptimizationMode(subtitle_optimization)
 
         # Translation state
         self.fee_limit = self._translation_config.fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
         self.from_video = set()
-        self.glossary = self.parse_glossary(self._translation_config.glossary)
-        self.is_force_glossary_used = self._translation_config.is_force_glossary_used
+        from openlrc.glossary import GlossaryService
+
+        self.glossary_options = deepcopy(self._translation_config.glossary_options)
+        if self._translation_config.is_force_glossary_used:
+            self.glossary_options.force = True
+        self.glossary_service = GlossaryService(
+            strict=self.glossary_options.strict,
+            force=self.glossary_options.force,
+            report_matches=self.glossary_options.report_matches,
+        )
+        self.glossary_catalog, self._glossary_load_conflicts = self.glossary_service.load(
+            self._translation_config.glossary
+        )
+        self.glossary_state = self.glossary_service.merge(
+            self.glossary_catalog, load_conflicts=self._glossary_load_conflicts
+        )
+        self.glossary = self.glossary_state.prompt_mapping() or None
+        self.is_force_glossary_used = self.glossary_options.force
         self._translator_engine = self._translation_config._translator_engine
         self.enable_cr = self._translation_config.enable_cr
         self.chunked_guideline = self._translation_config.chunked_guideline
         self.prompt_profile = self._translation_config.prompt_profile
-        self.hy_mt2_mode = self._translation_config.hy_mt2_mode
+        self.hy_mt2_mode = normalize_hymt2_mode(self._translation_config.hy_mt2_mode)
+        from openlrc.context import normalize_translation_brief_input
+
+        self.translation_brief_input = normalize_translation_brief_input(self._translation_config.translation_brief)
         self.context_llm = self._translation_config.context_llm
+        self.edit_config = deepcopy(self._translation_config.edit_config)
+        if self.hy_mt2_mode in {HyMT2Mode.NORMAL_PLUS, HyMT2Mode.PRO}:
+            self.edit_config.enabled = True
 
         self._lock = Lock()
         self.exception = None
         self.consumer_thread = self._translation_config.consumer_thread
         self.review_statuses: dict[str, dict] = {}
+        self._keep_completed_checkpoint = False
+        self._model_load_count = 0
+        self._task_started_at = time.perf_counter()
 
         # Merge default options with provided options
         self.asr_options = {**default_whisper_cpp_options, **(self._transcription_config.asr_options or {})}
@@ -117,11 +165,23 @@ class LRCer:
         idle_timeout: int = DEFAULT_LLAMA_IDLE_TIMEOUT,
         port: int = DEFAULT_LLAMA_PORT,
         transcription: TranscriptionConfig | None = None,
+        subtitle_optimization: SubtitleOptimizationMode | str = SubtitleOptimizationMode.AGGRESSIVE,
+        glossary: dict | str | Path | GlossaryCatalog | None = None,
+        glossary_options: GlossaryOptions | None = None,
+        edit_config: EditConfig | None = None,
     ) -> LRCer:
         """Create an LRCer configured for local whisper.cpp transcription and llama.cpp translation."""
         return cls(
             transcription=transcription,
-            translation=TranslationConfig.local_qwen35_9b(model=model, idle_timeout=idle_timeout, port=port),
+            translation=TranslationConfig.local_qwen35_9b(
+                model=model,
+                idle_timeout=idle_timeout,
+                port=port,
+                glossary=glossary,
+                glossary_options=glossary_options,
+                edit_config=edit_config,
+            ),
+            subtitle_optimization=subtitle_optimization,
         )
 
     @classmethod
@@ -135,13 +195,28 @@ class LRCer:
         transcription: TranscriptionConfig | None = None,
         mode: HyMT2Mode | str = HyMT2Mode.FAST,
         context_llm: ContextLLMConfig | None = None,
+        subtitle_optimization: SubtitleOptimizationMode | str = SubtitleOptimizationMode.AGGRESSIVE,
+        glossary: dict | str | Path | GlossaryCatalog | None = None,
+        glossary_options: GlossaryOptions | None = None,
+        edit_config: EditConfig | None = None,
+        translation_brief: TranslationBriefInput | dict | None = None,
     ) -> LRCer:
         """Create an LRCer configured for local Hy-MT2 translation via llama.cpp."""
         return cls(
             transcription=transcription,
             translation=TranslationConfig.local_hy_mt2(
-                size=size, model=model, idle_timeout=idle_timeout, port=port, mode=mode, context_llm=context_llm
+                size=size,
+                model=model,
+                idle_timeout=idle_timeout,
+                port=port,
+                mode=mode,
+                context_llm=context_llm,
+                glossary=glossary,
+                glossary_options=glossary_options,
+                edit_config=edit_config,
+                translation_brief=translation_brief,
             ),
+            subtitle_optimization=subtitle_optimization,
         )
 
     @property
@@ -295,6 +370,8 @@ class LRCer:
 
     def _create_translator(self, timestamps):
         """Create the classic translator or Hy-MT2's internal lean translator."""
+        if self._local_llm_enabled():
+            self._model_load_count += 1
         mode = self._translator_engine
         if self.prompt_profile == HY_MT2_PROMPT_PROFILE:
             mode = "lean"
@@ -332,21 +409,30 @@ class LRCer:
 
     @staticmethod
     def parse_glossary(glossary: dict | str | Path | None) -> dict | None:
-        if not glossary:
-            return None
+        """Compatibility wrapper returning the effective task prompt mapping."""
+        from openlrc.glossary import GlossaryService
 
-        if isinstance(glossary, dict):
-            return glossary
+        service = GlossaryService()
+        catalog, conflicts = service.load(glossary)
+        return service.merge(catalog, load_conflicts=conflicts).prompt_mapping() or None
 
-        glossary_path = Path(glossary)
-        if not glossary_path.exists():
-            logger.warning("Glossary file not found.")
-            return None
-
-        with open(glossary_path, encoding="utf-8") as f:
-            loaded: dict = json.load(f)
-
-        return loaded
+    def _build_glossary_state(self, *, brief=None, source_language: str, target_language: str):
+        catalog = self.glossary_catalog
+        if catalog.source_language and catalog.source_language.lower() != source_language.lower():
+            raise ValueError(
+                f"Glossary source_language {catalog.source_language!r} does not match task language "
+                f"{source_language!r}."
+            )
+        if catalog.target_language and catalog.target_language.lower() != target_language.lower():
+            raise ValueError(
+                f"Glossary target_language {catalog.target_language!r} does not match task language "
+                f"{target_language!r}."
+            )
+        self.glossary_state = self.glossary_service.merge(
+            catalog, brief=brief, load_conflicts=self._glossary_load_conflicts
+        )
+        self.glossary = self.glossary_state.prompt_mapping() or None
+        return self.glossary_state
 
     def _transcribe_single(self, audio_path: Path, src_lang: str | None = None) -> Path:
         """
@@ -479,11 +565,6 @@ class LRCer:
         """
         translated_path = extend_filename(transcribed_opt_sub.filename, TRANSLATED_SUFFIX)
         final_json_path = translated_path.with_name(f"{base_name}.json")
-        compare_path = translated_path.with_name(f"{base_name}{COMPARE_SUFFIX}.json")
-        resume_review = not skip_trans and self._has_incomplete_hymt2_review(compare_path)
-
-        if final_json_path.exists() and not resume_review:
-            return Subtitle.from_json(final_json_path)
 
         if skip_trans:
             shutil.copy(transcribed_opt_sub.filename, final_json_path)
@@ -498,12 +579,28 @@ class LRCer:
             return None
 
     def _has_incomplete_hymt2_review(self, compare_path: Path) -> bool:
-        if self.prompt_profile != HY_MT2_PROMPT_PROFILE or self.hy_mt2_mode is not HyMT2Mode.CONTEXT_PLUS:
+        if self.prompt_profile != HY_MT2_PROMPT_PROFILE or self.hy_mt2_mode not in {
+            HyMT2Mode.NORMAL_PLUS,
+            HyMT2Mode.PRO,
+        }:
             return False
-        from openlrc.hymt2_pipeline import load_checkpoint
+        from openlrc.hymt2_pipeline import TranslationBriefAgent, load_checkpoint
 
         checkpoint = load_checkpoint(compare_path)
-        return bool(checkpoint.get("review_incomplete"))
+        edit_session = checkpoint.get("edit_session") or {}
+        resumable_stage = (
+            bool(checkpoint.get("review_incomplete"))
+            or checkpoint.get("pipeline_stage") in {"review", "editing", "edit_incomplete"}
+            or edit_session.get("status") in {"checking", "editing", "incomplete", "failed"}
+        )
+        return bool(
+            resumable_stage
+            and checkpoint.get("brief_prompt_version")
+            == self._brief_prompt_version(TranslationBriefAgent.PROMPT_VERSION)
+            and checkpoint.get("brief_input_fingerprint", "") == self._brief_input_fingerprint()
+            and checkpoint.get("translation_brief")
+            and checkpoint.get("raw_hymt2_translations")
+        )
 
     def _generate_subtitle_files(self, subtitle, base_name, subtitle_format):
         """
@@ -529,16 +626,25 @@ class LRCer:
             transcribed_opt_sub (Subtitle): Post-processed transcription subtitle.
             subtitle_format (str): Output format, either 'lrc' or 'srt'.
         """
-        bilingual_subtitle = BilingualSubtitle.from_preprocessed(transcribed_path.parent, base_name)
+        optimized_suffix = (
+            RELAXED_OPTIMIZED_SUFFIX
+            if self.subtitle_optimization is SubtitleOptimizationMode.RELAXED
+            else OPTIMIZED_SUFFIX
+        )
+        bilingual_subtitle = BilingualSubtitle.from_preprocessed(
+            transcribed_path.parent, base_name, optimized_suffix=optimized_suffix
+        )
         bilingual_optimizer = SubtitleOptimizer(bilingual_subtitle)
-        bilingual_optimizer.extend_time()
+        if self.subtitle_optimization is SubtitleOptimizationMode.AGGRESSIVE:
+            bilingual_optimizer.extend_time()
 
         bilingual_path = getattr(bilingual_subtitle, f"to_{subtitle_format}")()
         shutil.move(bilingual_path, bilingual_path.parent.parent / bilingual_path.name)
 
         non_translated_subtitle = transcribed_opt_sub
         optimizer = SubtitleOptimizer(non_translated_subtitle)
-        optimizer.extend_time()
+        if self.subtitle_optimization is SubtitleOptimizationMode.AGGRESSIVE:
+            optimizer.extend_time()
         non_translated_path = getattr(non_translated_subtitle, f"to_{subtitle_format}")()
         shutil.move(
             non_translated_path, non_translated_path.parent.parent / f"{base_name}{NONTRANS_SUFFIX}.{subtitle_format}"
@@ -564,7 +670,18 @@ class LRCer:
         subtitle_format = "srt" if self._is_video_transcription(transcribed_path, base_name) else "lrc"
 
         transcribed_sub = Subtitle.from_json(transcribed_path)
-        transcribed_opt_sub = self.post_process(transcribed_sub, update_name=True)
+        optimized_output = (
+            extend_filename(transcribed_path, RELAXED_OPTIMIZED_SUFFIX)
+            if self.subtitle_optimization is SubtitleOptimizationMode.RELAXED
+            else None
+        )
+        transcribed_opt_sub = self.post_process(
+            transcribed_sub,
+            output_name=optimized_output,
+            update_name=True,
+            mode=self.subtitle_optimization,
+            stage="source",
+        )
 
         final_subtitle = self._build_final_subtitle(base_name, target_lang, transcribed_opt_sub, skip_trans)
 
@@ -600,6 +717,7 @@ class LRCer:
         self.transcribed_paths = []
         self.exception = None
         self.review_statuses = {}
+        self._keep_completed_checkpoint = not clear_checkpoint
 
         if isinstance(transcribed_paths, Path):
             transcribed_paths = [transcribed_paths]
@@ -622,6 +740,609 @@ class LRCer:
         logger.info(f"Total API fee used: {self.api_fee:.4f} USD")
 
         return self.transcribed_paths
+
+    def edit(
+        self,
+        source_path: str | Path,
+        target_path: str | Path,
+        *,
+        action: str = "verify",
+        segment_ids: list[int] | None = None,
+        restore_round: int | None = None,
+        session_path: str | Path | None = None,
+        output_path: str | Path | None = None,
+        markdown_report: bool = False,
+    ) -> EditResult:
+        """Verify or edit an existing translation without rerunning transcription.
+
+        ``verify`` and ``restore`` are offline. ``review`` uses only the
+        explicitly configured context model, while ``retranslate`` uses the
+        explicitly configured Hy-MT2 model and, for contextual modes, its
+        context model. No model path or credential is inferred from history.
+        """
+        self._model_load_count = 0
+        self._task_started_at = time.perf_counter()
+        from openlrc.checkpoint import (
+            STANDALONE_EDIT_CHECKPOINT_KIND,
+            STANDALONE_EDIT_CHECKPOINT_SCHEMA_VERSION,
+            save_json_checkpoint,
+        )
+        from openlrc.chunking import chunk_plan_signature, plan_translation_chunks
+        from openlrc.context import ContextTimeline, TranslateInfo, TranslationBrief
+        from openlrc.edit_pipeline import EditPipeline
+        from openlrc.edit_validators import DeterministicValidatorSuite
+        from openlrc.editing import (
+            EditAction,
+            EditIssue,
+            EditIssueStatus,
+            EditPatch,
+            EditResult,
+            EditRound,
+            EditRoundStatus,
+            EditSession,
+            EditSessionStatus,
+            EditSeverity,
+            EditStopReason,
+            apply_patch_transaction,
+            atomic_save_subtitle,
+            load_edit_session,
+            save_edit_session,
+            subtitle_fingerprint,
+            translations_at_round,
+            write_edit_report,
+        )
+        from openlrc.hymt2_pipeline import load_checkpoint
+
+        edit_action = EditAction(action)
+        if self.translation_brief_input is not None and edit_action in {EditAction.VERIFY, EditAction.RESTORE}:
+            raise ValueError(f"{edit_action.value} does not use a Translation Brief.")
+        if (
+            self.translation_brief_input is not None
+            and edit_action is EditAction.RETRANSLATE
+            and (self.prompt_profile != HY_MT2_PROMPT_PROFILE or self.hy_mt2_mode is HyMT2Mode.FAST)
+        ):
+            raise ValueError("A manual Translation Brief requires contextual Hy-MT2 retranslation.")
+        source_file = Path(source_path)
+        target_file = Path(target_path)
+        output_file = Path(output_path) if output_path is not None else target_file
+        source = Subtitle.from_json(source_file)
+        target = Subtitle.from_json(target_file)
+        source_timestamps = [(segment.start, segment.end) for segment in source.segments]
+        target_timestamps = [(segment.start, segment.end) for segment in target.segments]
+        if len(source) != len(target):
+            raise ValueError("Source and target subtitles must contain the same number of segments.")
+        if source_timestamps != target_timestamps:
+            raise ValueError("Source and target subtitle timelines must match exactly.")
+
+        selected_ids = sorted(set(segment_ids or range(1, len(source) + 1)))
+        if not selected_ids or selected_ids[0] < 1 or selected_ids[-1] > len(source):
+            raise ValueError("Edit segment IDs must be within the subtitle range.")
+
+        artifact_base = output_file.stem.removesuffix(TRANSLATED_SUFFIX)
+        report_suffix = "md" if markdown_report else "json"
+        report_path = output_file.parent / f"{artifact_base}{EDIT_REPORT_SUFFIX}.{report_suffix}"
+        stable_session_path = (
+            Path(session_path)
+            if session_path is not None
+            else output_file.parent / f"{artifact_base}{EDIT_SESSION_SUFFIX}.json"
+        )
+        process_checkpoint = output_file.parent / f"{artifact_base}.edit-checkpoint.json"
+
+        if edit_action is EditAction.RESTORE:
+            if restore_round is None:
+                raise ValueError("restore requires an explicit restore_round.")
+            session = load_edit_session(stable_session_path)
+            expected_source = subtitle_fingerprint(source.texts, source_timestamps, language=source.lang)
+            if session.source_fingerprint != expected_source:
+                raise ValueError("Edit session source fingerprint does not match the current source subtitle.")
+            if session.source_timestamps != source_timestamps:
+                raise ValueError("Edit session timeline does not match the current source subtitle.")
+            current_fingerprint = subtitle_fingerprint(target.texts, target_timestamps)
+            if session.translation_fingerprint != current_fingerprint:
+                raise ValueError("Current translation has changed since the edit session was saved.")
+            restored = translations_at_round(session, restore_round)
+            changed_ids = [
+                index for index, (before, after) in enumerate(zip(target.texts, restored), 1) if before != after
+            ]
+            atomic_save_subtitle(output_file, language=target.lang, timestamps=target_timestamps, texts=restored)
+            restored_session = session.model_copy(
+                update={
+                    "current_translations": restored,
+                    "translation_fingerprint": subtitle_fingerprint(restored, target_timestamps),
+                    "status": EditSessionStatus.COMPLETE,
+                }
+            )
+            save_edit_session(stable_session_path, restored_session)
+            write_edit_report(report_path, restored_session, markdown=markdown_report)
+            return EditResult(
+                action=edit_action,
+                output_path=output_file,
+                report_path=report_path,
+                session_path=stable_session_path,
+                changed_ids=changed_ids,
+                rounds=restored_session.rounds,
+                unresolved_issues=restored_session.unresolved_issues,
+            )
+
+        context_checkpoint = output_file.parent / f"{artifact_base}.edit-context.json"
+        plans = plan_translation_chunks(source.texts, timestamps=source_timestamps)
+        plan_signature = chunk_plan_signature(plans, timestamps=source_timestamps)
+        expected_source_fingerprint = subtitle_fingerprint(source.texts, source_timestamps, language=source.lang)
+        current_target_fingerprint = subtitle_fingerprint(target.texts, target_timestamps)
+        process_state = load_checkpoint(process_checkpoint)
+        if process_state:
+            if process_state.get("checkpoint_kind") != STANDALONE_EDIT_CHECKPOINT_KIND:
+                raise ValueError(
+                    f"Existing standalone edit checkpoint has an incompatible format: {process_checkpoint}"
+                )
+            expected = {
+                "schema_version": STANDALONE_EDIT_CHECKPOINT_SCHEMA_VERSION,
+                "action": edit_action.value,
+                "scope_ids": selected_ids,
+                "source_fingerprint": expected_source_fingerprint,
+                "chunk_signature": plan_signature,
+            }
+            if self.translation_brief_input is not None:
+                expected["brief_input_fingerprint"] = self._brief_input_fingerprint()
+            mismatched = [key for key, value in expected.items() if process_state.get(key) != value]
+            accepted_target_fingerprints = {
+                process_state.get("initial_target_fingerprint"),
+                process_state.get("target_fingerprint"),
+                process_state.get("snapshot_fingerprint"),
+            }
+            if process_state.get("edit_session"):
+                checkpoint_session = EditSession.model_validate(process_state["edit_session"])
+                accepted_target_fingerprints.update(
+                    {
+                        subtitle_fingerprint(checkpoint_session.raw_translations, target_timestamps),
+                        subtitle_fingerprint(checkpoint_session.current_translations, target_timestamps),
+                    }
+                )
+            if current_target_fingerprint not in accepted_target_fingerprints:
+                mismatched.append("target_fingerprint")
+            if mismatched:
+                raise ValueError(
+                    "Standalone edit checkpoint does not match the current action/input: " + ", ".join(mismatched)
+                )
+
+        def persist_process(session: EditSession | None = None, **updates) -> None:
+            nonlocal process_state
+            initial_target_fingerprint = process_state.get("initial_target_fingerprint", current_target_fingerprint)
+            process_state.update(
+                checkpoint_kind=STANDALONE_EDIT_CHECKPOINT_KIND,
+                schema_version=STANDALONE_EDIT_CHECKPOINT_SCHEMA_VERSION,
+                action=edit_action.value,
+                scope_ids=selected_ids,
+                source_fingerprint=expected_source_fingerprint,
+                initial_target_fingerprint=initial_target_fingerprint,
+                target_fingerprint=initial_target_fingerprint,
+                snapshot_fingerprint=(
+                    session.translation_fingerprint
+                    if session is not None
+                    else process_state.get("snapshot_fingerprint", current_target_fingerprint)
+                ),
+                chunk_signature=plan_signature,
+                brief_origin=self._brief_origin(),
+                brief_input_fields=(
+                    self.translation_brief_input.provided_fields if self.translation_brief_input is not None else []
+                ),
+                brief_input_fingerprint=self._brief_input_fingerprint(),
+                **updates,
+            )
+            if session is not None:
+                process_state["edit_session"] = session.model_dump(mode="json")
+            save_json_checkpoint(process_checkpoint, process_state)
+
+        def finalize_session(session: EditSession) -> EditResult:
+            """Durably finalize a terminal standalone round, including crash recovery."""
+            session.translation_fingerprint = subtitle_fingerprint(session.current_translations, target_timestamps)
+            changed_ids = [
+                index
+                for index, (before, after) in enumerate(zip(target.texts, session.current_translations), 1)
+                if before != after
+            ]
+            session.metrics.update(
+                elapsed_seconds=round(time.perf_counter() - self._task_started_at, 3),
+                model_load_count=self._model_load_count,
+                changed_ids=changed_ids,
+                modification_ratio=(len(changed_ids) / len(source) if len(source) else 0.0),
+            )
+            try:
+                import resource
+
+                parent_peak = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+                child_peak = int(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)
+                session.metrics.update(
+                    peak_rss_bytes=max(parent_peak, child_peak),
+                    peak_parent_rss_bytes=parent_peak,
+                    peak_model_process_rss_bytes=child_peak,
+                )
+            except (ImportError, OSError):
+                session.metrics["peak_rss_bytes"] = None
+            model_incomplete = bool(
+                session.rounds
+                and session.rounds[-1].status is EditRoundStatus.FAILED
+                and session.rounds[-1].stop_reason is EditStopReason.MODEL_FAILURE
+            )
+            if not model_incomplete:
+                process_state.pop("model_progress", None)
+            # This checkpoint must be durable before the user translation is replaced.
+            persist_process(
+                session,
+                phase=(
+                    "complete"
+                    if session.status is EditSessionStatus.COMPLETE
+                    else ("model-incomplete" if model_incomplete else "finished-incomplete")
+                ),
+            )
+            if edit_action is not EditAction.VERIFY:
+                atomic_save_subtitle(
+                    output_file, language=target.lang, timestamps=target_timestamps, texts=session.current_translations
+                )
+            save_edit_session(stable_session_path, session)
+            write_edit_report(report_path, session, markdown=markdown_report)
+            if session.status is EditSessionStatus.COMPLETE:
+                process_checkpoint.unlink(missing_ok=True)
+                context_checkpoint.unlink(missing_ok=True)
+            return EditResult(
+                action=edit_action,
+                output_path=output_file,
+                report_path=report_path,
+                session_path=stable_session_path,
+                changed_ids=changed_ids,
+                rounds=session.rounds,
+                unresolved_issues=session.unresolved_issues,
+            )
+
+        brief = (
+            TranslationBrief.model_validate(process_state["translation_brief"])
+            if process_state.get("translation_brief")
+            else None
+        )
+        timeline = (
+            ContextTimeline.model_validate(process_state["context_timeline"])
+            if process_state.get("context_timeline")
+            else None
+        )
+        if edit_action is EditAction.REVIEW:
+            if self.context_llm is None:
+                raise ValueError("review requires an explicitly configured context model.")
+            if brief is None:
+                from openlrc.hymt2_pipeline import TranslationBriefAgent
+
+                if self.translation_brief_input is not None and self.translation_brief_input.is_complete:
+                    brief = TranslationBriefAgent(chatbot=None, src_lang=source.lang, target_lang=target.lang).build(
+                        source.texts,
+                        title=artifact_base,
+                        glossary=self.glossary,
+                        translation_brief=self.translation_brief_input,
+                    )
+                    persist_process(translation_brief=brief.model_dump(mode="json"))
+                else:
+                    chatbot, server = self._create_context_chatbot()
+                    try:
+                        brief = TranslationBriefAgent(
+                            chatbot=chatbot, src_lang=source.lang, target_lang=target.lang
+                        ).build(
+                            source.texts,
+                            title=artifact_base,
+                            glossary=self.glossary,
+                            translation_brief=self.translation_brief_input,
+                        )
+                        self.api_fee += sum(chatbot.api_fees)
+                        persist_process(translation_brief=brief.model_dump(mode="json"))
+                    finally:
+                        chatbot.close()
+                        if server is not None:
+                            server.close()
+        elif edit_action is EditAction.RETRANSLATE:
+            if self.prompt_profile != HY_MT2_PROMPT_PROFILE or not self._local_llm_enabled():
+                raise ValueError("retranslate requires an explicitly configured local Hy-MT2 model.")
+            needs_context = bool(
+                self.hy_mt2_mode is HyMT2Mode.PRO
+                or self.translation_brief_input is None
+                or not self.translation_brief_input.is_complete
+            )
+            if needs_context and self.context_llm is None:
+                raise ValueError(f"Hy-MT2 {self.hy_mt2_mode.value} retranslate requires a context model.")
+            if self.hy_mt2_mode is HyMT2Mode.PRO and (brief is None or timeline is None):
+                brief, timeline, plans, _ = self._prepare_hymt2_pro_context(
+                    source.texts,
+                    source_timestamps,
+                    src_lang=source.lang,
+                    target_lang=target.lang,
+                    info=TranslateInfo(title=artifact_base, glossary=self.glossary),
+                    compare_path=context_checkpoint,
+                )
+                plan_signature = chunk_plan_signature(plans, timestamps=source_timestamps)
+                persist_process(
+                    translation_brief=brief.model_dump(mode="json"), context_timeline=timeline.model_dump(mode="json")
+                )
+            elif self.hy_mt2_mode is not HyMT2Mode.FAST and brief is None:
+                brief, _ = self._prepare_hymt2_brief(
+                    source.texts,
+                    src_lang=source.lang,
+                    target_lang=target.lang,
+                    info=TranslateInfo(title=artifact_base, glossary=self.glossary),
+                    compare_path=context_checkpoint,
+                )
+                persist_process(translation_brief=brief.model_dump(mode="json"))
+
+        glossary_state = self._build_glossary_state(
+            brief=brief, source_language=source.lang, target_language=target.lang
+        )
+        validators = DeterministicValidatorSuite(
+            source, glossary_service=self.glossary_service, glossary_state=glossary_state, brief=brief
+        )
+        pipeline = EditPipeline(
+            source,
+            validators,
+            glossary_fingerprint=glossary_state.fingerprint,
+            max_rounds=self.edit_config.max_rounds,
+            restore_enabled=True,
+            report_matches=self.glossary_options.report_matches,
+            checkpoint_hook=lambda value: persist_process(value),
+        )
+        if process_state.get("edit_session"):
+            session = EditSession.model_validate(process_state["edit_session"])
+            if session.source_fingerprint != expected_source_fingerprint:
+                raise ValueError("Standalone edit checkpoint session has a stale source fingerprint.")
+            if session.source_timestamps != source_timestamps:
+                raise ValueError("Standalone edit checkpoint session has a stale timeline.")
+            session_snapshot_fingerprint = subtitle_fingerprint(session.current_translations, target_timestamps)
+            if session.translation_fingerprint != session_snapshot_fingerprint:
+                raise ValueError("Standalone edit checkpoint session has a corrupt translation snapshot.")
+            session_input_fingerprint = subtitle_fingerprint(session.raw_translations, target_timestamps)
+            if current_target_fingerprint not in {session_input_fingerprint, session_snapshot_fingerprint}:
+                raise ValueError("Standalone edit checkpoint session does not match the current translation.")
+        else:
+            session = pipeline.new_session(target.texts)
+            persist_process(session, phase="initialized")
+
+        checkpoint_phase = process_state.get("phase")
+        last_round = session.rounds[-1] if session.rounds else None
+        terminal_round_was_saved = bool(
+            checkpoint_phase == "model-running"
+            and last_round is not None
+            and not (
+                last_round.status is EditRoundStatus.FAILED and last_round.stop_reason is EditStopReason.MODEL_FAILURE
+            )
+        )
+        if checkpoint_phase in {"complete", "finished-incomplete"} or terminal_round_was_saved:
+            # No model is loaded for finalization, but the action must still have
+            # an explicit current model configuration as required by the API.
+            if edit_action is EditAction.REVIEW and self.context_llm is None:
+                raise ValueError("review requires an explicitly configured context model.")
+            if edit_action is EditAction.RETRANSLATE:
+                if self.prompt_profile != HY_MT2_PROMPT_PROFILE or not self._local_llm_enabled():
+                    raise ValueError("retranslate requires an explicitly configured local Hy-MT2 model.")
+                needs_context = bool(
+                    self.hy_mt2_mode is HyMT2Mode.PRO
+                    or self.translation_brief_input is None
+                    or not self.translation_brief_input.is_complete
+                )
+                if needs_context and self.context_llm is None:
+                    raise ValueError(f"Hy-MT2 {self.hy_mt2_mode.value} retranslate requires a context model.")
+            return finalize_session(session)
+
+        if edit_action is EditAction.VERIFY:
+            session = pipeline.run_deterministic_repair(session, repair=None)
+            session.status = (
+                EditSessionStatus.INCOMPLETE
+                if any(issue.severity is EditSeverity.ERROR for issue in session.unresolved_issues)
+                else EditSessionStatus.COMPLETE
+            )
+        else:
+            working_texts = list(session.current_translations)
+            before_issues = validators.validate(working_texts)
+            progress = process_state.get("model_progress") or {}
+            selected_id_set = set(selected_ids)
+            patches = [EditPatch.model_validate(item) for item in progress.get("patches", [])]
+            semantic_issues = [EditIssue.model_validate(item) for item in progress.get("issues", [])]
+            completed_chunks = {int(item) for item in progress.get("completed_chunks", [])}
+            failed_chunks: set[int] = set()
+            failure_issues: list[EditIssue] = []
+            metadata: dict[str, object] = {"action": edit_action.value}
+            if edit_action is EditAction.REVIEW:
+                from openlrc.hymt2_pipeline import HyMT2RiskReviewAgent
+
+                chatbot, server = self._create_context_chatbot()
+                try:
+                    reviewer = HyMT2RiskReviewAgent(chatbot=chatbot, src_lang=source.lang, target_lang=target.lang)
+                    selected = selected_id_set
+                    for plan in plans:
+                        active = [line_id for line_id in plan.segment_ids if line_id in selected]
+                        if not active or plan.chunk_id in completed_chunks:
+                            continue
+                        chunk = [(line_id, source.texts[line_id - 1]) for line_id in active]
+                        try:
+                            chunk_issues, chunk_patches, chunk_metadata = reviewer.review_patches(
+                                chunk,
+                                {line_id: working_texts[line_id - 1] for line_id in active},
+                                brief=brief or TranslationBrief(summary=""),
+                                neighboring_context=self._review_neighboring_context(source.texts, chunk),
+                                fallback_metadata={},
+                            )
+                            if any(item.status is EditIssueStatus.FAILED for item in chunk_issues):
+                                failed_chunks.add(plan.chunk_id)
+                                failure_issues.extend(chunk_issues)
+                            else:
+                                completed_chunks.add(plan.chunk_id)
+                                semantic_issues.extend(chunk_issues)
+                                patches.extend(chunk_patches)
+                                metadata.update(chunk_metadata)
+                        except Exception as exc:
+                            failed_chunks.add(plan.chunk_id)
+                            failure_issues.append(
+                                EditIssue.create(
+                                    segment_ids=active,
+                                    category="semantic",
+                                    severity=EditSeverity.ERROR,
+                                    source="standalone-review",
+                                    message=f"Standalone review failed for chunk {plan.chunk_id}: {exc}",
+                                    evidence={"chunk_id": plan.chunk_id},
+                                    status=EditIssueStatus.FAILED,
+                                )
+                            )
+                        persist_process(
+                            session,
+                            phase="model-running",
+                            model_progress={
+                                "completed_chunks": sorted(completed_chunks),
+                                "failed_chunks": sorted(failed_chunks),
+                                "issues": [item.model_dump(mode="json") for item in semantic_issues],
+                                "patches": [item.model_dump(mode="json") for item in patches],
+                            },
+                        )
+                    self.api_fee += sum(chatbot.api_fees)
+                finally:
+                    chatbot.close()
+                    if server is not None:
+                        server.close()
+            else:
+                try:
+                    with self._local_llm_session():
+                        translator = self._create_translator(source_timestamps)
+                        completed_results = {
+                            int(line_id): value for line_id, value in progress.get("targeted_results", {}).items()
+                        }
+
+                        def save_targeted_progress(results: dict[int, str], chunk_id: int) -> None:
+                            persist_process(
+                                session,
+                                phase="model-running",
+                                model_progress={
+                                    "targeted_results": {str(key): value for key, value in results.items()},
+                                    "completed_chunks": sorted(
+                                        {
+                                            plan.chunk_id
+                                            for plan in plans
+                                            if all(
+                                                line_id in results
+                                                for line_id in plan.segment_ids
+                                                if line_id in selected_id_set
+                                            )
+                                            and any(line_id in selected_id_set for line_id in plan.segment_ids)
+                                        }
+                                    ),
+                                    "last_chunk_id": chunk_id,
+                                },
+                            )
+
+                        try:
+                            replacements = translator.translate_targeted(
+                                source.texts,
+                                working_texts,
+                                selected_ids,
+                                src_lang=source.lang,
+                                target_lang=target.lang,
+                                info=TranslateInfo(title=artifact_base, glossary=self.glossary),
+                                translation_brief=brief,
+                                chunk_plans=plans,
+                                context_timeline=timeline,
+                                resolved_glossary=glossary_state.merged_entries,
+                                completed_results=completed_results,
+                                checkpoint_hook=save_targeted_progress,
+                            )
+                            patches = [
+                                EditPatch.create(
+                                    issue_ids=[],
+                                    segment_id=line_id,
+                                    before=working_texts[line_id - 1],
+                                    after=replacements[line_id],
+                                    reason="Explicit targeted retranslation",
+                                    action=EditAction.RETRANSLATE,
+                                )
+                                for line_id in selected_ids
+                            ]
+                        except Exception as exc:
+                            failure_issues.append(
+                                EditIssue.create(
+                                    segment_ids=selected_ids,
+                                    category="translation",
+                                    severity=EditSeverity.ERROR,
+                                    source="standalone-retranslate",
+                                    message=f"Standalone retranslation failed: {exc}",
+                                    evidence={},
+                                    status=EditIssueStatus.FAILED,
+                                )
+                            )
+                        metadata["hymt2_metrics"] = dict(translator.metrics)
+                finally:
+                    self._close_primary_local_stage()
+
+            all_issues = [*before_issues, *semantic_issues, *failure_issues]
+            transaction = None
+            if failure_issues or failed_chunks:
+                stop_reason = EditStopReason.MODEL_FAILURE
+                session.current_translations = working_texts
+                session.unresolved_issues = all_issues
+                session.status = EditSessionStatus.INCOMPLETE
+                round_status = EditRoundStatus.FAILED
+            elif edit_action is EditAction.REVIEW and not any(
+                issue.severity is EditSeverity.ERROR for issue in semantic_issues
+            ):
+                stop_reason = EditStopReason.NO_HIGH_RISK
+                session.current_translations = working_texts
+                session.unresolved_issues = before_issues
+                session.status = (
+                    EditSessionStatus.INCOMPLETE
+                    if any(issue.severity is EditSeverity.ERROR for issue in before_issues)
+                    else EditSessionStatus.COMPLETE
+                )
+                round_status = EditRoundStatus.COMPLETED
+            elif not patches:
+                stop_reason = EditStopReason.NO_EFFECTIVE_PATCH
+                session.unresolved_issues = all_issues
+                session.status = EditSessionStatus.INCOMPLETE
+                round_status = EditRoundStatus.FAILED
+            else:
+                transaction = apply_patch_transaction(
+                    working_texts,
+                    patches,
+                    scope_ids=selected_ids,
+                    baseline_issues=before_issues,
+                    validate=validators.validate,
+                )
+                session.current_translations = transaction.translations
+                session.unresolved_issues = [
+                    *transaction.validation_after,
+                    *[
+                        issue.model_copy(update={"status": EditIssueStatus.DEFERRED})
+                        for issue in semantic_issues
+                        if issue.issue_id
+                        not in {issue_id for patch in transaction.applied_patches for issue_id in patch.issue_ids}
+                    ],
+                ]
+                session.status = (
+                    EditSessionStatus.COMPLETE
+                    if transaction.committed
+                    and not any(issue.severity is EditSeverity.ERROR for issue in session.unresolved_issues)
+                    else EditSessionStatus.INCOMPLETE
+                )
+                stop_reason = (
+                    EditStopReason.CHECKS_PASSED
+                    if transaction.committed and session.status is EditSessionStatus.COMPLETE
+                    else EditStopReason.VALIDATION_FAILURE
+                )
+                round_status = EditRoundStatus.COMMITTED if transaction.committed else EditRoundStatus.FAILED
+            session.rounds.append(
+                EditRound(
+                    round_index=1,
+                    status=round_status,
+                    scope_ids=selected_ids,
+                    issues_before=all_issues,
+                    proposed_patches=patches,
+                    applied_patches=transaction.applied_patches if transaction is not None else [],
+                    rejected_patches=transaction.rejected_patches if transaction is not None else [],
+                    validation_after=transaction.validation_after if transaction is not None else before_issues,
+                    model_metadata=metadata,
+                    stop_reason=stop_reason,
+                )
+            )
+            pipeline._save(session)
+
+        return finalize_session(session)
 
     def consume_transcriptions(self, transcription_queue, target_lang, skip_trans, bilingual_sub):
         """
@@ -702,6 +1423,7 @@ class LRCer:
             try:
                 model_config.base_url = server.ensure_running(schedule_idle=False)
                 model_config.api_key = model_config.api_key or LOCAL_LLAMA_API_KEY
+                self._model_load_count += 1
             except Exception:
                 server.close()
                 raise
@@ -730,14 +1452,56 @@ class LRCer:
     def _dump_model(model) -> dict:
         return model.model_dump() if hasattr(model, "model_dump") else model.dict()
 
+    def _brief_origin(self) -> str:
+        if self.translation_brief_input is None:
+            return "auto"
+        return self.translation_brief_input.origin
+
+    def _brief_input_fingerprint(self) -> str:
+        return self.translation_brief_input.fingerprint() if self.translation_brief_input is not None else ""
+
+    def _brief_prompt_version(self, automatic_version: int) -> int:
+        if self.translation_brief_input is not None and self.translation_brief_input.is_complete:
+            return 0
+        return automatic_version
+
+    def _brief_checkpoint_metadata(self, automatic_prompt_version: int) -> dict:
+        return {
+            "brief_origin": self._brief_origin(),
+            "brief_input_fields": (
+                self.translation_brief_input.provided_fields if self.translation_brief_input is not None else []
+            ),
+            "brief_input_fingerprint": self._brief_input_fingerprint(),
+            "brief_prompt_version": self._brief_prompt_version(automatic_prompt_version),
+        }
+
+    def _translation_context_model_required(self) -> bool:
+        if self.hy_mt2_mode is HyMT2Mode.PRO:
+            return True
+        if self.translation_brief_input is None or not self.translation_brief_input.is_complete:
+            return self.hy_mt2_mode is not HyMT2Mode.FAST
+        return bool(
+            self.hy_mt2_mode is HyMT2Mode.NORMAL_PLUS
+            and self.edit_config.semantic_review
+            and self.edit_config.max_rounds > 0
+        )
+
     def _prepare_hymt2_brief(self, texts: list[str], *, src_lang: str, target_lang: str, info, compare_path: Path):
         """Build or restore a structured brief before starting Hy-MT2."""
+        from openlrc.checkpoint import (
+            HYM_T2_CHECKPOINT_KIND,
+            HYM_T2_CHECKPOINT_SCHEMA_VERSION,
+            migrate_hymt2_checkpoint,
+        )
         from openlrc.context import TranslationBrief
         from openlrc.hymt2_pipeline import TranslationBriefAgent, load_checkpoint, save_checkpoint, source_fingerprint
 
-        assert self.context_llm is not None
-        context_model = str(self.context_llm.chatbot)
-        translation_model = str(self._translation_config.chatbot)
+        context_model = (
+            self._model_identity(self.context_llm.chatbot, self.context_llm.local_llm)
+            if self.context_llm is not None and self._translation_context_model_required()
+            else ""
+        )
+        translation_model = self._model_identity(self._translation_config.chatbot, self._translation_config.local_llm)
         fingerprint = source_fingerprint(
             texts,
             src_lang=src_lang,
@@ -746,35 +1510,236 @@ class LRCer:
             mode=self.hy_mt2_mode.value,
             context_model=context_model,
             translation_model=translation_model,
+            translation_brief=self.translation_brief_input,
         )
+        legacy_mode = {HyMT2Mode.NORMAL: "context", HyMT2Mode.NORMAL_PLUS: "context-plus"}.get(self.hy_mt2_mode)
+        legacy_fingerprints = set()
+        if legacy_mode and self.translation_brief_input is None and self.context_llm is not None:
+            legacy_context_model = str(self.context_llm.chatbot)
+            legacy_translation_model = str(self._translation_config.chatbot)
+            legacy_fingerprints.add(
+                source_fingerprint(
+                    texts,
+                    src_lang=src_lang,
+                    target_lang=target_lang,
+                    glossary=info.glossary,
+                    mode=legacy_mode,
+                    context_model=legacy_context_model,
+                    translation_model=legacy_translation_model,
+                    normalize_mode=False,
+                )
+            )
         metadata = {
-            "schema_version": 2,
+            "checkpoint_kind": HYM_T2_CHECKPOINT_KIND,
+            "schema_version": HYM_T2_CHECKPOINT_SCHEMA_VERSION,
             "source_fingerprint": fingerprint,
+            "mode": self.hy_mt2_mode.value,
             "hymt2_mode": self.hy_mt2_mode.value,
+            "glossary_fingerprint": self.glossary_state.fingerprint,
+            "edit_protocol_version": 1,
             "context_model": context_model,
             "translation_model": translation_model,
+            **self._brief_checkpoint_metadata(TranslationBriefAgent.PROMPT_VERSION),
             "pipeline_stage": "translation",
         }
-        checkpoint = load_checkpoint(compare_path)
-        if checkpoint.get("source_fingerprint") == fingerprint and checkpoint.get("translation_brief"):
+        checkpoint = migrate_hymt2_checkpoint(
+            load_checkpoint(compare_path),
+            canonical_mode=self.hy_mt2_mode.value,
+            canonical_fingerprint=fingerprint,
+            accepted_legacy_fingerprints=legacy_fingerprints,
+            glossary_fingerprint=self.glossary_state.fingerprint,
+        )
+        if (
+            checkpoint.get("source_fingerprint") == fingerprint
+            and checkpoint.get("brief_prompt_version")
+            == self._brief_prompt_version(TranslationBriefAgent.PROMPT_VERSION)
+            and checkpoint.get("brief_input_fingerprint", "") == self._brief_input_fingerprint()
+            and checkpoint.get("translation_brief")
+        ):
             brief = TranslationBrief(**checkpoint["translation_brief"])
-            metadata["translation_brief"] = self._dump_model(brief)
-            return brief, metadata
+            checkpoint.update(metadata, translation_brief=self._dump_model(brief))
+            save_checkpoint(compare_path, checkpoint)
+            return brief, {key: value for key, value in checkpoint.items() if key != "compare"}
 
-        chatbot, server = self._create_context_chatbot()
-        try:
-            brief = TranslationBriefAgent(chatbot=chatbot, src_lang=src_lang, target_lang=target_lang).build(
-                texts, title=info.title or "", glossary=info.glossary
+        if self.translation_brief_input is not None and self.translation_brief_input.is_complete:
+            brief = TranslationBriefAgent(chatbot=None, src_lang=src_lang, target_lang=target_lang).build(
+                texts, title=info.title or "", glossary=info.glossary, translation_brief=self.translation_brief_input
             )
-            self.api_fee += sum(chatbot.api_fees)
-        finally:
-            chatbot.close()
-            if server is not None:
-                server.close()
+        else:
+            if self.context_llm is None:
+                raise ValueError("Automatic or Partial Translation Brief completion requires a context model.")
+            chatbot, server = self._create_context_chatbot()
+            try:
+                brief = TranslationBriefAgent(chatbot=chatbot, src_lang=src_lang, target_lang=target_lang).build(
+                    texts,
+                    title=info.title or "",
+                    glossary=info.glossary,
+                    translation_brief=self.translation_brief_input,
+                )
+                self.api_fee += sum(chatbot.api_fees)
+            finally:
+                chatbot.close()
+                if server is not None:
+                    server.close()
 
-        metadata["translation_brief"] = self._dump_model(brief)
-        save_checkpoint(compare_path, {"compare": [], **metadata})
-        return brief, metadata
+        checkpoint = {"compare": [], **metadata, "translation_brief": self._dump_model(brief)}
+        save_checkpoint(compare_path, checkpoint)
+        return brief, {key: value for key, value in checkpoint.items() if key != "compare"}
+
+    @staticmethod
+    def _model_identity(chatbot_config, local_config=None) -> str:
+        chatbot = asdict(chatbot_config) if chatbot_config is not None else {}
+        chatbot.pop("api_key", None)
+        local = asdict(local_config) if local_config is not None else None
+        return json.dumps({"chatbot": chatbot, "local": local}, ensure_ascii=False, sort_keys=True, default=str)
+
+    def _prepare_hymt2_pro_context(
+        self,
+        texts: list[str],
+        timestamps: list[tuple[float, float | None]],
+        *,
+        src_lang: str,
+        target_lang: str,
+        info,
+        compare_path: Path,
+    ):
+        """Build or restore Pro Brief and Timeline before loading Hy-MT2."""
+        from openlrc.checkpoint import (
+            HYM_T2_CHECKPOINT_KIND,
+            HYM_T2_CHECKPOINT_SCHEMA_VERSION,
+            migrate_hymt2_checkpoint,
+        )
+        from openlrc.chunking import CHUNK_PLANNER_VERSION, chunk_plan_signature, plan_translation_chunks
+        from openlrc.context import ContextTimeline, TranslationBrief
+        from openlrc.hymt2_pipeline import (
+            ContextTimelineAgent,
+            TranslationBriefAgent,
+            load_checkpoint,
+            save_checkpoint,
+            source_fingerprint,
+        )
+
+        assert self.context_llm is not None
+        plans = plan_translation_chunks(texts, timestamps=timestamps)
+        signature = chunk_plan_signature(plans, timestamps=timestamps)
+        context_model = self._model_identity(self.context_llm.chatbot, self.context_llm.local_llm)
+        translation_model = self._model_identity(self._translation_config.chatbot, self._translation_config.local_llm)
+        fingerprint = source_fingerprint(
+            texts,
+            src_lang=src_lang,
+            target_lang=target_lang,
+            glossary=info.glossary,
+            mode=self.hy_mt2_mode.value,
+            context_model=context_model,
+            translation_model=translation_model,
+            translation_brief=self.translation_brief_input,
+        )
+        metadata = {
+            "checkpoint_kind": HYM_T2_CHECKPOINT_KIND,
+            "schema_version": HYM_T2_CHECKPOINT_SCHEMA_VERSION,
+            "source_fingerprint": fingerprint,
+            "chunk_signature": signature,
+            "chunk_planner_version": CHUNK_PLANNER_VERSION,
+            "mode": self.hy_mt2_mode.value,
+            "hymt2_mode": self.hy_mt2_mode.value,
+            "glossary_fingerprint": self.glossary_state.fingerprint,
+            "edit_protocol_version": 1,
+            "context_model": context_model,
+            "translation_model": translation_model,
+            **self._brief_checkpoint_metadata(TranslationBriefAgent.PROMPT_VERSION),
+            "timeline_schema_version": ContextTimelineAgent.SCHEMA_VERSION,
+            "timeline_prompt_version": ContextTimelineAgent.PROMPT_VERSION,
+        }
+        checkpoint = migrate_hymt2_checkpoint(
+            load_checkpoint(compare_path),
+            canonical_mode=self.hy_mt2_mode.value,
+            canonical_fingerprint=fingerprint,
+            glossary_fingerprint=self.glossary_state.fingerprint,
+        )
+        is_valid = all(
+            (
+                checkpoint.get("checkpoint_kind") == HYM_T2_CHECKPOINT_KIND,
+                checkpoint.get("schema_version") == HYM_T2_CHECKPOINT_SCHEMA_VERSION,
+                checkpoint.get("source_fingerprint") == fingerprint,
+                checkpoint.get("chunk_signature") == signature,
+                checkpoint.get("chunk_planner_version") == CHUNK_PLANNER_VERSION,
+                checkpoint.get("hymt2_mode") == HyMT2Mode.PRO.value,
+                checkpoint.get("brief_prompt_version")
+                == self._brief_prompt_version(TranslationBriefAgent.PROMPT_VERSION),
+                checkpoint.get("brief_input_fingerprint", "") == self._brief_input_fingerprint(),
+                checkpoint.get("timeline_schema_version") == ContextTimelineAgent.SCHEMA_VERSION,
+                checkpoint.get("timeline_prompt_version") == ContextTimelineAgent.PROMPT_VERSION,
+            )
+        )
+        if not is_valid:
+            checkpoint = {"compare": [], **metadata, "pipeline_stage": "context_plan"}
+            save_checkpoint(compare_path, checkpoint)
+        else:
+            checkpoint.update(metadata)
+
+        brief = None
+        if checkpoint.get("translation_brief"):
+            try:
+                brief = TranslationBrief(**checkpoint["translation_brief"])
+            except (ValueError, TypeError):
+                checkpoint.pop("translation_brief", None)
+                checkpoint.pop("context_timeline", None)
+                checkpoint.pop("timeline_completed_chunks", None)
+
+        if brief is None:
+            checkpoint.pop("context_timeline", None)
+            checkpoint.pop("timeline_completed_chunks", None)
+
+        timeline = None
+        if brief is not None and checkpoint.get("context_timeline"):
+            try:
+                candidate = ContextTimeline(**checkpoint["context_timeline"])
+                aligned = len(candidate.chunks) == len(plans) and all(
+                    context.chunk_id == plan.chunk_id and context.segment_ids == plan.segment_ids
+                    for plan, context in zip(plans, candidate.chunks)
+                )
+                if candidate.chunk_signature == signature and aligned:
+                    timeline = candidate
+            except (ValueError, TypeError):
+                timeline = None
+
+        if brief is None or timeline is None:
+            chatbot, server = self._create_context_chatbot()
+            try:
+                if brief is None:
+                    brief = TranslationBriefAgent(chatbot=chatbot, src_lang=src_lang, target_lang=target_lang).build(
+                        texts,
+                        title=info.title or "",
+                        glossary=info.glossary,
+                        translation_brief=self.translation_brief_input,
+                    )
+                    checkpoint.update(translation_brief=self._dump_model(brief), pipeline_stage="context_plan")
+                    save_checkpoint(compare_path, checkpoint)
+                timeline = ContextTimelineAgent(chatbot=chatbot, src_lang=src_lang).build(
+                    plans,
+                    texts=texts,
+                    brief=brief,
+                    chunk_signature=signature,
+                    checkpoint_path=compare_path,
+                    checkpoint=checkpoint,
+                )
+            finally:
+                self.api_fee += sum(chatbot.api_fees)
+                chatbot.close()
+                if server is not None:
+                    server.close()
+
+        assert brief is not None and timeline is not None
+        checkpoint.update(
+            metadata,
+            translation_brief=self._dump_model(brief),
+            context_timeline=self._dump_model(timeline),
+            timeline_completed_chunks=[plan.chunk_id for plan in plans],
+            pipeline_stage="translation",
+        )
+        save_checkpoint(compare_path, checkpoint)
+        checkpoint_metadata = {key: value for key, value in checkpoint.items() if key != "compare"}
+        return brief, timeline, plans, checkpoint_metadata
 
     @staticmethod
     def _review_neighboring_context(texts: list[str], chunk: list[tuple[int, str]], radius: int = 2) -> str:
@@ -785,6 +1750,447 @@ class LRCer:
         return "\n".join(
             f"[{index + 1}] {texts[index]}" for index in range(start, end) if index < first or index > last
         )
+
+    @staticmethod
+    def _validate_review_chunk_ids(value: object, text_count: int) -> list[list[int]]:
+        if not isinstance(value, list):
+            raise ValueError("review_chunks must be a list.")
+        chunks: list[list[int]] = []
+        for chunk in value:
+            if not isinstance(chunk, list) or not chunk:
+                raise ValueError("Every review chunk must be a non-empty ID list.")
+            if any(not isinstance(line_id, int) or isinstance(line_id, bool) for line_id in chunk):
+                raise ValueError("Review chunk IDs must be integers.")
+            chunks.append(list(chunk))
+        flattened = [line_id for chunk in chunks for line_id in chunk]
+        if flattened != list(range(1, text_count + 1)):
+            raise ValueError("Review chunks must cover every source ID exactly once in order.")
+        return chunks
+
+    @staticmethod
+    def _validate_translation_array(value: object, text_count: int, label: str) -> list[str]:
+        if not isinstance(value, list) or len(value) != text_count or any(not isinstance(item, str) for item in value):
+            raise ValueError(f"{label} must contain exactly {text_count} string translations.")
+        return list(value)
+
+    def _create_edit_pipeline(
+        self, source_subtitle: Subtitle, *, target_language: str, brief, compare_path: Path, translations: list[str]
+    ):
+        """Build the shared validator/edit pipeline and restore compatible session state."""
+        from openlrc.checkpoint import HYM_T2_CHECKPOINT_KIND, HYM_T2_CHECKPOINT_SCHEMA_VERSION
+        from openlrc.edit_pipeline import EditPipeline
+        from openlrc.edit_validators import DeterministicValidatorSuite, validation_fingerprint
+        from openlrc.editing import EditSession
+        from openlrc.hymt2_pipeline import load_checkpoint, save_checkpoint
+
+        state = self._build_glossary_state(
+            brief=brief, source_language=source_subtitle.lang, target_language=target_language
+        )
+        validators = DeterministicValidatorSuite(
+            source_subtitle, glossary_service=self.glossary_service, glossary_state=state, brief=brief
+        )
+
+        def persist(session: EditSession) -> None:
+            effective_state = validators.effective_glossary_state
+            if effective_state is not None:
+                self.glossary_state = effective_state
+            checkpoint = load_checkpoint(compare_path)
+            incomplete = session.status.value in {"incomplete", "failed"}
+            checkpoint.update(
+                checkpoint_kind=HYM_T2_CHECKPOINT_KIND,
+                schema_version=HYM_T2_CHECKPOINT_SCHEMA_VERSION,
+                mode=self.hy_mt2_mode.value,
+                hymt2_mode=self.hy_mt2_mode.value,
+                glossary_state=self.glossary_service.report_state(self.glossary_state).model_dump(mode="json"),
+                glossary_fingerprint=self.glossary_state.fingerprint,
+                check_fingerprint=validation_fingerprint(
+                    glossary_fingerprint=self.glossary_state.fingerprint, brief=brief
+                ),
+                edit_protocol_version=1,
+                edit_session=session.model_dump(mode="json"),
+                final_translations=session.current_translations,
+                current_snapshot=session.current_translations,
+                review_incomplete=incomplete,
+                pipeline_stage="edit_incomplete" if incomplete else "editing",
+            )
+            save_checkpoint(compare_path, checkpoint)
+
+        pipeline = EditPipeline(
+            source_subtitle,
+            validators,
+            glossary_fingerprint=state.fingerprint,
+            max_rounds=self.edit_config.max_rounds,
+            restore_enabled=self.edit_config.restore_enabled,
+            report_matches=self.glossary_options.report_matches,
+            checkpoint_hook=persist,
+        )
+        fresh = pipeline.new_session(translations)
+        checkpoint = load_checkpoint(compare_path)
+        session = fresh
+        if checkpoint.get("edit_session"):
+            try:
+                candidate = EditSession.model_validate(checkpoint["edit_session"])
+                source_is_compatible = candidate.source_fingerprint == fresh.source_fingerprint or (
+                    checkpoint.get("checkpoint_kind") == HYM_T2_CHECKPOINT_KIND
+                    and candidate.source_fingerprint == checkpoint.get("source_fingerprint")
+                )
+                if (
+                    source_is_compatible
+                    and candidate.glossary_fingerprint == fresh.glossary_fingerprint
+                    and len(candidate.current_translations) == len(translations)
+                ):
+                    session = candidate.model_copy(
+                        update={
+                            "source_fingerprint": fresh.source_fingerprint,
+                            "translation_fingerprint": fresh.translation_fingerprint,
+                            "source_timestamps": fresh.source_timestamps,
+                            "max_rounds": self.edit_config.max_rounds,
+                            "restore_enabled": self.edit_config.restore_enabled,
+                        }
+                    )
+            except (TypeError, ValueError):
+                logger.warning("Discarding an incompatible edit session from the checkpoint.")
+        return pipeline, session
+
+    def _run_deterministic_hymt2_edit(
+        self,
+        audio_name: str,
+        source_subtitle: Subtitle,
+        translations: list[str],
+        *,
+        target_lang: str,
+        brief,
+        compare_path: Path,
+        translator,
+        chunk_plans,
+        context_timeline,
+    ) -> list[str]:
+        """Run one batched offline-driven Hy-MT2 repair while that model is resident."""
+        from openlrc.context import TranslateInfo
+
+        pipeline, session = self._create_edit_pipeline(
+            source_subtitle,
+            target_language=target_lang,
+            brief=brief,
+            compare_path=compare_path,
+            translations=translations,
+        )
+
+        def repair(ids: list[int], current: list[str]) -> dict[int, str]:
+            return translator.translate_targeted(
+                source_subtitle.texts,
+                current,
+                ids,
+                src_lang=source_subtitle.lang,
+                target_lang=target_lang,
+                info=TranslateInfo(
+                    title=audio_name,
+                    audio_type="Movie",
+                    glossary=self.glossary_catalog
+                    and {entry.source: entry.target for entry in self.glossary_catalog.entries if entry.enabled},
+                    forced_glossary=self.is_force_glossary_used,
+                ),
+                translation_brief=brief,
+                chunk_plans=chunk_plans,
+                context_timeline=context_timeline,
+                resolved_glossary=self.glossary_state.merged_entries,
+            )
+
+        session = pipeline.run_deterministic_repair(
+            session, repair=repair if self.edit_config.deterministic_checks else None
+        )
+        effective_state = pipeline.validators.effective_glossary_state
+        if effective_state is not None:
+            effective_state = self.glossary_service.check(
+                effective_state,
+                source_subtitle.texts,
+                session.current_translations,
+                glossary_removed_retry_chunks=translator.metrics.get("glossary_removed_retry_chunks", []),
+            )
+            assert pipeline.validators.glossary is not None
+            pipeline.validators.glossary.state = effective_state
+            self.glossary_state = effective_state
+            pipeline._save(session)
+        return session.current_translations
+
+    def _run_semantic_hymt2_edit(
+        self,
+        audio_name: str,
+        source_subtitle: Subtitle,
+        translations: list[str],
+        *,
+        src_lang: str,
+        target_lang: str,
+        brief,
+        compare_path: Path,
+        translator=None,
+        chunk_plans=None,
+        context_timeline=None,
+    ) -> list[str]:
+        """Run bounded semantic rounds with per-chunk progress and transactional patches."""
+        from openlrc.editing import EditIssue, EditIssueStatus, EditSessionStatus, EditSeverity
+        from openlrc.hymt2_pipeline import HyMT2RiskReviewAgent, load_checkpoint, save_checkpoint
+
+        pipeline, session = self._create_edit_pipeline(
+            source_subtitle,
+            target_language=target_lang,
+            brief=brief,
+            compare_path=compare_path,
+            translations=translations,
+        )
+        if not session.current_translations:
+            session.current_translations = list(translations)
+
+        plans = chunk_plans
+        if plans is None:
+            from openlrc.chunking import plan_translation_chunks
+
+            timestamps = [(segment.start, segment.end) for segment in source_subtitle.segments]
+            plans = plan_translation_chunks(source_subtitle.texts, timestamps=timestamps)
+
+        if not self.edit_config.semantic_review or self.edit_config.max_rounds == 0:
+            session = pipeline.run_semantic_rounds(session, review=None)
+            checkpoint = load_checkpoint(compare_path)
+            incomplete = session.status is EditSessionStatus.INCOMPLETE
+            checkpoint.update(
+                edit_session=session.model_dump(mode="json"),
+                final_translations=session.current_translations,
+                current_snapshot=session.current_translations,
+                review_incomplete=incomplete,
+                pipeline_stage="edit_incomplete" if incomplete else "complete",
+            )
+            save_checkpoint(compare_path, checkpoint)
+            self.review_statuses[audio_name] = {
+                "incomplete": incomplete,
+                "failed_chunks": [],
+                "reviewed_chunks": 0,
+                "total_chunks": len(plans),
+                "unresolved_issues": len(session.unresolved_issues),
+                "checkpoint": str(compare_path),
+            }
+            return session.current_translations
+
+        chatbot = None
+        server = None
+        failed_chunks: set[int] = set()
+        try:
+            chatbot, server = self._create_context_chatbot()
+            reviewer = HyMT2RiskReviewAgent(chatbot=chatbot, src_lang=src_lang, target_lang=target_lang)
+
+            def review(scope: list[int], current: list[str], round_index: int):
+                scope_set = set(scope)
+                saved_progress = load_checkpoint(compare_path).get("edit_round_progress") or {}
+                if saved_progress.get("round_index") == round_index:
+                    try:
+                        issues = [EditIssue.model_validate(item) for item in saved_progress.get("issues", [])]
+                        from openlrc.editing import EditPatch
+
+                        patches = [EditPatch.model_validate(item) for item in saved_progress.get("patches", [])]
+                        completed = [int(item) for item in saved_progress.get("completed_chunks", [])]
+                    except (TypeError, ValueError):
+                        issues, patches, completed = [], [], []
+                else:
+                    issues, patches, completed = [], [], []
+                failed_chunks.clear()
+                for plan in plans:
+                    active_ids = [line_id for line_id in plan.segment_ids if line_id in scope_set]
+                    if not active_ids or plan.chunk_id in completed:
+                        continue
+                    chunk = [(line_id, source_subtitle.texts[line_id - 1]) for line_id in active_ids]
+                    mapping = {line_id: current[line_id - 1] for line_id in active_ids}
+                    try:
+                        chunk_context = (
+                            context_timeline.context_for(plan.chunk_id) if context_timeline is not None else None
+                        )
+                        chunk_issues, chunk_patches, metadata = reviewer.review_patches(
+                            chunk,
+                            mapping,
+                            brief=brief,
+                            neighboring_context=self._review_neighboring_context(source_subtitle.texts, chunk),
+                            fallback_metadata=(
+                                translator.metrics
+                                if translator is not None
+                                else load_checkpoint(compare_path).get("hymt2_metrics", {})
+                            ),
+                            chunk_context=chunk_context,
+                        )
+                        issues.extend(chunk_issues)
+                        patches.extend(chunk_patches)
+                        completed.append(plan.chunk_id)
+                    except Exception as exc:
+                        failed_chunks.add(plan.chunk_id)
+                        issues.append(
+                            EditIssue.create(
+                                segment_ids=active_ids,
+                                category="semantic",
+                                severity=EditSeverity.ERROR,
+                                source="semantic-review",
+                                message=f"Semantic review failed for chunk {plan.chunk_id}: {exc}",
+                                evidence={"chunk_id": plan.chunk_id},
+                                status=EditIssueStatus.FAILED,
+                            )
+                        )
+                    progress = load_checkpoint(compare_path)
+                    progress.update(
+                        edit_round_progress={
+                            "round_index": round_index,
+                            "completed_chunks": completed,
+                            "failed_chunks": sorted(failed_chunks),
+                            "issues": [
+                                item.model_dump(mode="json")
+                                for item in issues
+                                if item.status is not EditIssueStatus.FAILED
+                            ],
+                            "patches": [item.model_dump(mode="json") for item in patches],
+                        }
+                    )
+                    save_checkpoint(compare_path, progress)
+                return (
+                    issues,
+                    patches,
+                    {
+                        "review_protocol_version": HyMT2RiskReviewAgent.REVIEW_PROTOCOL_VERSION,
+                        "model": getattr(chatbot, "model_name", None),
+                        "completed_chunks": completed,
+                        "failed_chunks": sorted(failed_chunks),
+                    },
+                )
+
+            session = pipeline.run_semantic_rounds(session, review=review if self.edit_config.semantic_review else None)
+            self.api_fee += sum(chatbot.api_fees)
+        except Exception as exc:
+            logger.warning(f"Hy-MT2 semantic editing failed; keeping the current translation: {exc}")
+            session.status = EditSessionStatus.INCOMPLETE
+            session.unresolved_issues.append(
+                EditIssue.create(
+                    segment_ids=[],
+                    category="semantic",
+                    severity=EditSeverity.ERROR,
+                    source="semantic-review",
+                    message=f"Semantic editing stage failed: {exc}",
+                    evidence={},
+                    status=EditIssueStatus.FAILED,
+                )
+            )
+            pipeline._save(session)
+        finally:
+            if chatbot is not None:
+                chatbot.close()
+            if server is not None:
+                server.close()
+
+        checkpoint = load_checkpoint(compare_path)
+        incomplete = session.status is EditSessionStatus.INCOMPLETE or bool(failed_chunks)
+        if not incomplete:
+            checkpoint.pop("edit_round_progress", None)
+        checkpoint.update(
+            edit_session=session.model_dump(mode="json"),
+            final_translations=session.current_translations,
+            review_incomplete=incomplete,
+            pipeline_stage="edit_incomplete" if incomplete else "complete",
+        )
+        save_checkpoint(compare_path, checkpoint)
+        self.review_statuses[audio_name] = {
+            "incomplete": incomplete,
+            "failed_chunks": sorted(failed_chunks),
+            "reviewed_chunks": sum(
+                len(item.model_metadata.get("completed_chunks", [])) for item in session.rounds if item.round_index > 0
+            ),
+            "total_chunks": len(plans),
+            "unresolved_issues": len(session.unresolved_issues),
+            "checkpoint": str(compare_path),
+        }
+        return session.current_translations
+
+    def _finalize_edit_artifacts(
+        self,
+        audio_name: str,
+        source_subtitle: Subtitle,
+        target_texts: list[str],
+        *,
+        target_lang: str,
+        brief,
+        compare_path: Path,
+        output_dir: Path,
+    ) -> None:
+        """Persist stable edit artifacts outside the temporary preprocessing directory."""
+        from openlrc.edit_pipeline import EditPipeline
+        from openlrc.edit_validators import DeterministicValidatorSuite
+        from openlrc.editing import EditSession, EditSessionStatus, save_edit_session, write_edit_report
+        from openlrc.hymt2_pipeline import load_checkpoint
+
+        checkpoint = load_checkpoint(compare_path)
+        session = None
+        if checkpoint.get("edit_session"):
+            try:
+                session = EditSession.model_validate(checkpoint["edit_session"])
+            except (TypeError, ValueError) as exc:
+                logger.warning(f"Could not write edit artifacts from an invalid checkpoint session: {exc}")
+        elif self.glossary_catalog.entries:
+            state = self._build_glossary_state(
+                brief=brief, source_language=source_subtitle.lang, target_language=target_lang
+            )
+            validators = DeterministicValidatorSuite(
+                source_subtitle, glossary_service=self.glossary_service, glossary_state=state, brief=brief
+            )
+            pipeline = EditPipeline(
+                source_subtitle,
+                validators,
+                glossary_fingerprint=state.fingerprint,
+                max_rounds=0,
+                report_matches=self.glossary_options.report_matches,
+            )
+            session = pipeline.run_deterministic_repair(pipeline.new_session(target_texts), repair=None)
+            self.glossary_state = validators.effective_glossary_state or state
+
+        if session is None:
+            return
+
+        changed_ids = {patch.segment_id for edit_round in session.rounds for patch in edit_round.applied_patches}
+        session.metrics.update(
+            elapsed_seconds=round(time.perf_counter() - self._task_started_at, 3),
+            model_load_count=self._model_load_count,
+            changed_ids=sorted(changed_ids),
+            modification_ratio=(len(changed_ids) / len(source_subtitle) if len(source_subtitle) else 0.0),
+        )
+        glossary_metrics = session.metrics.get("glossary") or {}
+        required_total = glossary_metrics.get("required_compliant", 0) + glossary_metrics.get(
+            "required_noncompliant", 0
+        )
+        session.metrics["glossary_compliance_rate"] = (
+            glossary_metrics.get("required_compliant", 0) / required_total if required_total else 1.0
+        )
+        try:
+            import resource
+
+            parent_peak = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+            child_peak = int(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)
+            session.metrics.update(
+                peak_rss_bytes=max(parent_peak, child_peak),
+                peak_parent_rss_bytes=parent_peak,
+                peak_model_process_rss_bytes=child_peak,
+            )
+        except (ImportError, OSError):
+            session.metrics["peak_rss_bytes"] = None
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        report_path = output_dir / f"{audio_name}{EDIT_REPORT_SUFFIX}.json"
+        write_edit_report(report_path, session)
+        incomplete = session.status in {EditSessionStatus.INCOMPLETE, EditSessionStatus.FAILED}
+        status = self.review_statuses.setdefault(audio_name, {})
+        status.update(
+            incomplete=incomplete,
+            unresolved_issues=len(session.unresolved_issues),
+            report=str(report_path),
+            checkpoint=str(compare_path),
+        )
+        if self.edit_config.restore_enabled and not incomplete:
+            session_path = output_dir / f"{audio_name}{EDIT_SESSION_SUFFIX}.json"
+            save_edit_session(session_path, session)
+            status["session"] = str(session_path)
+            if not self._keep_completed_checkpoint:
+                compare_path.unlink(missing_ok=True)
+                status["checkpoint"] = None
 
     def _review_hymt2_translations(
         self,
@@ -797,35 +2203,177 @@ class LRCer:
         brief,
         compare_path: Path,
         translator=None,
+        chunk_plans=None,
+        context_timeline=None,
+        source_subtitle: Subtitle | None = None,
     ) -> list[str]:
         """Run conservative whole-document risk review and resume per completed chunk."""
-        from openlrc.hymt2_pipeline import HyMT2RiskReviewAgent, load_checkpoint, save_checkpoint
+        from openlrc.checkpoint import HYM_T2_CHECKPOINT_KIND
+        from openlrc.hymt2_pipeline import load_checkpoint
+
+        active_checkpoint = load_checkpoint(compare_path)
+        if active_checkpoint.get("checkpoint_kind") == HYM_T2_CHECKPOINT_KIND and source_subtitle is not None:
+            return self._run_semantic_hymt2_edit(
+                audio_name,
+                source_subtitle,
+                translations,
+                src_lang=src_lang,
+                target_lang=target_lang,
+                brief=brief,
+                compare_path=compare_path,
+                translator=translator,
+                chunk_plans=chunk_plans,
+                context_timeline=context_timeline,
+            )
+        from openlrc.context import ContextTimeline
+        from openlrc.hymt2_pipeline import ContextTimelineAgent, HyMT2RiskReviewAgent, load_checkpoint, save_checkpoint
 
         checkpoint = load_checkpoint(compare_path)
-        review_results: dict[str, list[dict]] = checkpoint.get("review_results", {})
-        reviewed_chunks = set(checkpoint.get("reviewed_chunks", []))
-        failed_chunks = set(checkpoint.get("review_failed_chunks", []))
-        saved_chunk_ids = checkpoint.get("review_chunks")
-        if saved_chunk_ids:
-            chunks = [[(line_id, texts[line_id - 1]) for line_id in chunk_ids] for chunk_ids in saved_chunk_ids]
-        elif translator is not None:
-            chunks = translator.make_chunks_by_tokens(texts)
+        if context_timeline is None and checkpoint.get("context_timeline"):
+            context_timeline = ContextTimeline(**checkpoint["context_timeline"])
+        text_count = len(texts)
+        supplied_translations = self._validate_translation_array(translations, text_count, "Review input translations")
+        if "raw_hymt2_translations" in checkpoint:
+            raw_translations = self._validate_translation_array(
+                checkpoint["raw_hymt2_translations"], text_count, "Saved raw Hy-MT2 translations"
+            )
         else:
-            grouped: dict[int, list[tuple[int, str]]] = {}
-            for item in checkpoint.get("compare", []):
-                line_id = int(item["idx"])
-                grouped.setdefault(int(item["chunk"]), []).append((line_id, texts[line_id - 1]))
-            chunks = list(grouped.values()) or [[(line_id, text) for line_id, text in enumerate(texts, 1)]]
-        checkpoint["review_chunks"] = [[line_id for line_id, _ in chunk] for chunk in chunks]
-        raw_translations = list(checkpoint.get("raw_hymt2_translations") or translations)
+            raw_translations = supplied_translations
+
+        saved_state_invalid = False
+        canonical_chunk_ids: list[list[int]] | None = None
+        if chunk_plans is not None:
+            canonical_chunk_ids = self._validate_review_chunk_ids(
+                [[line_id for line_id, _ in plan.pairs()] for plan in chunk_plans], text_count
+            )
+        elif context_timeline is not None:
+            if context_timeline.schema_version != ContextTimelineAgent.SCHEMA_VERSION:
+                raise ValueError("ContextTimeline payload schema version is incompatible with review.")
+            canonical_chunk_ids = self._validate_review_chunk_ids(
+                [list(item.segment_ids) for item in context_timeline.chunks], text_count
+            )
+        elif translator is not None:
+            planned_chunks = translator.make_chunks_by_tokens(texts)
+            canonical_chunk_ids = self._validate_review_chunk_ids(
+                [[line_id for line_id, _ in chunk] for chunk in planned_chunks], text_count
+            )
+
+        saved_chunk_ids = checkpoint.get("review_chunks")
+        if canonical_chunk_ids is None and saved_chunk_ids is not None:
+            try:
+                canonical_chunk_ids = self._validate_review_chunk_ids(saved_chunk_ids, text_count)
+            except ValueError:
+                saved_state_invalid = True
+        elif canonical_chunk_ids is not None and saved_chunk_ids is not None:
+            try:
+                if self._validate_review_chunk_ids(saved_chunk_ids, text_count) != canonical_chunk_ids:
+                    saved_state_invalid = True
+            except ValueError:
+                saved_state_invalid = True
+
+        if canonical_chunk_ids is None:
+            grouped: dict[int, list[int]] = {}
+            try:
+                for item in checkpoint.get("compare", []):
+                    chunk_id = int(item["chunk"])
+                    line_id = int(item["idx"])
+                    grouped.setdefault(chunk_id, []).append(line_id)
+                compare_chunk_ids = [grouped[index] for index in sorted(grouped)]
+                canonical_chunk_ids = self._validate_review_chunk_ids(compare_chunk_ids, text_count)
+            except (KeyError, TypeError, ValueError):
+                canonical_chunk_ids = [list(range(1, text_count + 1))]
+                saved_state_invalid = True
+
+        chunks = [[(line_id, texts[line_id - 1]) for line_id in chunk_ids] for chunk_ids in canonical_chunk_ids]
+        if context_timeline is not None:
+            if context_timeline.schema_version != ContextTimelineAgent.SCHEMA_VERSION:
+                raise ValueError("ContextTimeline payload schema version is incompatible with review.")
+            timeline_ids = [list(item.segment_ids) for item in context_timeline.chunks]
+            if timeline_ids != canonical_chunk_ids or [item.chunk_id for item in context_timeline.chunks] != list(
+                range(1, len(chunks) + 1)
+            ):
+                raise ValueError("ContextTimeline payload does not align with review chunks.")
+
+        expected_chunk_indexes = set(range(1, len(chunks) + 1))
+        review_results: dict[str, list[dict]] = {}
+        reviewed_chunks: set[int] = set()
+        failed_chunks: set[int] = set()
+        has_saved_review_state = any(
+            key in checkpoint
+            for key in ("review_results", "reviewed_chunks", "review_failed_chunks", "final_translations")
+        )
+        if (
+            has_saved_review_state
+            and checkpoint.get("review_protocol_version") != HyMT2RiskReviewAgent.REVIEW_PROTOCOL_VERSION
+        ):
+            saved_state_invalid = True
+
+        if has_saved_review_state and not saved_state_invalid:
+            try:
+                saved_reviewed = checkpoint.get("reviewed_chunks", [])
+                saved_failed = checkpoint.get("review_failed_chunks", [])
+                if not isinstance(saved_reviewed, list) or not isinstance(saved_failed, list):
+                    raise ValueError("Saved review chunk states must be lists.")
+                if any(
+                    not isinstance(item, int) or isinstance(item, bool) for item in [*saved_reviewed, *saved_failed]
+                ):
+                    raise ValueError("Saved review chunk states must contain integer indexes.")
+                reviewed_chunks = set(saved_reviewed)
+                failed_chunks = set(saved_failed)
+                if not reviewed_chunks <= expected_chunk_indexes or not failed_chunks <= expected_chunk_indexes:
+                    raise ValueError("Saved review chunk index is out of range.")
+                if reviewed_chunks & failed_chunks:
+                    raise ValueError("A review chunk cannot be both completed and failed.")
+
+                saved_results = checkpoint.get("review_results", {})
+                if not isinstance(saved_results, dict):
+                    raise ValueError("Saved review_results must be an object.")
+                for raw_chunk_index, items in saved_results.items():
+                    chunk_index = int(raw_chunk_index)
+                    if chunk_index not in expected_chunk_indexes:
+                        raise ValueError("Saved review result chunk index is out of range.")
+                    review_results[str(chunk_index)] = HyMT2RiskReviewAgent.validate_saved_items(
+                        items, canonical_chunk_ids[chunk_index - 1]
+                    )
+                if {int(index) for index in review_results} != reviewed_chunks:
+                    raise ValueError("Saved review results do not match reviewed_chunks.")
+
+                if "final_translations" in checkpoint:
+                    self._validate_translation_array(
+                        checkpoint["final_translations"], text_count, "Saved final translations"
+                    )
+            except (TypeError, ValueError):
+                saved_state_invalid = True
+
+        if saved_state_invalid:
+            logger.warning("Discarding invalid Hy-MT2 review checkpoint state and re-running review.")
+            review_results = {}
+            reviewed_chunks = set()
+            failed_chunks = set()
+            checkpoint.pop("final_translations", None)
+
+        checkpoint["review_chunks"] = canonical_chunk_ids
+        checkpoint["review_protocol_version"] = HyMT2RiskReviewAgent.REVIEW_PROTOCOL_VERSION
         output = list(raw_translations)
         checkpoint["raw_hymt2_translations"] = raw_translations
 
         # Reapply already completed revisions before continuing a resumed review.
-        for items in review_results.values():
-            for item in items:
-                if item.get("risk") == "high" and item.get("revised_translation"):
+        for chunk_index in sorted(reviewed_chunks):
+            for item in review_results[str(chunk_index)]:
+                if item["risk"] == "high":
                     output[int(item["id"]) - 1] = item["revised_translation"]
+
+        if reviewed_chunks == expected_chunk_indexes and not failed_chunks:
+            checkpoint.update(review_incomplete=False, pipeline_stage="complete", final_translations=output)
+            save_checkpoint(compare_path, checkpoint)
+            self.review_statuses[audio_name] = {
+                "incomplete": False,
+                "failed_chunks": [],
+                "reviewed_chunks": len(reviewed_chunks),
+                "total_chunks": len(chunks),
+                "checkpoint": str(compare_path),
+            }
+            return output
 
         chatbot, server = self._create_context_chatbot()
         try:
@@ -835,6 +2383,9 @@ class LRCer:
                     continue
                 mapping = {line_id: output[line_id - 1] for line_id, _ in chunk}
                 try:
+                    chunk_context = context_timeline.context_for(chunk_index) if context_timeline is not None else None
+                    if chunk_context is not None and chunk_context.segment_ids != [line_id for line_id, _ in chunk]:
+                        raise ValueError(f"Review chunk {chunk_index} does not align with ContextTimeline.")
                     result = reviewer.review(
                         chunk,
                         mapping,
@@ -843,11 +2394,13 @@ class LRCer:
                         fallback_metadata=(
                             translator.metrics if translator is not None else checkpoint.get("hymt2_metrics", {})
                         ),
+                        chunk_context=chunk_context,
                     )
                     dumped_items = [self._dump_model(item) for item in result.items]
                     review_results[str(chunk_index)] = dumped_items
                     for item in result.items:
-                        if item.risk == "high" and item.revised_translation:
+                        if item.risk == "high":
+                            assert item.revised_translation is not None
                             output[item.id - 1] = item.revised_translation
                     reviewed_chunks.add(chunk_index)
                     failed_chunks.discard(chunk_index)
@@ -889,7 +2442,7 @@ class LRCer:
             "checkpoint": str(compare_path),
         }
         if incomplete:
-            logger.warning("Hy-MT2 context-plus completed with review_incomplete status.")
+            logger.warning(f"Hy-MT2 {self.hy_mt2_mode.value} completed with review_incomplete status.")
         return output
 
     def _translate(self, audio_name, target_lang, transcribed_opt_sub, translated_path):
@@ -910,20 +2463,191 @@ class LRCer:
         """
         from openlrc.context import TranslateInfo
 
+        self._model_load_count = 0
+        self._task_started_at = time.perf_counter()
+
+        if self.translation_brief_input is not None and (
+            self.prompt_profile != HY_MT2_PROMPT_PROFILE or self.hy_mt2_mode is HyMT2Mode.FAST
+        ):
+            raise ValueError("A manual Translation Brief is only supported by contextual Hy-MT2 translation.")
+        if (
+            self.prompt_profile == HY_MT2_PROMPT_PROFILE
+            and self._translation_context_model_required()
+            and self.context_llm is None
+        ):
+            raise ValueError(f"Hy-MT2 {self.hy_mt2_mode.value} requires an explicit context model.")
+
+        self._build_glossary_state(source_language=transcribed_opt_sub.lang, target_language=target_lang)
         context = TranslateInfo(
             title=audio_name, audio_type="Movie", glossary=self.glossary, forced_glossary=self.is_force_glossary_used
         )
 
         json_filename = Path(translated_path.parent / (audio_name + ".json"))
         compare_path = Path(translated_path.parent, f"{audio_name}{COMPARE_SUFFIX}.json")
+        timestamps = [(seg.start, seg.end) for seg in transcribed_opt_sub.segments]
+        translation_brief = None
         resume_review = self._has_incomplete_hymt2_review(compare_path)
+        resume_plans = None
+        force_retranslate = False
         if resume_review:
-            from openlrc.context import TranslationBrief
+            from openlrc.chunking import CHUNK_PLANNER_VERSION, chunk_plan_signature, plan_translation_chunks
+            from openlrc.hymt2_pipeline import load_checkpoint
+
+            checkpoint = load_checkpoint(compare_path)
+            resume_plans = plan_translation_chunks(transcribed_opt_sub.texts, timestamps=timestamps)
+            signature = chunk_plan_signature(resume_plans, timestamps=timestamps)
+            planner_state_is_valid = (
+                checkpoint.get("chunk_signature") == signature
+                and checkpoint.get("chunk_planner_version") == CHUNK_PLANNER_VERSION
+            )
+            try:
+                self._validate_translation_array(
+                    checkpoint.get("raw_hymt2_translations"),
+                    len(transcribed_opt_sub.texts),
+                    "Saved raw Hy-MT2 translations",
+                )
+            except ValueError:
+                planner_state_is_valid = False
+
+            if self.hy_mt2_mode is HyMT2Mode.PRO:
+                from openlrc.checkpoint import (
+                    HYM_T2_CHECKPOINT_KIND,
+                    HYM_T2_CHECKPOINT_SCHEMA_VERSION,
+                    migrate_hymt2_checkpoint,
+                )
+                from openlrc.context import ContextTimeline
+                from openlrc.hymt2_pipeline import (
+                    ContextTimelineAgent,
+                    TranslationBriefAgent,
+                    save_checkpoint,
+                    source_fingerprint,
+                )
+
+                assert self.context_llm is not None
+                context_model = self._model_identity(self.context_llm.chatbot, self.context_llm.local_llm)
+                translation_model = self._model_identity(
+                    self._translation_config.chatbot, self._translation_config.local_llm
+                )
+                fingerprint = source_fingerprint(
+                    transcribed_opt_sub.texts,
+                    src_lang=transcribed_opt_sub.lang,
+                    target_lang=target_lang,
+                    glossary=context.glossary,
+                    mode=HyMT2Mode.PRO.value,
+                    context_model=context_model,
+                    translation_model=translation_model,
+                    translation_brief=self.translation_brief_input,
+                )
+                checkpoint = migrate_hymt2_checkpoint(
+                    checkpoint,
+                    canonical_mode=HyMT2Mode.PRO.value,
+                    canonical_fingerprint=fingerprint,
+                    glossary_fingerprint=self.glossary_state.fingerprint,
+                )
+                if checkpoint:
+                    save_checkpoint(compare_path, checkpoint)
+                timeline_is_valid = False
+                try:
+                    timeline = ContextTimeline(**checkpoint["context_timeline"])
+                    timeline_is_valid = (
+                        timeline.chunk_signature == signature
+                        and len(timeline.chunks) == len(resume_plans)
+                        and all(
+                            context_item.chunk_id == plan.chunk_id and context_item.segment_ids == plan.segment_ids
+                            for plan, context_item in zip(resume_plans, timeline.chunks)
+                        )
+                    )
+                except (KeyError, ValueError, TypeError):
+                    timeline_is_valid = False
+                resume_review = (
+                    planner_state_is_valid
+                    and checkpoint.get("checkpoint_kind") == HYM_T2_CHECKPOINT_KIND
+                    and checkpoint.get("schema_version") == HYM_T2_CHECKPOINT_SCHEMA_VERSION
+                    and checkpoint.get("hymt2_mode") == HyMT2Mode.PRO.value
+                    and checkpoint.get("source_fingerprint") == fingerprint
+                    and checkpoint.get("brief_prompt_version")
+                    == self._brief_prompt_version(TranslationBriefAgent.PROMPT_VERSION)
+                    and checkpoint.get("brief_input_fingerprint", "") == self._brief_input_fingerprint()
+                    and checkpoint.get("timeline_schema_version") == ContextTimelineAgent.SCHEMA_VERSION
+                    and checkpoint.get("timeline_prompt_version") == ContextTimelineAgent.PROMPT_VERSION
+                    and timeline_is_valid
+                )
+            else:
+                from openlrc.checkpoint import (
+                    HYM_T2_CHECKPOINT_KIND,
+                    HYM_T2_CHECKPOINT_SCHEMA_VERSION,
+                    migrate_hymt2_checkpoint,
+                )
+                from openlrc.hymt2_pipeline import TranslationBriefAgent, save_checkpoint, source_fingerprint
+
+                assert self.context_llm is not None
+                context_model = self._model_identity(self.context_llm.chatbot, self.context_llm.local_llm)
+                translation_model = self._model_identity(
+                    self._translation_config.chatbot, self._translation_config.local_llm
+                )
+                fingerprint = source_fingerprint(
+                    transcribed_opt_sub.texts,
+                    src_lang=transcribed_opt_sub.lang,
+                    target_lang=target_lang,
+                    glossary=context.glossary,
+                    mode=self.hy_mt2_mode.value,
+                    context_model=context_model,
+                    translation_model=translation_model,
+                    translation_brief=self.translation_brief_input,
+                )
+                legacy_fingerprints = set()
+                if self.translation_brief_input is None:
+                    legacy_fingerprints.add(
+                        source_fingerprint(
+                            transcribed_opt_sub.texts,
+                            src_lang=transcribed_opt_sub.lang,
+                            target_lang=target_lang,
+                            glossary=context.glossary,
+                            mode="context-plus",
+                            context_model=str(self.context_llm.chatbot),
+                            translation_model=str(self._translation_config.chatbot),
+                            normalize_mode=False,
+                        )
+                    )
+                checkpoint = migrate_hymt2_checkpoint(
+                    checkpoint,
+                    canonical_mode=self.hy_mt2_mode.value,
+                    canonical_fingerprint=fingerprint,
+                    accepted_legacy_fingerprints=legacy_fingerprints,
+                    glossary_fingerprint=self.glossary_state.fingerprint,
+                )
+                if checkpoint:
+                    save_checkpoint(compare_path, checkpoint)
+                resume_review = bool(
+                    planner_state_is_valid
+                    and checkpoint.get("checkpoint_kind") == HYM_T2_CHECKPOINT_KIND
+                    and checkpoint.get("schema_version") == HYM_T2_CHECKPOINT_SCHEMA_VERSION
+                    and checkpoint.get("hymt2_mode") == HyMT2Mode.NORMAL_PLUS.value
+                    and checkpoint.get("source_fingerprint") == fingerprint
+                    and checkpoint.get("brief_prompt_version")
+                    == self._brief_prompt_version(TranslationBriefAgent.PROMPT_VERSION)
+                    and checkpoint.get("brief_input_fingerprint", "") == self._brief_input_fingerprint()
+                )
+            force_retranslate = not resume_review
+        if resume_review:
+            from openlrc.context import ContextTimeline, TranslationBrief
             from openlrc.hymt2_pipeline import load_checkpoint
 
             checkpoint = load_checkpoint(compare_path)
             translation_brief = TranslationBrief(**checkpoint["translation_brief"])
-            draft = checkpoint.get("raw_hymt2_translations") or Subtitle.from_json(translated_path).texts
+            self._build_glossary_state(
+                brief=translation_brief, source_language=transcribed_opt_sub.lang, target_language=target_lang
+            )
+            context_timeline = (
+                ContextTimeline(**checkpoint["context_timeline"]) if checkpoint.get("context_timeline") else None
+            )
+            saved_session = checkpoint.get("edit_session") or {}
+            draft = (
+                saved_session.get("current_translations")
+                or checkpoint.get("final_translations")
+                or checkpoint.get("raw_hymt2_translations")
+                or Subtitle.from_json(translated_path).texts
+            )
             target_texts = self._review_hymt2_translations(
                 audio_name,
                 transcribed_opt_sub.texts,
@@ -932,14 +2656,27 @@ class LRCer:
                 target_lang=target_lang,
                 brief=translation_brief,
                 compare_path=compare_path,
+                context_timeline=context_timeline,
+                chunk_plans=resume_plans,
+                source_subtitle=transcribed_opt_sub,
             )
             translated_sub = deepcopy(transcribed_opt_sub)
             translated_sub.set_texts(target_texts, lang=target_lang)
             translated_sub.save(translated_path, update_name=True)
-        elif not translated_path.exists():
-            translation_brief = None
+        elif not translated_path.exists() or force_retranslate:
+            context_timeline = None
+            chunk_plans = None
             checkpoint_metadata: dict = {}
-            if self.prompt_profile == HY_MT2_PROMPT_PROFILE and self.hy_mt2_mode is not HyMT2Mode.FAST:
+            if self.prompt_profile == HY_MT2_PROMPT_PROFILE and self.hy_mt2_mode is HyMT2Mode.PRO:
+                translation_brief, context_timeline, chunk_plans, checkpoint_metadata = self._prepare_hymt2_pro_context(
+                    transcribed_opt_sub.texts,
+                    timestamps,
+                    src_lang=transcribed_opt_sub.lang,
+                    target_lang=target_lang,
+                    info=context,
+                    compare_path=compare_path,
+                )
+            elif self.prompt_profile == HY_MT2_PROMPT_PROFILE and self.hy_mt2_mode is not HyMT2Mode.FAST:
                 translation_brief, checkpoint_metadata = self._prepare_hymt2_brief(
                     transcribed_opt_sub.texts,
                     src_lang=transcribed_opt_sub.lang,
@@ -948,26 +2685,124 @@ class LRCer:
                     compare_path=compare_path,
                 )
 
-            with self._local_llm_session():
-                timestamps = [(seg.start, seg.end) for seg in transcribed_opt_sub.segments]
-                translator = self._create_translator(timestamps)
-
-                translate_kwargs = {
-                    "src_lang": transcribed_opt_sub.lang,
-                    "target_lang": target_lang,
-                    "info": context,
-                    "compare_path": compare_path,
-                }
-                if self.prompt_profile == HY_MT2_PROMPT_PROFILE:
-                    translate_kwargs.update(
-                        translation_brief=translation_brief, checkpoint_metadata=checkpoint_metadata
-                    )
-                target_texts = translator.translate(transcribed_opt_sub.texts, **translate_kwargs)
-
             if self.prompt_profile == HY_MT2_PROMPT_PROFILE and self.hy_mt2_mode is not HyMT2Mode.FAST:
-                self._close_primary_local_stage()
+                from openlrc.chunking import plan_translation_chunks
+                from openlrc.hymt2_pipeline import load_checkpoint, save_checkpoint
 
-            if self.prompt_profile == HY_MT2_PROMPT_PROFILE and self.hy_mt2_mode is HyMT2Mode.CONTEXT_PLUS:
+                chunk_plans = chunk_plans or plan_translation_chunks(transcribed_opt_sub.texts, timestamps=timestamps)
+                assert translation_brief is not None
+                glossary_state = self._build_glossary_state(
+                    brief=translation_brief, source_language=transcribed_opt_sub.lang, target_language=target_lang
+                )
+                glossary_checkpoint = load_checkpoint(compare_path)
+                glossary_checkpoint.update(
+                    glossary_state=self.glossary_service.report_state(glossary_state).model_dump(mode="json"),
+                    glossary_fingerprint=glossary_state.fingerprint,
+                )
+                save_checkpoint(compare_path, glossary_checkpoint)
+
+            translator = None
+            target_texts: list[str] = []
+            translation_complete = False
+            if self.hy_mt2_mode is HyMT2Mode.PRO:
+                from openlrc.hymt2_pipeline import load_checkpoint
+
+                translation_checkpoint = load_checkpoint(compare_path)
+                raw_translations = translation_checkpoint.get("raw_hymt2_translations") or []
+                translated_ids = [int(item["idx"]) for item in translation_checkpoint.get("compare", [])]
+                translation_complete = len(raw_translations) == len(
+                    transcribed_opt_sub.texts
+                ) and translated_ids == list(range(1, len(transcribed_opt_sub.texts) + 1))
+                if translation_complete:
+                    target_texts = list(raw_translations)
+                    logger.info("Resuming Pro from completed Hy-MT2 translation; skipping Hy-MT2 model load.")
+
+            if not translation_complete:
+                try:
+                    with self._local_llm_session():
+                        translator = self._create_translator(timestamps)
+
+                        translate_kwargs = {
+                            "src_lang": transcribed_opt_sub.lang,
+                            "target_lang": target_lang,
+                            "info": context,
+                            "compare_path": compare_path,
+                        }
+                        if self.prompt_profile == HY_MT2_PROMPT_PROFILE:
+                            translate_kwargs.update(
+                                translation_brief=translation_brief,
+                                checkpoint_metadata=checkpoint_metadata,
+                                chunk_plans=chunk_plans,
+                                context_timeline=context_timeline,
+                                resolved_glossary=self.glossary_state.merged_entries,
+                            )
+                        target_texts = translator.translate(transcribed_opt_sub.texts, **translate_kwargs)
+                        if (
+                            self.prompt_profile == HY_MT2_PROMPT_PROFILE
+                            and self.hy_mt2_mode is not HyMT2Mode.FAST
+                            and self.edit_config.enabled
+                        ):
+                            from openlrc.hymt2_pipeline import load_checkpoint, save_checkpoint
+
+                            edit_checkpoint = load_checkpoint(compare_path)
+                            edit_checkpoint.update(
+                                raw_hymt2_translations=list(target_texts),
+                                current_snapshot=list(target_texts),
+                                pipeline_stage="deterministic_edit",
+                            )
+                            save_checkpoint(compare_path, edit_checkpoint)
+                            target_texts = self._run_deterministic_hymt2_edit(
+                                audio_name,
+                                transcribed_opt_sub,
+                                target_texts,
+                                target_lang=target_lang,
+                                brief=translation_brief,
+                                compare_path=compare_path,
+                                translator=translator,
+                                chunk_plans=chunk_plans,
+                                context_timeline=context_timeline,
+                            )
+                finally:
+                    if self.prompt_profile == HY_MT2_PROMPT_PROFILE and self.hy_mt2_mode is not HyMT2Mode.FAST:
+                        self._close_primary_local_stage()
+
+            elif (
+                self.prompt_profile == HY_MT2_PROMPT_PROFILE
+                and self.hy_mt2_mode is not HyMT2Mode.FAST
+                and self.edit_config.enabled
+            ):
+                # A completed translation checkpoint may predate the deterministic
+                # stage. Load Hy-MT2 once to finish only that missing work.
+                from openlrc.hymt2_pipeline import load_checkpoint
+
+                if not load_checkpoint(compare_path).get("edit_session"):
+                    try:
+                        with self._local_llm_session():
+                            translator = self._create_translator(timestamps)
+                            target_texts = self._run_deterministic_hymt2_edit(
+                                audio_name,
+                                transcribed_opt_sub,
+                                target_texts,
+                                target_lang=target_lang,
+                                brief=translation_brief,
+                                compare_path=compare_path,
+                                translator=translator,
+                                chunk_plans=chunk_plans,
+                                context_timeline=context_timeline,
+                            )
+                    finally:
+                        self._close_primary_local_stage()
+
+            if self.prompt_profile == HY_MT2_PROMPT_PROFILE and self.hy_mt2_mode in {
+                HyMT2Mode.NORMAL_PLUS,
+                HyMT2Mode.PRO,
+            }:
+                from openlrc.hymt2_pipeline import load_checkpoint, save_checkpoint
+
+                review_checkpoint = load_checkpoint(compare_path)
+                review_checkpoint.setdefault("raw_hymt2_translations", list(target_texts))
+                review_checkpoint.update(current_snapshot=list(target_texts), pipeline_stage="review")
+                save_checkpoint(compare_path, review_checkpoint)
                 assert translation_brief is not None
                 target_texts = self._review_hymt2_translations(
                     audio_name,
@@ -978,10 +2813,14 @@ class LRCer:
                     brief=translation_brief,
                     compare_path=compare_path,
                     translator=translator,
+                    chunk_plans=chunk_plans,
+                    context_timeline=context_timeline,
+                    source_subtitle=transcribed_opt_sub,
                 )
 
-            with self._lock:
-                self.api_fee += translator.api_fee  # Ensure thread-safe
+            if translator is not None:
+                with self._lock:
+                    self.api_fee += translator.api_fee  # Ensure thread-safe
 
             translated_sub = deepcopy(transcribed_opt_sub)
             translated_sub.set_texts(target_texts, lang=target_lang)
@@ -992,8 +2831,23 @@ class LRCer:
             logger.info(f"Found translated json file: {translated_path}")
         translated_sub = Subtitle.from_json(translated_path)
 
+        self._finalize_edit_artifacts(
+            audio_name,
+            transcribed_opt_sub,
+            translated_sub.texts,
+            target_lang=target_lang,
+            brief=translation_brief,
+            compare_path=compare_path,
+            output_dir=translated_path.parent.parent,
+        )
+
         final_subtitle = self.post_process(
-            translated_sub, output_name=json_filename, update_name=True, extend_time=True
+            translated_sub,
+            output_name=json_filename,
+            update_name=True,
+            extend_time=True,
+            mode=self.subtitle_optimization,
+            stage="target",
         )  # xxx.json
 
         return final_subtitle
@@ -1064,6 +2918,7 @@ class LRCer:
         """
         self.transcribed_paths = []
         self.review_statuses = {}
+        self._keep_completed_checkpoint = not clear_temp
 
         if not paths:
             logger.warning("No audio/video file given. Skip LRCer.run()")
@@ -1237,6 +3092,8 @@ class LRCer:
         remove_files: list[Path] | None = None,
         update_name: bool = False,
         extend_time: bool = False,
+        mode: SubtitleOptimizationMode | str = SubtitleOptimizationMode.AGGRESSIVE,
+        stage: Literal["source", "target"] = "source",
     ):
         """
         Post-process the transcribed subtitles.
@@ -1247,6 +3104,8 @@ class LRCer:
             remove_files: List of files to remove after processing.
             update_name: Whether to update the subtitle name.
             extend_time: Whether to extend the time of subtitles.
+            mode: Aggressive or alignment-safe relaxed optimization.
+            stage: Source cleanup before translation or target cleanup afterward.
 
         Returns:
             Subtitle: The post-processed subtitle object.
@@ -1254,7 +3113,7 @@ class LRCer:
         This method applies various optimizations to the transcribed subtitles and saves the result.
         """
         optimizer = SubtitleOptimizer(transcribed_sub)
-        optimizer.perform_all(extend_time=extend_time)
+        optimizer.perform_all(extend_time=extend_time, mode=mode, stage=stage)
         optimizer.save(output_name, update_name=update_name)
 
         # Remove intermediate files

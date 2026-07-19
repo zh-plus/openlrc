@@ -1,5 +1,132 @@
 # Changelog
 
+## OpenLRC Mac 0.3.0
+
+User-guided Translation Brief, glossary compliance, and recoverable
+transactional subtitle editing release, including the previously unreleased
+Pro, Chunk Planner v2, checkpoint, and relaxed subtitle optimization work.
+
+### Highlights
+
+- **All-new Pro mode:** combines a document-level Translation Brief, aligned
+  per-chunk ContextTimeline, Hy-MT2 translation, and conservative final review
+  while keeping only one local large model resident at a time.
+- **Glossary service:** loads legacy mappings or versioned catalogs, merges task
+  and Brief terminology deterministically, validates every occurrence, and
+  produces inspectable compliance reports without silently rewriting subtitles.
+- **Recoverable multi-round editing:** applies deterministic checks and bounded
+  semantic review through line-scoped, all-or-nothing patches, with rollback,
+  checkpoints, standalone editing, and historical Restore.
+
+### Added
+
+- Added a shared translation chunk planner with stable chunk signatures so
+  Timeline generation, translation, fallback, review, and resume use identical
+  segment boundaries, plus contextual checkpoint schema v4 and validated
+  migration from compatible v2 Normal/Normal Plus and v3 Pro state.
+- Added public `SubtitleOptimizationMode` and CLI
+  `--subtitle-optimization aggressive|relaxed`. Relaxed cleanup preserves
+  segment count, order, timestamps, short/repeated lines, and `<unk>` content.
+- Added versioned glossary catalogs, required/preferred compliance reports, and
+  `openlrc glossary validate|inspect|check` commands.
+- Added stable edit issue/patch/round/session models, deterministic structure,
+  glossary, entity, number, placeholder, and immutable-field checks, plus a
+  one-round default and three-round hard limit for Normal Plus and Pro.
+- Added `LRCer.edit(...) -> EditResult` and independent
+  `verify|review|retranslate|restore` actions that do not rerun ASR. Verify and
+  restore are offline; model-using actions require explicit current config.
+  JSON/Markdown reports and optional compact Restore sessions are written to the
+  user output directory.
+- Added full and partial manual Translation Briefs to Hy-MT2 contextual and
+  standalone editing flows. `--brief-summary`, `--brief-characters JSON|@PATH`,
+  and `--brief-tone-style` lock user-supplied sections while the context model
+  fills only missing sections; a complete manual Brief skips automatic Brief
+  and terminology extraction.
+
+### Changed
+
+- Renamed the public Hy-MT2 contextual modes to `normal` and `normal-plus`.
+  `context` and `context-plus` remain deprecated aliases for the 0.3.x
+  compatibility window and are canonicalized before business logic and
+  checkpoint fingerprinting.
+- Added consistent `--glossary`, `--force-glossary`, glossary strictness,
+  `--edit-rounds 0..3`, and `--enable-restore` options to `run` and `translate`.
+- Made subtitle JSON replacement atomic. A successful edit checkpoint is
+  durable before the translated JSON is committed; incomplete work always
+  retains the full process checkpoint.
+- Extended every Hy-MT2 retry/split/atomic path with aligned Pro story/scene
+  context. Timeline responses must echo exact chunk and ordered segment IDs;
+  invalid alignment triggers retry. Fully local Pro stages Qwen -> Hy-MT2 ->
+  Qwen, can resume translation/review stages, and invalidates stale source,
+  model, planner, or Timeline state.
+- Defined Translation Briefs as source-language semantic context plus bilingual
+  character/terminology mappings. Target-agnostic Timeline prompts consume only
+  that source-semantic projection. Briefs no longer generate character
+  descriptions, audience guesses, or pre-translation ASR interpretations;
+  confidence-gated language checks and prompt versions reject incompatible
+  derived state without over-validating short terms or names.
+- Kept user terminology in the single `--glossary` interface. Task glossary
+  mappings override conflicting manual characters and automatically inferred
+  Brief entries, with one resolved state shared by prompts, validation, and
+  reports.
+
+### Fixed
+
+- Made glossary compliance occurrence-based: repeated source terms now require
+  independent target occurrences and are counted separately. Case-insensitive
+  conflicts are case-folded consistently, and CJK phrases can span subtitle
+  lines without an artificial space.
+- Added explicit edit-round lifecycle states. Model/no-patch failures retry the
+  same round after resume, a failed chunk rolls back every patch in that round,
+  and Restore round 0 now always returns the original Hy-MT2 draft before
+  deterministic repair.
+- Made standalone edit progress durable before model work and after every
+  completed parent chunk. Incomplete work is retained, completed work is the
+  only state eligible for cleanup, and a committed checkpoint can finish safely
+  if subtitle replacement was interrupted.
+- Normalized `%`, `percent`, `per cent`, full-width percent signs, and `百分之`
+  in deterministic checks without confusing printf placeholders such as `%s`.
+- Resolved task and Brief terminology once before prompt rendering, preventing
+  duplicate entries and preserving task precedence. Targeted retranslation now
+  builds preceding context with a bounded reverse scan instead of reconstructing
+  the full translation history for every chunk.
+- Made `GlossaryOptions.report_matches` control report/session match details
+  while retaining compliance metrics and issues. Removed the unimplemented
+  `EditConfig.readability_checks` field until a real readability validator is
+  available.
+- Reworked Chunk Planner v2 so equal timestamp gaps prefer the latest valid
+  boundary instead of producing long runs of single-line chunks. Every split
+  and tail decision now preserves the line and token caps, and planner version
+  and signature changes invalidate incompatible translation/review progress.
+- Added a dedicated high-risk revision validator. Blank, multiline, tagged,
+  fenced, JSON-shaped, or internal-protocol revisions are rejected; the
+  Hy-MT2 draft is retained and that review chunk remains incomplete. Checkpoint
+  replay also validates chunk coverage, reviewed/failed indexes, result IDs,
+  Timeline alignment, protocol version, and raw/final translation counts.
+
+### Verified
+
+- Verified the full pytest suite: `425 passed, 25 skipped`, plus 261 subtests.
+- Verified Ruff linting, touched-file formatting, touched-module Pyright, and
+  checkpoint atomicity tests.
+- Verified real local Normal and Pro flows with Qwen3.5 9B and Hy-MT2 7B Q6_K,
+  including relaxed optimization, source-language Brief/Timeline semantics,
+  orderly staged model shutdown, exact line/timestamp preservation, and no
+  delimiter or internal-protocol leakage. A 31-line Pro run produced aligned
+  `30 + 1` planner chunks and complete raw/final/review IDs.
+- Verified a complete manual Normal Brief without configuring or loading a
+  context model; the short local smoke loaded only the Hy-MT2 server and
+  completed in 15.64 seconds.
+- Compared all four modes on the same 15-line, three-scene local sample. Fast,
+  Normal, Normal Plus, and Pro completed in 21.27s, 42.21s, 70.56s, and 99.80s
+  with 1, 2, 3, and 3 model loads respectively; every mode preserved all 15
+  timestamps and subtitle lines without protocol leakage.
+- Verified the editing loop on character titles, technical terms, amounts,
+  dates, and colloquial ambiguity. Normal Plus/Pro achieved 100% glossary and
+  exact line/timeline preservation while reporting unresolved findings. The
+  independent retranslate/review/verify/Restore paths preserved all unselected
+  lines and restored the expected round-0 and round-1 snapshots.
+
 ## OpenLRC Mac 0.2.2
 
 Hy-MT2 three-mode contextual translation pipeline release.
