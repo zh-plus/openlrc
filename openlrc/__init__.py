@@ -44,7 +44,7 @@ __all__ = (
     "list_chatbot_models",
     "ModelProvider",
 )
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __upstream_version__ = "1.7.0a1"
 __app_name__ = "OpenLRC Mac"
 __dist_name__ = "openlrc-mac"

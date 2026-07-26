@@ -1,9 +1,14 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
+from __future__ import annotations
+
 import abc
 import json
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from openlrc.workflow import CancellationToken
 
 from json_repair import repair_json
 
@@ -29,6 +34,7 @@ def create_chatbot(
     fee_limit: float = 0.8,
     proxy: str | None = None,
     base_url_config: dict | None = None,
+    cancellation_token: CancellationToken | None = None,
 ) -> ChatBot:
     """Create a ChatBot instance from a model name or ModelConfig.
 
@@ -37,9 +43,11 @@ def create_chatbot(
     """
     if isinstance(chatbot_model, str):
         chatbot_cls, model_name = route_chatbot(chatbot_model)
-        return chatbot_cls(
+        bot = chatbot_cls(
             model_name=model_name, fee_limit=fee_limit, proxy=proxy, retry=4, base_url_config=base_url_config
         )
+        bot.cancellation_token = cancellation_token
+        return bot
     elif isinstance(chatbot_model, ModelConfig):
         # Resolve chatbot class: known provider or custom provider (defaults to GPTBot)
         chatbot_cls: type[Any] = provider2chatbot.get(chatbot_model.provider, GPTBot)
@@ -73,6 +81,7 @@ def create_chatbot(
         )
 
         bot.model_config = chatbot_model
+        bot.cancellation_token = cancellation_token
 
         return bot
     else:

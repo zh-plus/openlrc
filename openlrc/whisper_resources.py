@@ -144,14 +144,7 @@ def _model_candidates(model_value: str, normalizer) -> list[Path]:
     return [user_model_dir() / normalized, vendor_model_dir() / normalized]
 
 
-def _resolve_model_file(
-    model_value: str | None,
-    *,
-    env_var: str,
-    default_name: str,
-    label: str,
-    normalizer,
-) -> str:
+def _resolve_model_file(model_value: str | None, *, env_var: str, default_name: str, label: str, normalizer) -> str:
     value = model_value if model_value is not None else default_name
     env_value = os.environ.get(env_var)
 

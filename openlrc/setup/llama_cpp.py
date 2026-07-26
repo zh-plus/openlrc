@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,18 +34,23 @@ def run(cmd: list[str], cwd: Path = REPO_ROOT) -> None:
     subprocess.run(cmd, cwd=cwd, check=True)
 
 
-def ensure_submodule() -> None:
+CommandRunner = Callable[[list[str], Path], None]
+
+
+def ensure_submodule(*, runner: CommandRunner | None = None) -> None:
+    runner = runner or run
     if (VENDOR_DIR / "CMakeLists.txt").exists():
         return
-    run(["git", "submodule", "update", "--init", "--recursive", "vendor/llama.cpp"])
+    runner(["git", "submodule", "update", "--init", "--recursive", "vendor/llama.cpp"], REPO_ROOT)
     if not (VENDOR_DIR / "CMakeLists.txt").exists():
         raise RuntimeError("vendor/llama.cpp is missing after submodule initialization.")
 
 
-def build_llama_cpp() -> tuple[Path, Path]:
+def build_llama_cpp(*, runner: CommandRunner | None = None) -> tuple[Path, Path]:
+    runner = runner or run
     build_dir = VENDOR_DIR / "build"
-    run(["cmake", "-S", ".", "-B", str(build_dir), "-DCMAKE_BUILD_TYPE=Release"], cwd=VENDOR_DIR)
-    run(
+    runner(["cmake", "-S", ".", "-B", str(build_dir), "-DCMAKE_BUILD_TYPE=Release"], VENDOR_DIR)
+    runner(
         [
             "cmake",
             "--build",
@@ -57,7 +63,7 @@ def build_llama_cpp() -> tuple[Path, Path]:
             "--parallel",
             str(os.cpu_count() or 1),
         ],
-        cwd=VENDOR_DIR,
+        VENDOR_DIR,
     )
 
     server_path = build_dir / "bin" / "llama-server"
@@ -69,8 +75,16 @@ def build_llama_cpp() -> tuple[Path, Path]:
 
 
 def download_model(
-    *, model_dir: Path, model_repo: str, model_file: str, model_url: str | None, revision: str, force: bool
+    *,
+    model_dir: Path,
+    model_repo: str,
+    model_file: str,
+    model_url: str | None,
+    revision: str,
+    force: bool,
+    runner: CommandRunner | None = None,
 ) -> Path:
+    runner = runner or run
     model_dir.mkdir(parents=True, exist_ok=True)
     destination = model_dir / model_file
     if destination.exists() and not force:
@@ -81,7 +95,7 @@ def download_model(
         destination.unlink()
 
     url = model_url or default_model_url(model_repo=model_repo, model_file=model_file, revision=revision)
-    run(["curl", "-L", "--fail", "--continue-at", "-", "--output", str(destination), url])
+    runner(["curl", "-L", "--fail", "--continue-at", "-", "--output", str(destination), url], REPO_ROOT)
 
     if not destination.exists():
         raise RuntimeError(f"Model download finished, but expected file is missing: {destination}")
@@ -98,13 +112,15 @@ def setup_llama_cpp(
     skip_build: bool = False,
     skip_models: bool = False,
     force: bool = False,
+    runner: CommandRunner | None = None,
 ) -> LlamaSetupResult:
-    ensure_submodule()
+    runner = runner or run
+    ensure_submodule(runner=runner)
 
     server_path: Path | None = None
     cli_path: Path | None = None
     if not skip_build:
-        server_path, cli_path = build_llama_cpp()
+        server_path, cli_path = build_llama_cpp(runner=runner)
 
     model_path: Path | None = None
     if not skip_models:
@@ -115,6 +131,7 @@ def setup_llama_cpp(
             model_url=model_url,
             revision=revision,
             force=force,
+            runner=runner,
         )
 
     return LlamaSetupResult(server_path=server_path, cli_path=cli_path, model_path=model_path)

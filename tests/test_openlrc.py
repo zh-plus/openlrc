@@ -5,6 +5,7 @@ import json
 import shutil
 import sys
 import tempfile
+import threading
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
@@ -27,6 +28,7 @@ from openlrc.transcribe import TranscriptionInfo
 from openlrc.utils import extend_filename
 from openlrc.whisper_resources import DEFAULT_MODEL_NAME
 from openlrc.whisper_types import Segment, Word
+from openlrc.workflow import RunExecutionStrategy
 
 TEST_DATA_DIR = Path(__file__).parent / "data"
 
@@ -313,6 +315,70 @@ class TestLRCer(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(len(result), 1)
 
+    def test_run_memory_saver_finishes_all_transcriptions_before_translation(self, _mock_chatbot):
+        lrcer = LRCer(translation=TranslationConfig(consumer_thread=1))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            inputs = [root / "one.wav", root / "two.wav"]
+            audio_paths = [
+                root / "preprocessed" / "one_preprocessed.wav",
+                root / "preprocessed" / "two_preprocessed.wav",
+            ]
+            transcribed = [path.with_name(f"{path.stem}_transcribed.json") for path in audio_paths]
+            calls: list[str] = []
+
+            def transcribe(audio_path, _src_lang=None):
+                index = audio_paths.index(audio_path)
+                calls.append(f"transcribe-{index}")
+                return transcribed[index]
+
+            def process(path, *_args, **_kwargs):
+                calls.append(f"translate-{transcribed.index(path)}")
+
+            with (
+                patch.object(lrcer, "pre_process", return_value=audio_paths),
+                patch.object(lrcer, "_transcribe_single", side_effect=transcribe),
+                patch.object(lrcer, "_process_transcribed_file", side_effect=process),
+            ):
+                lrcer.run(inputs, clear_temp=False, execution_strategy=RunExecutionStrategy.MEMORY_SAVER)
+
+        self.assertEqual(calls, ["transcribe-0", "transcribe-1", "translate-0", "translate-1"])
+
+    def test_run_pipeline_overlaps_translation_with_later_transcription(self, _mock_chatbot):
+        lrcer = LRCer(translation=TranslationConfig(consumer_thread=1))
+        translation_started = threading.Event()
+        second_transcribed = threading.Event()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            inputs = [root / "one.wav", root / "two.wav"]
+            audio_paths = [
+                root / "preprocessed" / "one_preprocessed.wav",
+                root / "preprocessed" / "two_preprocessed.wav",
+            ]
+            transcribed = [path.with_name(f"{path.stem}_transcribed.json") for path in audio_paths]
+
+            def transcribe(audio_path, _src_lang=None):
+                index = audio_paths.index(audio_path)
+                if index == 1:
+                    self.assertTrue(translation_started.wait(timeout=2))
+                    second_transcribed.set()
+                return transcribed[index]
+
+            def process(path, *_args, **_kwargs):
+                if path == transcribed[0]:
+                    translation_started.set()
+                    self.assertTrue(second_transcribed.wait(timeout=2))
+
+            with (
+                patch.object(lrcer, "pre_process", return_value=audio_paths),
+                patch.object(lrcer, "_transcribe_single", side_effect=transcribe),
+                patch.object(lrcer, "_process_transcribed_file", side_effect=process),
+            ):
+                lrcer.run(inputs, clear_temp=False, execution_strategy=RunExecutionStrategy.PIPELINE)
+
+        self.assertTrue(translation_started.is_set())
+        self.assertTrue(second_transcribed.is_set())
+
     # ------------------------------------------------------------------
     # Config and constructor tests
     # ------------------------------------------------------------------
@@ -342,7 +408,7 @@ class TestLRCer(unittest.TestCase):
 
 
 class TestLRCerLocalLLM(unittest.TestCase):
-    def test_translate_clears_completed_checkpoint_but_keeps_incomplete_review(self):
+    def test_translate_preserves_preexisting_checkpoint_without_runtime_ownership(self):
         lrcer = LRCer.local()
         with tempfile.TemporaryDirectory() as tmpdir:
             transcribed = Path(tmpdir) / "sample_preprocessed_transcribed.json"
@@ -352,7 +418,7 @@ class TestLRCerLocalLLM(unittest.TestCase):
 
             with patch.object(lrcer, "_process_transcribed_file"):
                 lrcer.translate(transcribed)
-            self.assertFalse(checkpoint.exists())
+            self.assertTrue(checkpoint.exists())
 
             checkpoint.write_text("{}", encoding="utf-8")
 
@@ -362,6 +428,24 @@ class TestLRCerLocalLLM(unittest.TestCase):
             with patch.object(lrcer, "_process_transcribed_file", side_effect=mark_incomplete):
                 lrcer.translate(transcribed)
             self.assertTrue(checkpoint.exists())
+
+    def test_translate_defers_checkpoint_cleanup_until_all_inputs_succeed(self):
+        lrcer = LRCer.local()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = Path(tmpdir) / "first_preprocessed_transcribed.json"
+            second = Path(tmpdir) / "second_preprocessed_transcribed.json"
+            first.write_text("{}", encoding="utf-8")
+            second.write_text("{}", encoding="utf-8")
+            first_checkpoint = Path(tmpdir) / "first_compare.json"
+            first_checkpoint.write_text("{}", encoding="utf-8")
+
+            with (
+                patch.object(lrcer, "_process_transcribed_file", side_effect=[None, RuntimeError("second failed")]),
+                self.assertRaisesRegex(RuntimeError, "second failed"),
+            ):
+                lrcer.translate([first, second], clear_checkpoint=True)
+
+            self.assertTrue(first_checkpoint.exists())
 
     def test_clear_temp_files_removes_only_current_input_artifacts(self):
         lrcer = LRCer.local()
@@ -374,6 +458,8 @@ class TestLRCerLocalLLM(unittest.TestCase):
             unrelated = folder / "other_preprocessed.wav"
             for path in (audio, derivative, checkpoint, unrelated):
                 path.write_text("data", encoding="utf-8")
+            for path in (audio, derivative, checkpoint):
+                lrcer._register_owned_path(path)
 
             lrcer.clear_temp_files([audio])
 
@@ -382,6 +468,43 @@ class TestLRCerLocalLLM(unittest.TestCase):
             self.assertFalse(checkpoint.exists())
             self.assertTrue(unrelated.exists())
             self.assertTrue(folder.exists())
+
+    def test_clear_temp_files_can_retain_completed_checkpoint(self):
+        lrcer = LRCer.local()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            folder = Path(tmpdir) / "preprocessed"
+            folder.mkdir()
+            audio = folder / "sample_preprocessed.wav"
+            derivative = folder / "sample_preprocessed_transcribed.json"
+            checkpoint = folder / "sample_compare.json"
+            for path in (audio, derivative, checkpoint):
+                path.write_text("data", encoding="utf-8")
+                lrcer._register_owned_path(path)
+
+            lrcer.clear_temp_files([audio], keep_checkpoints=True)
+
+            self.assertFalse(audio.exists())
+            self.assertFalse(derivative.exists())
+            self.assertTrue(checkpoint.exists())
+            self.assertTrue(folder.exists())
+
+    def test_pre_process_blocks_and_preserves_preexisting_video_sidecar(self):
+        lrcer = LRCer.local()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            video = Path(tmpdir) / "episode.mp4"
+            sidecar = Path(tmpdir) / "episode.wav"
+            video.write_bytes(b"video")
+            sidecar.write_bytes(b"user audio")
+
+            with (
+                patch("openlrc.openlrc.get_file_type", return_value="video"),
+                patch("openlrc.openlrc.extract_audio") as extract,
+                self.assertRaisesRegex(FileExistsError, "sidecar"),
+            ):
+                lrcer.pre_process([video])
+
+            extract.assert_not_called()
+            self.assertEqual(sidecar.read_bytes(), b"user audio")
 
     def test_local_constructor_uses_recommended_local_config(self):
         lrcer = LRCer.local(idle_timeout=12, port=9090)

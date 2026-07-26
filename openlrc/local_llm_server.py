@@ -11,6 +11,10 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from openlrc.workflow import ExecutionContext
 
 import requests
 
@@ -45,6 +49,8 @@ class LocalLLMServer:
         startup_timeout: int = DEFAULT_LLAMA_STARTUP_TIMEOUT,
         extra_args: list[str] | None = None,
         allow_external: bool = True,
+        execution_context: ExecutionContext | None = None,
+        role: str = "translation",
     ):
         self.server_path = server_path
         self.model_path = model_path
@@ -57,6 +63,8 @@ class LocalLLMServer:
         self.startup_timeout = startup_timeout
         self.extra_args = list(extra_args or [])
         self.allow_external = allow_external
+        self.execution_context = execution_context
+        self.role = role
 
         self._process: subprocess.Popen | None = None
         self._owns_process = False
@@ -87,6 +95,10 @@ class LocalLLMServer:
         """Return the OpenAI-compatible base URL, starting llama-server when needed."""
         with self._lock:
             if self._is_healthy():
+                if self.execution_context is not None:
+                    self.execution_context.model_event(
+                        self.alias, "ready", owned=self._owns_process, role=self.role, endpoint=self.base_url
+                    )
                 if schedule_idle:
                     self._schedule_idle_shutdown()
                 return self.base_url
@@ -109,16 +121,27 @@ class LocalLLMServer:
             return
 
         if process.poll() is not None:
+            if self.execution_context is not None:
+                self.execution_context.processes.unregister(process)
+                self.execution_context.model_event(
+                    self.alias, "stopped", owned=True, role=self.role, endpoint=self.base_url
+                )
             return
 
         logger.info("Stopping local llama-server.")
-        process.terminate()
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            logger.warning("llama-server did not stop after terminate(); killing it.")
-            process.kill()
-            process.wait(timeout=5)
+        if self.execution_context is not None:
+            self.execution_context.processes.terminate(process)
+            self.execution_context.model_event(
+                self.alias, "stopped", owned=True, role=self.role, endpoint=self.base_url
+            )
+        else:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                logger.warning("llama-server did not stop after terminate(); killing it.")
+                process.kill()
+                process.wait(timeout=5)
 
     def _start(self) -> None:
         if self._process is not None and self._process.poll() is None:
@@ -129,6 +152,11 @@ class LocalLLMServer:
         cmd = self._build_command(server=server, model=model)
 
         logger.info(f"Starting local llama-server at {self.base_url}.")
+        if self.execution_context is not None:
+            self.execution_context.check_cancelled()
+            self.execution_context.model_event(
+                self.alias, "starting", owned=True, role=self.role, endpoint=self.base_url
+            )
         self._process = subprocess.Popen(
             cmd,
             cwd=str(Path(server).resolve().parents[2]) if "vendor/llama.cpp/build/bin" in server else None,
@@ -137,6 +165,8 @@ class LocalLLMServer:
             text=True,
         )
         self._owns_process = True
+        if self.execution_context is not None:
+            self.execution_context.processes.register(self._process)
 
     def _build_command(self, *, server: str, model: str) -> list[str]:
         cmd = [
@@ -167,11 +197,21 @@ class LocalLLMServer:
         deadline = time.monotonic() + self.startup_timeout
         while time.monotonic() < deadline:
             if self._process is not None and self._process.poll() is not None:
+                if self.execution_context is not None:
+                    self.execution_context.processes.unregister(self._process)
+                    self.execution_context.check_cancelled()
                 raise RuntimeError("llama-server exited before becoming ready.")
             if self._is_healthy():
                 logger.info(f"Local llama-server is ready at {self.base_url}.")
+                if self.execution_context is not None:
+                    self.execution_context.model_event(
+                        self.alias, "ready", owned=True, role=self.role, endpoint=self.base_url
+                    )
                 return
-            time.sleep(0.5)
+            if self.execution_context is None:
+                time.sleep(0.5)
+            else:
+                self.execution_context.cancellation_token.wait_or_raise(0.5)
 
         raise TimeoutError(f"llama-server did not become ready within {self.startup_timeout}s.")
 

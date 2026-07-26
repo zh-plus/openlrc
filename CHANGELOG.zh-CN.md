@@ -3,6 +3,144 @@
 这个文件只记录 OpenLRC Mac fork 自己的变更。英文版见
 [CHANGELOG.md](CHANGELOG.md) 中的 OpenLRC Mac 条目；两个文件需要同步更新。
 
+## OpenLRC Mac 0.4.0
+
+共享 Workflow/application service 与 Textual TUI v2 版本，同时强化本地转写、
+取消、恢复和中英双语终端体验。
+
+### 版本亮点
+
+- **共享执行基础**：CLI 与 TUI 统一使用类型化 Workflow/application contract，
+  不复制 `LRCer` 或字幕 pipeline。
+- **Textual TUI v2**：提供键盘/鼠标等价的 New Work、Jobs、Models、Doctor 和
+  working-copy Settings，并覆盖 English/简体中文与确定性视觉 baseline。
+- **更安全的本地处理**：统一强化 Whisper、ffmpeg、Qwen、Hy-MT2 的 subprocess
+  ownership、取消、原子输出、checkpoint 保留、多文件调度和冲突保护。
+
+### 新增
+
+- 新增 `openlrc.workflow` 同步类型化执行层，统一 Transcribe、Translate 与 Run
+  的请求、逐文件阶段/chunk 事件、产物和 review 结果、结构化错误、协作取消与
+  owned-process 清理；`LRCer` 继续作为业务编排器。
+- Workflow 完整覆盖 Standard、Fast、Normal、Normal Plus、Pro，包括在线 provider、
+  本地 Qwen/Hy-MT2、Brief/Timeline、确定性修复、语义审校、checkpoint、Restore
+  和分阶段单模型驻留；旧配置/CLI alias 在事件和结果中使用 canonical 名称。
+- 新增共享本地 Preflight；交互任务启动前会检查输入 schema、所需资源、输出冲突与
+  目标目录写权限。
+- 新增可供未来 GUI 复用的 application services，覆盖版本化原子设置、无密钥历史、
+  Keychain/环境变量解析、provider 测试、资源状态、Workflow recipe 和单任务控制。
+- 新增 Textual TUI v2：品牌化单屏 Home、New Work、Jobs/Recovery、Models/Setup、
+  Doctor、working-copy Settings、四类 Workflow 与键盘/鼠标等价 ActionList；
+  Edit Subtitle 初版保持 disabled。
+- 新增类型化 glossary、可取消 Setup application adapter 和共享 operation guard，
+  防止 Workflow 与资源修改并行执行。
+- 新增 `openlrc tui` / `openlrc-tui` 入口、真实 Textual SVG baseline、Pilot
+  交互覆盖和 `TUI_REFERENCE.md`。
+- TUI 新增可持久化的 English/简体中文语言选项；Home、Workflow、Jobs、Models、
+  Doctor、Settings、Modal、帮助、通知和动态计数使用 presentation-only 本地化。
+
+### 变更
+
+- 在 TUI v2 重建前移除实验性的 TUI v1 界面层、专属测试以及
+  `openlrc tui` / `openlrc-tui` 入口；可复用的 application 与 Workflow 服务保留。
+- 转写 sentence segmentation 不再加载 spaCy 模型/CLI；该阶段仅需要的标点判断改用
+  Unicode 分类，因此 Transcribe 不会意外触发语言模型下载。
+- `transcribe`、`translate`、`run` CLI 已迁移到 `WorkflowExecutor`，保留原参数、
+  Generated Files 表和 review incomplete 成功退出语义；交互取消会等待 owned
+  资源清理后以 130 退出。
+- 多文件 Run 改为受控 futures 与 cancellation-aware queue：重复输入只执行一次，
+  结果保持首次输入顺序，worker 异常向上传播，失败、取消或 incomplete review
+  不清理恢复材料。
+- Run 使用固定资源策略：在线 Standard 保留可重叠的 producer/consumer Pipeline；
+  本地 Qwen 和所有 Hy-MT2 模式使用 Memory Saver，全部文件转写完成后才开始翻译。
+- Workflow Run 新增供交互界面使用的 checkpoint 保留选项，同时保持 CLI 原有清理
+  默认行为。
+- Model lifecycle event 增加兼容的 role/endpoint，并提供共享资源状态服务。
+- TUI v2 使用更简洁的 New Work 文案、四个精确任务标题与 amber 功能词；配置页统一
+  使用单列分组线框、三步进度和突出的 Continue to Preflight 主动作。
+- Appearance 接入 Textual 运行时主题：OpenLRC Dark 注册为青蓝/暖黄色主题，
+  Textual Dark 使用独立的内置调色板；共享 CSS token 会立即预览并在 Save 后持久化。
+- Home 右侧五张四行高卡片现在作为一个整体垂直居中；所有共享 ActionList 压缩为
+  一行标题或两行标题/detail；标题与 action 之间使用显式单行 spacer，分组之间只
+  保留一行间距，动态 detail 会即时重排。
+
+### 修复
+
+- 将 Click 声明为 spaCy/Weasel 兼容所需的直接运行依赖，避免 Whisper 转写后出现
+  `No module named 'click'`。
+- 并发 drain whisper.cpp stdout/stderr，避免大 JSON 因 pipe 背压死锁；转写 JSON
+  改为原子提交。
+- `WhisperCLIBackend` 优先从 owned 临时输出文件读取 JSON，并为旧版 whisper.cpp
+  保留 stdout fallback，兼容 `--no-prints` 不输出 JSON 或 stdout 混入可读转写文本。
+- Whisper、ffmpeg 抽取/响度归一化和 OpenLRC-owned llama-server 纳入统一
+  terminate/kill/wait 清理；外部复用的 llama-server 不会被关闭。
+- provider retry wait、预处理 chunk、Brief/Timeline、翻译与 review chunk 支持
+  协作取消；不会从另一线程强制关闭正在执行的远端 SDK 请求。
+- 已请求取消时，worker 或 subprocess 同时产生的异常不再覆盖取消结果；失败事件
+  补齐 credential 脱敏，`ExecutionContext` 明确为一次性对象且 cleanup 幂等。
+- Run 转写 JSON 作为中间 artifact，不再进入主输出；最终结果过滤已删除文件，
+  Brief、Timeline 和模型生命周期事件继承逐文件标识。
+- Workflow `ffprobe` 纳入 owned-process 取消清理；DeepFilterNet 在取消和预处理异常
+  后也保证释放模型内存。
+- 修复 application job 在 worker 注册前重复启动和取消丢失的竞态；初次历史写入失败
+  时不再执行，终态写入失败会释放 active slot。
+- 通过运行时 owned-path 跟踪保护已有 checkpoint 和同名媒体 sidecar；处理前发现
+  有歧义的输出冲突会明确拒绝，不再覆盖或清理用户文件。
+- TUI 所有 action list 现在会在 enabled 项之间首尾循环，并跳过分组标题和 disabled
+  行；空白 provisional Draft 静默丢弃，只有输入或参数真实变化才提示恢复。
+- Preflight 请求和检查改为不可聚焦的只读区域，焦点只包含 Start/Back；Page Up/Down
+  可翻阅长内容且不移动 action focus，返回输入编辑器后参数页会立即刷新文件计数。
+- Settings 输入弹窗改用统一 Apply/Cancel action list，80×24 下不再遮挡按钮，支持
+  完整键盘和鼠标操作，credential 输入保持遮罩。
+- wide/compact ASCII Logo 流光改为按终端 `x` 坐标整列移动，同列多行字符同步变色。
+- Appearance 普通设置改为原地更新，Language 重组会在新 ActionList 挂载后按
+  stable action ID 恢复焦点；Enter 应用后无需鼠标即可继续使用方向键。
+- 关闭 Logo animation 或启用 Reduced motion 时重新渲染静态亮蓝 Logo，不再冻结
+  最后一个黄色流光 frame；动画未经过的字符也保持蓝色。
+- Home 的全宽 Logo 字符块现在与两句介绍共用中心轴；无 detail 的四行卡片标题移至
+  上方内部格，wide/compact Logo 每行统一补齐为固定 terminal-cell 矩阵。
+- 分组标题后和相邻 action 之间新增不可交互且延续边框的 spacer 行；clean Settings
+  Save 只降低文字和交互状态，结构边框继续与 Heading、spacer、Discard 使用同一 token。
+
+### 验证
+
+- 使用 80×24、100×30、160×50 确定性 Home SVG，以及 Workflow、Jobs、Models、
+  Settings、Doctor、确认弹窗代表性 snapshot 验证 TUI v2；Pilot 覆盖 disabled card
+  焦点/点击、active mouse route、输入快捷键隔离和持久化 Workflow result。
+- 实际 100×30 PTY 完成 Home、New Workflow、Jobs、Models、Settings、Doctor
+  （10/10 本地检查）、Esc 返回和确认退出。另一实际 TUI 使用已安装 whisper.cpp/base
+  模型以 CPU/no-flash-attention 完成 Transcribe to JSON，保存成功 Job，并从
+  30.3 秒音频生成 13 个 segment。全量测试为 `527 passed, 25 skipped`；Ruff、
+  Pyright（`0 errors`）和 `git diff --check` 通过。
+- TUI 交互修订定向测试 `28 passed`；真实 Textual SVG 覆盖 80×24、100×30、
+  160×50、三个连续 wide Logo fixed frame，80×24 Preflight 已转图检查。全量测试
+  为 `539 passed, 25 skipped, 21 warnings`；Ruff、Pyright（`0 errors`）与
+  `git diff --check` 通过。实际 PTY 验证输入计数刷新、Preflight focus/退出路径，
+  实际 TUI `Transcribe to JSON` 端到端进入 Succeeded 并产生 output。
+- Appearance 与中文化定向 TUI/Pilot/SVG 为 `34 passed`，连同 application settings
+  为 `57 passed`；两套 80×24 主题、简体中文 Home 和静态 Logo 已建立 baseline
+  并转 PNG 检查。全量测试为 `546 passed, 25 skipped, 21 warnings`，Ruff 与
+  Pyright（`0 errors`）通过。隔离 Application Support 的实际 80×24 PTY 还验证了
+  主题/语言切换后键盘焦点连续可用、关闭动效立即显示静态亮蓝 Logo，以及退出重启后
+  主题、语言和动效设置均正确恢复。
+- 视觉布局修复的 TUI/Application 定向回归为 `65 passed`，包含 19 个归一化 SVG
+  baseline 和最终彩色 PNG 人工检查。Pilot 覆盖三种 Home 尺寸的垂直居中、动态
+  一/两行 Action、单行组间距、clean/dirty Save 与固定 Logo 列；隔离设置目录的
+  实际 80×24、100×30 `openlrc-tui` 均完成全键盘 Home/Settings 路径，后者还完成
+  Appearance 修改与 Save。修改范围 Ruff 和生产 TUI Pyright 通过。
+- Logo/卡片/分组跟进修复通过 `42` 项 TUI/Pilot/SVG 回归和全部 19 个归一化
+  baseline，并完成 Ruff、生产 TUI Pyright（`0 errors, 0 warnings`）与 PNG
+  人工检查。隔离设置目录的真实 PTY 验证了 80×24 Work Type 完整底框，以及
+  160×50 Home/Settings 的中心轴、spacer 和 disabled Save 连续边框。
+- 移除 TUI v1 后，CLI/application/Workflow 边界定向回归为 `102 passed`；修改范围
+  Ruff lint、CLI help 和 `git diff --check` 也通过。
+- 使用已安装 whisper.cpp/base 模型完成真实 Workflow Transcribe，并完成真实本地
+  Normal 分阶段链路：Qwen3.5 9B 关闭后再加载并关闭 Hy-MT2 7B；验证未下载模型。
+- 0.4.0 最终发布回归为 `554 passed, 25 skipped, 21 warnings`；Ruff、生产包
+  Pyright（`0 errors`）、CLI 版本输出和 `git diff --check` 通过。`uv build`
+  成功生成 0.4.0 sdist/wheel；wheel 包含 TUI stylesheet、application/workflow
+  模块和三个 console entrypoint。
+
 ## OpenLRC Mac 0.3.0
 
 人工 Translation Brief、术语合规与可恢复事务式字幕编辑版本，并合入

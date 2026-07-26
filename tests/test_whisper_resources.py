@@ -99,10 +99,7 @@ class TestWhisperResourceResolver(unittest.TestCase):
             with (
                 patch.dict(
                     os.environ,
-                    {
-                        OPENLRC_WHISPER_MODEL: str(env_model),
-                        OPENLRC_WHISPER_MODEL_DIR: str(root / "unused-model-dir"),
-                    },
+                    {OPENLRC_WHISPER_MODEL: str(env_model), OPENLRC_WHISPER_MODEL_DIR: str(root / "unused-model-dir")},
                     clear=True,
                 ),
                 patch("openlrc.whisper_resources.user_model_dir", return_value=user_model.parent),

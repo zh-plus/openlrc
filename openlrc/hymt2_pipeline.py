@@ -9,7 +9,10 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from openlrc.workflow import ExecutionContext
 
 from json_repair import repair_json
 from langcodes import Language as LangcodeLanguage
@@ -158,11 +161,19 @@ class TranslationBriefAgent:
     PROMPT_VERSION = 3
     OUTPUT_RESERVE = 2048
 
-    def __init__(self, *, chatbot: ChatBot | None, src_lang: str, target_lang: str):
+    def __init__(
+        self,
+        *,
+        chatbot: ChatBot | None,
+        src_lang: str,
+        target_lang: str,
+        execution_context: ExecutionContext | None = None,
+    ):
         self.chatbot = chatbot
         self.src_lang = src_lang
         self.target_lang = target_lang
         self.language_validator = _SourceLanguageValidator(src_lang)
+        self.execution_context = execution_context
 
     def _schema_instruction(self) -> str:
         return f"""Return one JSON object with exactly these fields:
@@ -262,6 +273,8 @@ Do not translate the subtitle lines. Do not add Markdown, unlisted fields, or an
         partials: list[TranslationBrief] = []
         chunks = self._split_texts(texts)
         for chunk_index, chunk in enumerate(chunks, 1):
+            if self.execution_context is not None:
+                self.execution_context.check_cancelled()
             numbered = "\n".join(f"[{line_id}] {text}" for line_id, text in chunk)
             partials.append(
                 self._call(
@@ -274,6 +287,12 @@ Do not translate the subtitle lines. Do not add Markdown, unlisted fields, or an
             )
             if fixed is not None:
                 partials[-1] = fixed.apply(partials[-1])
+            if self.execution_context is not None:
+                from openlrc.workflow import WorkflowStage
+
+                self.execution_context.stage_progress(
+                    WorkflowStage.BRIEF, chunk_index, len(chunks), message="Brief source chunk"
+                )
 
         if not partials:
             raise ChatBotException("Cannot build a translation brief from empty subtitles.")
@@ -293,6 +312,8 @@ Do not translate the subtitle lines. Do not add Markdown, unlisted fields, or an
                     + json.dumps([_model_dump(item) for item in pair], ensure_ascii=False)
                 )
                 merged.append(fixed.apply(candidate) if fixed is not None else candidate)
+                if self.execution_context is not None:
+                    self.execution_context.check_cancelled()
             partials = merged
 
         brief = partials[0].merge_user_glossary(glossary)
@@ -321,10 +342,11 @@ class ContextTimelineAgent:
     SCENE_TOKEN_LIMIT = 160
     TOTAL_TOKEN_LIMIT = 416
 
-    def __init__(self, *, chatbot: ChatBot, src_lang: str):
+    def __init__(self, *, chatbot: ChatBot, src_lang: str, execution_context: ExecutionContext | None = None):
         self.chatbot = chatbot
         self.src_lang = src_lang
         self.language_validator = _SourceLanguageValidator(src_lang)
+        self.execution_context = execution_context
 
     @classmethod
     def _parse(cls, content: str) -> _TimelineChunkResponse:
@@ -467,11 +489,21 @@ class ContextTimelineAgent:
 
         contexts: list[ProChunkContext] = []
         can_restore = True
+        restored_count = 0
         for index, plan in enumerate(plans):
+            if self.execution_context is not None:
+                self.execution_context.check_cancelled()
             if can_restore and index < len(restored):
                 saved_context = restored[index]
                 if saved_context.chunk_id == plan.chunk_id and saved_context.segment_ids == plan.segment_ids:
                     contexts.append(saved_context)
+                    restored_count += 1
+                    if self.execution_context is not None:
+                        from openlrc.workflow import WorkflowStage
+
+                        self.execution_context.stage_progress(
+                            WorkflowStage.TIMELINE, index + 1, len(plans), message="Timeline checkpoint"
+                        )
                     continue
                 can_restore = False
             else:
@@ -489,6 +521,21 @@ class ContextTimelineAgent:
                 pipeline_stage="context_plan",
             )
             save_checkpoint(checkpoint_path, checkpoint)
+            if self.execution_context is not None:
+                from openlrc.workflow import WorkflowStage
+
+                self.execution_context.stage_progress(
+                    WorkflowStage.TIMELINE, index + 1, len(plans), message="Timeline chunk"
+                )
+
+        if restored_count and self.execution_context is not None:
+            from openlrc.workflow import StageOutcome, WorkflowStage
+
+            self.execution_context.stage_completed(
+                WorkflowStage.TIMELINE,
+                outcome=StageOutcome.RESUMED,
+                message=f"Restored {restored_count} Timeline chunks.",
+            )
 
         return ContextTimeline(schema_version=self.SCHEMA_VERSION, chunk_signature=chunk_signature, chunks=contexts)
 

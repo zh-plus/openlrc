@@ -113,8 +113,11 @@ class TestTranslatorAgent(unittest.TestCase):
 
         # ModelConfig with capability overrides
         config_with_extra = ModelConfig(
-            provider=ModelProvider.OPENAI, name="custom-model", api_key="dummy-key",
-            context_window=65536, max_tokens=4096,
+            provider=ModelProvider.OPENAI,
+            name="custom-model",
+            api_key="dummy-key",
+            context_window=65536,
+            max_tokens=4096,
         )
         bot = create_chatbot(config_with_extra)
         self.assertEqual(bot.model_config.context_window, 65536)

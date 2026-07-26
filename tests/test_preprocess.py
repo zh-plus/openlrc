@@ -6,7 +6,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 try:
     import torch
@@ -14,6 +14,7 @@ except ImportError:
     torch = None
 
 from openlrc.preprocess import Preprocessor
+from openlrc.workflow import ExecutionContext, WorkflowCancelled, WorkflowKind
 
 TEST_DATA_DIR = Path(__file__).parent / "data"
 
@@ -59,10 +60,65 @@ class TestPreprocessor(unittest.TestCase):
 
         mock_save_audio.return_value = None
         mock_release_memory.return_value = None
-        preprocessor = Preprocessor("audio.wav")
+        preprocessor = Preprocessor(TEST_DATA_DIR / "test_audio.wav")
         ns_paths = preprocessor.noise_suppression(preprocessor.audio_paths)
         self.assertIsInstance(ns_paths, list)
         self.assertIsInstance(ns_paths[0], Path)
+
+    @patch.object(_df_enhance, "enhance")
+    @patch.object(_df_enhance, "init_df")
+    @patch.object(_df_enhance, "load_audio")
+    @patch.object(_df_enhance, "save_audio")
+    @patch("openlrc.preprocess.release_memory")
+    def test_noise_suppression_releases_model_after_inference_error(
+        self, mock_release_memory, _mock_save_audio, mock_load_audio, mock_init_df, mock_enhance
+    ):
+        model = Mock()
+        state = Mock()
+        state.sr.return_value = 16000
+        mock_init_df.return_value = (model, state, Mock())
+        info = Mock(sample_rate=16000)
+        audio = MagicMock()
+        audio.shape = (2, 16000)
+        mock_load_audio.return_value = (audio, info)
+        mock_enhance.side_effect = RuntimeError("inference failed")
+        preprocessor = Preprocessor(TEST_DATA_DIR / "test_audio.wav")
+
+        with patch.dict(sys.modules, {"torch": MagicMock()}):
+            with self.assertRaisesRegex(RuntimeError, "inference failed"):
+                preprocessor.noise_suppression(preprocessor.audio_paths)
+
+        mock_release_memory.assert_called_once_with(model)
+
+    @patch.object(_df_enhance, "enhance")
+    @patch.object(_df_enhance, "init_df")
+    @patch.object(_df_enhance, "load_audio")
+    @patch.object(_df_enhance, "save_audio")
+    @patch("openlrc.preprocess.release_memory")
+    def test_noise_suppression_releases_model_after_cancellation(
+        self, mock_release_memory, _mock_save_audio, mock_load_audio, mock_init_df, mock_enhance
+    ):
+        model = Mock()
+        state = Mock()
+        state.sr.return_value = 16000
+        mock_init_df.return_value = (model, state, Mock())
+        info = Mock(sample_rate=16000)
+        audio = MagicMock()
+        audio.shape = (2, 16000)
+        mock_load_audio.return_value = (audio, info)
+        context = ExecutionContext(WorkflowKind.TRANSCRIBE)
+        context.cancellation_token.cancel()
+        preprocessor = Preprocessor(TEST_DATA_DIR / "test_audio.wav", execution_context=context)
+
+        try:
+            with patch.dict(sys.modules, {"torch": MagicMock()}):
+                with self.assertRaises(WorkflowCancelled):
+                    preprocessor.noise_suppression(preprocessor.audio_paths)
+        finally:
+            context.close()
+
+        mock_enhance.assert_not_called()
+        mock_release_memory.assert_called_once_with(model)
 
     @patch("openlrc.preprocess.FFmpegNormalize")
     def test_loudness_normalization_returns_path_objects(self, mock_norm):

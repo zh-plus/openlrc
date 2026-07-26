@@ -7,16 +7,19 @@ from __future__ import annotations
 
 import json
 import shutil
+import signal
+import threading
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, cast
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from openlrc import __app_name__, __dist_name__, __upstream_version__, __version__
+from openlrc.application.resources import ResourceStatusService
 from openlrc.config import (
     ContextLLMConfig,
     EditConfig,
@@ -34,31 +37,33 @@ from openlrc.llama_resources import (
     DEFAULT_LLAMA_MODEL_FILE,
     DEFAULT_LLAMA_MODEL_REPO,
     DEFAULT_LLAMA_PORT,
-    HY_MT2_7B_MODEL_FILE,
     HY_MT2_7B_PROFILE,
     HY_MT2_30B_A3B_PROFILE,
     QWEN35_9B_PROFILE,
     get_local_llm_profile,
     infer_local_llm_profile,
     is_hy_mt2_30b_profile_alias,
-    resolve_llama_cli,
-    resolve_llama_model_path,
-    resolve_llama_server,
-    user_llm_model_dir,
 )
-from openlrc.llama_resources import vendor_dir as llama_vendor_dir
 from openlrc.models import ModelProvider
 from openlrc.setup.llama_cpp import LlamaSetupResult, setup_llama_cpp
 from openlrc.setup.whisper_cpp import DEFAULT_MODEL, DEFAULT_VAD_MODEL, WhisperSetupResult, setup_whisper_cpp
-from openlrc.whisper_resources import (
-    DEFAULT_MODEL_NAME,
-    DEFAULT_VAD_MODEL_NAME,
-    resolve_vad_model_path,
-    resolve_whisper_cli,
-    resolve_whisper_model_path,
-    user_model_dir,
+from openlrc.whisper_resources import DEFAULT_MODEL_NAME, DEFAULT_VAD_MODEL_NAME
+from openlrc.workflow import (
+    CancellationToken,
+    ExecutionContext,
+    ModelLifecycleEvent,
+    RunRequest,
+    StageProgressEvent,
+    TranscribeRequest,
+    TranslateRequest,
+    TranslationMode,
+    WorkflowExecutor,
+    WorkflowKind,
+    WorkflowResult,
+    WorkflowStatus,
+    WorkflowTranslationConfig,
+    WorkflowTranslationFactory,
 )
-from openlrc.whisper_resources import vendor_dir as whisper_vendor_dir
 
 if TYPE_CHECKING:
     from openlrc.openlrc import LRCer
@@ -78,6 +83,14 @@ glossary_app = typer.Typer(help="Validate and inspect task glossaries.", no_args
 app.add_typer(setup_app, name="setup")
 app.add_typer(models_app, name="models")
 app.add_typer(glossary_app, name="glossary")
+
+
+@app.command("tui")
+def tui_command() -> None:
+    """Open the keyboard-first Textual interface."""
+    from openlrc.tui import run
+
+    run()
 
 
 class TranslationBackend(str, Enum):
@@ -112,6 +125,72 @@ class CheckResult:
     ok: bool
     detail: str
     hint: str = ""
+
+
+class RichEventSink:
+    """Concise terminal progress adapter for typed workflow events."""
+
+    def __init__(self, output: Console = console) -> None:
+        self.console = output
+        self._reported: dict[tuple[str | None, str], int] = {}
+
+    def __call__(self, event) -> None:
+        # Captured/non-interactive output remains free of dynamic control codes.
+        if not self.console.is_terminal:
+            return
+        if isinstance(event, StageProgressEvent):
+            bucket = min(100, int(event.percent // 10) * 10)
+            key = (event.header.item, event.stage.value)
+            if bucket <= self._reported.get(key, -1):
+                return
+            self._reported[key] = bucket
+            item = f" {Path(event.header.item).name}" if event.header.item else ""
+            self.console.print(f"[cyan]{event.stage.value}[/cyan]{item}: {event.percent:5.1f}%")
+        elif isinstance(event, ModelLifecycleEvent):
+            self.console.print(f"[cyan]{event.model}[/cyan]: {event.state}")
+
+
+def _review_status_mapping(result: WorkflowResult) -> dict[str, dict]:
+    statuses: dict[str, dict] = {}
+    for review in result.reviews:
+        status = dict(review.details)
+        status["incomplete"] = review.incomplete
+        if review.checkpoint is not None:
+            status["checkpoint"] = str(review.checkpoint)
+        if review.report is not None:
+            status["report"] = str(review.report)
+        if review.session is not None:
+            status["session"] = str(review.session)
+        statuses[review.item] = status
+    return statuses
+
+
+def _execute_workflow(request, workflow: WorkflowKind) -> WorkflowResult:
+    token = CancellationToken()
+    context = ExecutionContext(workflow, event_sink=RichEventSink(), cancellation_token=token)
+    previous_sigint = None
+    if threading.current_thread() is threading.main_thread():
+        previous_sigint = signal.getsignal(signal.SIGINT)
+
+        def cancel_then_interrupt(_signum, _frame) -> None:
+            token.cancel()
+            raise KeyboardInterrupt
+
+        signal.signal(signal.SIGINT, cancel_then_interrupt)
+    try:
+        result = WorkflowExecutor().execute(request, context)
+    finally:
+        if previous_sigint is not None:
+            signal.signal(signal.SIGINT, previous_sigint)
+    if result.status is WorkflowStatus.FAILED:
+        assert result.error is not None
+        detail = f" ({result.error.hint})" if result.error.hint else ""
+        console.print(f"[red]{result.error.category.value}: {result.error.message}{detail}[/red]")
+        raise typer.Exit(code=1)
+    if result.status is WorkflowStatus.CANCELLED:
+        console.print("[yellow]Cancelled after cleaning up owned resources.[/yellow]")
+        raise typer.Exit(code=130)
+    return result
 
 
 def _check_path(name: str, path: Path, hint: str) -> CheckResult:
@@ -150,59 +229,11 @@ def _render_checks(title: str, checks: list[CheckResult]) -> None:
 
 
 def _doctor_checks() -> list[CheckResult]:
-    return [
-        _check_executable("ffmpeg", "ffmpeg", "Install ffmpeg and make sure it is on PATH."),
-        _check_executable("cmake", "cmake", "Install CMake and Xcode Command Line Tools."),
-        _check_path(
-            "whisper.cpp submodule",
-            whisper_vendor_dir() / "CMakeLists.txt",
-            "Run `git submodule update --init --recursive`.",
-        ),
-        _check_resolver("whisper-cli", lambda: resolve_whisper_cli(""), "Run `openlrc setup whisper`."),
-        _check_resolver(
-            "Whisper model",
-            lambda: resolve_whisper_model_path(DEFAULT_MODEL_NAME),
-            "Run `openlrc setup whisper --model base`.",
-        ),
-        _check_resolver(
-            "Whisper VAD model", lambda: resolve_vad_model_path(DEFAULT_VAD_MODEL_NAME), "Run `openlrc setup whisper`."
-        ),
-        _check_path(
-            "llama.cpp submodule",
-            llama_vendor_dir() / "CMakeLists.txt",
-            "Run `git submodule update --init --recursive`.",
-        ),
-        _check_resolver("llama-server", lambda: resolve_llama_server(""), "Run `openlrc setup llama`."),
-        _check_resolver("llama-cli", lambda: resolve_llama_cli(""), "Run `openlrc setup llama`."),
-        _check_resolver(
-            "Qwen GGUF model", lambda: resolve_llama_model_path(DEFAULT_LLAMA_MODEL_FILE), "Run `openlrc setup llama`."
-        ),
-    ]
+    return [CheckResult(item.name, item.available, item.detail, item.hint) for item in ResourceStatusService().doctor()]
 
 
 def _model_checks() -> list[CheckResult]:
-    return [
-        _check_resolver(
-            "Whisper default model",
-            lambda: resolve_whisper_model_path(DEFAULT_MODEL_NAME),
-            f"Default directory: {user_model_dir()}",
-        ),
-        _check_resolver(
-            "Whisper VAD model",
-            lambda: resolve_vad_model_path(DEFAULT_VAD_MODEL_NAME),
-            f"Default directory: {user_model_dir()}",
-        ),
-        _check_resolver(
-            "Local Qwen GGUF",
-            lambda: resolve_llama_model_path(DEFAULT_LLAMA_MODEL_FILE),
-            f"Default directory: {user_llm_model_dir()}",
-        ),
-        _check_resolver(
-            "Local Hy-MT2 7B Q6_K GGUF",
-            lambda: resolve_llama_model_path(HY_MT2_7B_MODEL_FILE),
-            f"Optional. Run `openlrc setup llama --local-model-profile {HY_MT2_7B_PROFILE}`.",
-        ),
-    ]
+    return [CheckResult(item.name, item.available, item.detail, item.hint) for item in ResourceStatusService().models()]
 
 
 def _transcription_config(whisper_model: str, vad_model: str) -> TranscriptionConfig:
@@ -354,11 +385,9 @@ def _context_llm_config(
     return ContextLLMConfig.online(provider=provider_map[provider], model=model, base_url=base_url, fee_limit=fee_limit)
 
 
-def _lrcer_for_run(
+def _workflow_translation_for(
     *,
-    translation: TranslationBackend,
-    whisper_model: str,
-    vad_model: str,
+    translation: TranslationBackend | TranslationOnlyBackend,
     llama_model: str,
     local_model_profile: LocalModelProfile | None,
     llama_port: int,
@@ -368,17 +397,16 @@ def _lrcer_for_run(
     context_model: str | None,
     context_base_url: str | None,
     context_fee_limit: float,
-    subtitle_optimization: SubtitleOptimizationMode,
     glossary: Path | None = None,
     force_glossary: bool = False,
     glossary_strict: bool = True,
     edit_rounds: int = 1,
     enable_restore: bool = False,
     translation_brief: TranslationBriefInput | None = None,
-) -> LRCer:
-    lrcer_cls = _lrcer_cls()
+    semantic_editor: bool = True,
+) -> WorkflowTranslationConfig:
+    """Build the CLI's canonical translation request through the shared factory."""
     hy_mt2_mode = normalize_hymt2_mode(hy_mt2_mode)
-    transcription = _transcription_config(whisper_model, vad_model)
     glossary_value, glossary_options, edit_config = _glossary_and_edit_options(
         glossary=glossary,
         force_glossary=force_glossary,
@@ -386,7 +414,7 @@ def _lrcer_for_run(
         edit_rounds=edit_rounds,
         enable_restore=enable_restore,
     )
-    if translation == TranslationBackend.local:
+    if translation.value == TranslationBackend.local.value:
         profile_name, selected_model = _selected_profile_and_model(
             local_model_profile=local_model_profile, llama_model=llama_model
         )
@@ -401,18 +429,19 @@ def _lrcer_for_run(
                 fee_limit=context_fee_limit,
                 port=llama_port,
                 required=_context_model_required(
-                    mode=hy_mt2_mode, translation_brief=translation_brief, edit_rounds=edit_rounds, semantic_editor=True
+                    mode=hy_mt2_mode,
+                    translation_brief=translation_brief,
+                    edit_rounds=edit_rounds,
+                    semantic_editor=semantic_editor,
                 ),
             )
-            return lrcer_cls.local_hy_mt2(
-                size=profile_name,
+            return WorkflowTranslationFactory.hymt2(
+                mode=TranslationMode(hy_mt2_mode.value),
+                profile=profile_name,
                 model=selected_model,
                 idle_timeout=idle_timeout,
                 port=llama_port,
-                transcription=transcription,
-                mode=hy_mt2_mode,
                 context_llm=context_llm,
-                subtitle_optimization=subtitle_optimization,
                 glossary=glossary_value,
                 glossary_options=glossary_options,
                 edit_config=edit_config,
@@ -422,24 +451,18 @@ def _lrcer_for_run(
             raise typer.BadParameter("Translation Brief requires a Hy-MT2 local model profile.")
         if hy_mt2_mode is not HyMT2Mode.FAST or context_provider is not None or context_model is not None:
             raise typer.BadParameter("Hy-MT2 context options require a Hy-MT2 local model profile.")
-        return lrcer_cls.local(
+        return WorkflowTranslationFactory.standard_local_qwen(
             model=selected_model or llama_model,
             idle_timeout=idle_timeout,
             port=llama_port,
-            transcription=transcription,
-            subtitle_optimization=subtitle_optimization,
             glossary=glossary_value,
             glossary_options=glossary_options,
             edit_config=edit_config,
         )
     if translation_brief is not None:
         raise typer.BadParameter("Translation Brief requires a Hy-MT2 local translation backend.")
-    return lrcer_cls(
-        transcription=transcription,
-        translation=TranslationConfig(
-            glossary=glossary_value, glossary_options=glossary_options, edit_config=edit_config
-        ),
-        subtitle_optimization=subtitle_optimization,
+    return WorkflowTranslationFactory.standard_online(
+        glossary=glossary_value, glossary_options=glossary_options, edit_config=edit_config
     )
 
 
@@ -465,69 +488,26 @@ def _lrcer_for_translation(
     semantic_editor: bool = True,
 ) -> LRCer:
     lrcer_cls = _lrcer_cls()
-    hy_mt2_mode = normalize_hymt2_mode(hy_mt2_mode)
-    glossary_value, glossary_options, edit_config = _glossary_and_edit_options(
+    workflow_translation = _workflow_translation_for(
+        translation=translation,
+        llama_model=llama_model,
+        local_model_profile=local_model_profile,
+        llama_port=llama_port,
+        idle_timeout=idle_timeout,
+        hy_mt2_mode=hy_mt2_mode,
+        context_provider=context_provider,
+        context_model=context_model,
+        context_base_url=context_base_url,
+        context_fee_limit=context_fee_limit,
         glossary=glossary,
         force_glossary=force_glossary,
         glossary_strict=glossary_strict,
         edit_rounds=edit_rounds,
         enable_restore=enable_restore,
+        translation_brief=translation_brief,
+        semantic_editor=semantic_editor,
     )
-    if translation == TranslationOnlyBackend.local:
-        profile_name, selected_model = _selected_profile_and_model(
-            local_model_profile=local_model_profile, llama_model=llama_model
-        )
-        if profile_name != QWEN35_9B_PROFILE:
-            if hy_mt2_mode is HyMT2Mode.FAST and translation_brief is not None:
-                raise typer.BadParameter("Translation Brief is not supported in Hy-MT2 fast mode.")
-            context_llm = _context_llm_config(
-                mode=hy_mt2_mode,
-                provider=context_provider,
-                model=context_model,
-                base_url=context_base_url,
-                fee_limit=context_fee_limit,
-                port=llama_port,
-                required=_context_model_required(
-                    mode=hy_mt2_mode,
-                    translation_brief=translation_brief,
-                    edit_rounds=edit_rounds,
-                    semantic_editor=semantic_editor,
-                ),
-            )
-            return lrcer_cls.local_hy_mt2(
-                size=profile_name,
-                model=selected_model,
-                idle_timeout=idle_timeout,
-                port=llama_port,
-                mode=hy_mt2_mode,
-                context_llm=context_llm,
-                subtitle_optimization=subtitle_optimization,
-                glossary=glossary_value,
-                glossary_options=glossary_options,
-                edit_config=edit_config,
-                translation_brief=translation_brief,
-            )
-        if translation_brief is not None:
-            raise typer.BadParameter("Translation Brief requires a Hy-MT2 local model profile.")
-        if hy_mt2_mode is not HyMT2Mode.FAST or context_provider is not None or context_model is not None:
-            raise typer.BadParameter("Hy-MT2 context options require a Hy-MT2 local model profile.")
-        return lrcer_cls.local(
-            model=selected_model or llama_model,
-            idle_timeout=idle_timeout,
-            port=llama_port,
-            subtitle_optimization=subtitle_optimization,
-            glossary=glossary_value,
-            glossary_options=glossary_options,
-            edit_config=edit_config,
-        )
-    if translation_brief is not None:
-        raise typer.BadParameter("Translation Brief requires a Hy-MT2 local translation backend.")
-    return lrcer_cls(
-        translation=TranslationConfig(
-            glossary=glossary_value, glossary_options=glossary_options, edit_config=edit_config
-        ),
-        subtitle_optimization=subtitle_optimization,
-    )
+    return lrcer_cls(translation=workflow_translation.config, subtitle_optimization=subtitle_optimization)
 
 
 def _print_outputs(outputs: list[Path] | list[str], review_statuses: dict[str, dict] | None = None) -> None:
@@ -799,17 +779,15 @@ def transcribe(
     ] = False,
 ) -> None:
     """Transcribe audio/video files and write transcription JSON."""
-    lrcer = _lrcer_cls()(transcription=_transcription_config(whisper_model, vad_model))
-    try:
-        outputs = lrcer.transcribe(
-            cast(list[str | Path], paths),
-            src_lang=src_lang,
-            noise_suppress=noise_suppress,
-            skip_preprocess=skip_preprocess,
-        )
-        _print_outputs(outputs)
-    finally:
-        lrcer.close()
+    request = TranscribeRequest(
+        paths=tuple(paths),
+        transcription=_transcription_config(whisper_model, vad_model),
+        src_lang=src_lang,
+        noise_suppress=noise_suppress,
+        skip_preprocess=skip_preprocess,
+    )
+    result = _execute_workflow(request, WorkflowKind.TRANSCRIBE)
+    _print_outputs(list(result.outputs))
 
 
 @app.command()
@@ -882,7 +860,7 @@ def translate(
     translation_brief = _translation_brief_input(
         summary=brief_summary, characters=brief_characters, tone_style=brief_tone_style
     )
-    lrcer = _lrcer_for_translation(
+    workflow_translation = _workflow_translation_for(
         translation=translation,
         llama_model=llama_model,
         local_model_profile=local_model_profile,
@@ -893,7 +871,6 @@ def translate(
         context_model=context_model,
         context_base_url=context_base_url,
         context_fee_limit=context_fee_limit,
-        subtitle_optimization=subtitle_optimization,
         glossary=glossary,
         force_glossary=force_glossary,
         glossary_strict=glossary_strict,
@@ -901,13 +878,16 @@ def translate(
         enable_restore=enable_restore,
         translation_brief=translation_brief,
     )
-    try:
-        outputs = lrcer.translate(
-            json_paths, target_lang=target_lang, bilingual_sub=bilingual_sub, clear_checkpoint=not keep_checkpoint
-        )
-        _print_outputs(outputs, lrcer.review_statuses)
-    finally:
-        lrcer.close()
+    request = TranslateRequest(
+        transcribed_paths=tuple(json_paths),
+        translation=workflow_translation,
+        target_lang=target_lang,
+        bilingual_sub=bilingual_sub,
+        subtitle_optimization=subtitle_optimization,
+        clear_checkpoint=not keep_checkpoint,
+    )
+    result = _execute_workflow(request, WorkflowKind.TRANSLATE)
+    _print_outputs(list(result.outputs), _review_status_mapping(result))
 
 
 @app.command()
@@ -999,41 +979,41 @@ def run(
     translation_brief = _translation_brief_input(
         summary=brief_summary, characters=brief_characters, tone_style=brief_tone_style
     )
-    lrcer = _lrcer_for_run(
-        translation=translation,
-        whisper_model=whisper_model,
-        vad_model=vad_model,
-        llama_model=llama_model,
-        local_model_profile=local_model_profile,
-        llama_port=llama_port,
-        idle_timeout=idle_timeout,
-        hy_mt2_mode=hy_mt2_mode,
-        context_provider=context_provider,
-        context_model=context_model,
-        context_base_url=context_base_url,
-        context_fee_limit=context_fee_limit,
-        subtitle_optimization=subtitle_optimization,
-        glossary=glossary,
-        force_glossary=force_glossary,
-        glossary_strict=glossary_strict,
-        edit_rounds=edit_rounds,
-        enable_restore=enable_restore,
-        translation_brief=translation_brief,
-    )
-    try:
-        outputs = lrcer.run(
-            cast(list[str | Path], paths),
-            src_lang=src_lang,
-            target_lang=target_lang,
-            skip_trans=translation == TranslationBackend.none,
-            noise_suppress=noise_suppress,
-            bilingual_sub=bilingual_sub,
-            clear_temp=clear_temp,
-            skip_preprocess=skip_preprocess,
+    transcription_config = _transcription_config(whisper_model, vad_model)
+    workflow_translation = None
+    if translation is not TranslationBackend.none:
+        workflow_translation = _workflow_translation_for(
+            translation=translation,
+            llama_model=llama_model,
+            local_model_profile=local_model_profile,
+            llama_port=llama_port,
+            idle_timeout=idle_timeout,
+            hy_mt2_mode=hy_mt2_mode,
+            context_provider=context_provider,
+            context_model=context_model,
+            context_base_url=context_base_url,
+            context_fee_limit=context_fee_limit,
+            glossary=glossary,
+            force_glossary=force_glossary,
+            glossary_strict=glossary_strict,
+            edit_rounds=edit_rounds,
+            enable_restore=enable_restore,
+            translation_brief=translation_brief,
         )
-        _print_outputs(outputs, lrcer.review_statuses)
-    finally:
-        lrcer.close()
+    request = RunRequest(
+        paths=tuple(paths),
+        transcription=transcription_config,
+        translation=workflow_translation,
+        src_lang=src_lang,
+        target_lang=target_lang,
+        noise_suppress=noise_suppress,
+        bilingual_sub=bilingual_sub,
+        subtitle_optimization=subtitle_optimization,
+        clear_temp=clear_temp,
+        skip_preprocess=skip_preprocess,
+    )
+    result = _execute_workflow(request, WorkflowKind.RUN)
+    _print_outputs(list(result.outputs), _review_status_mapping(result))
 
 
 @app.command("edit")

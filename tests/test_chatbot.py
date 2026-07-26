@@ -1,7 +1,7 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import httpx
 import openai
@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from openlrc.agents import create_chatbot
 from openlrc.chatbot import ClaudeBot, GPTBot, route_chatbot
 from openlrc.models import ModelConfig, ModelProvider
+from openlrc.workflow import CancellationToken, WorkflowCancelled
 from tests.conftest import LIVE_API, TEST_LLM_API_KEY, TEST_LLM_BASE_URL, TEST_MODELS
 
 
@@ -102,6 +103,26 @@ class TestChatBot(unittest.TestCase):
         bot.update_fee(response3)
 
         self.assertIsNotNone(bot.api_fees)
+
+    def test_cancellation_after_sdk_return_prevents_next_retry(self):
+        token = CancellationToken()
+        self.gpt_bot.cancellation_token = token
+        response = MagicMock()
+        response.choices[0].finish_reason = None
+        response.choices[0].message.content = "invalid"
+
+        def cancel_after_response(**_kwargs):
+            token.cancel()
+            return response
+
+        with (
+            patch.object(self.gpt_bot.client.chat.completions, "create", side_effect=cancel_after_response) as create,
+            patch.object(self.gpt_bot, "update_fee"),
+            self.assertRaises(WorkflowCancelled),
+        ):
+            self.gpt_bot.message([{"role": "user", "content": "hello"}], output_checker=lambda _source, _target: False)
+
+        create.assert_called_once()
 
     @unittest.skipUnless(LIVE_API, "Requires OPENLRC_TEST_LIVE_API=1")
     def test_gpt_message_async(self):

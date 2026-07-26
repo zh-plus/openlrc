@@ -14,11 +14,50 @@ from openlrc.config import SubtitleOptimizationMode
 from openlrc.editing import EditAction, EditIssue, EditResult, EditSeverity
 from openlrc.setup.llama_cpp import LlamaSetupResult
 from openlrc.setup.whisper_cpp import WhisperSetupResult
+from openlrc.workflow import (
+    ReviewStatus,
+    RunRequest,
+    TranscribeRequest,
+    TranslateRequest,
+    TranslationMode,
+    WorkflowKind,
+    WorkflowResult,
+    WorkflowStatus,
+)
 
 
 class TestCLI(unittest.TestCase):
     def setUp(self):
         self.runner = CliRunner()
+        self.workflow_requests = []
+
+        def execute(request, workflow):
+            self.workflow_requests.append(request)
+            if isinstance(request, TranscribeRequest):
+                outputs = (Path("input_transcribed.json"),)
+            elif isinstance(request, TranslateRequest):
+                outputs = (Path(f"{Path(request.transcribed_paths[0]).stem}.lrc"),)
+            else:
+                outputs = (Path("output.lrc"),)
+            return WorkflowResult(
+                job_id="cli-test",
+                workflow=WorkflowKind(workflow),
+                status=WorkflowStatus.SUCCEEDED,
+                translation_mode=(
+                    request.translation.mode
+                    if isinstance(request, TranslateRequest)
+                    else request.translation.mode
+                    if isinstance(request, RunRequest) and request.translation is not None
+                    else None
+                ),
+                outputs=outputs,
+            )
+
+        self.execute_patcher = patch("openlrc.cli.main._execute_workflow", side_effect=execute)
+        self.execute_patcher.start()
+
+    def tearDown(self):
+        self.execute_patcher.stop()
 
     def test_help_and_version(self):
         help_result = self.runner.invoke(app, ["--help"])
@@ -27,7 +66,7 @@ class TestCLI(unittest.TestCase):
 
         version_result = self.runner.invoke(app, ["--version"])
         self.assertEqual(version_result.exit_code, 0)
-        self.assertIn("OpenLRC Mac 0.3.0", version_result.output)
+        self.assertIn("OpenLRC Mac 0.4.0", version_result.output)
         self.assertIn("openlrc-mac", version_result.output)
         self.assertIn("OpenLRC 1.7.0a1", version_result.output)
 
@@ -142,12 +181,11 @@ class TestCLI(unittest.TestCase):
             result = self.runner.invoke(app, ["run", "input.wav"])
 
         self.assertEqual(result.exit_code, 0)
-        lrcer_cls.assert_called_once()
-        kwargs = lrcer.run.call_args.kwargs
-        self.assertTrue(kwargs["skip_trans"])
-        self.assertTrue(kwargs["clear_temp"])
-        self.assertIs(lrcer_cls.call_args.kwargs["subtitle_optimization"], SubtitleOptimizationMode.AGGRESSIVE)
-        lrcer.close.assert_called_once()
+        request = self.workflow_requests[-1]
+        self.assertIsInstance(request, RunRequest)
+        self.assertIsNone(request.translation)
+        self.assertTrue(request.clear_temp)
+        self.assertIs(request.subtitle_optimization, SubtitleOptimizationMode.AGGRESSIVE)
 
     def test_translate_accepts_relaxed_subtitle_optimization(self):
         lrcer = MagicMock()
@@ -160,7 +198,7 @@ class TestCLI(unittest.TestCase):
             )
 
         self.assertEqual(result.exit_code, 0, result.output)
-        self.assertIs(lrcer_cls.call_args.kwargs["subtitle_optimization"], SubtitleOptimizationMode.RELAXED)
+        self.assertIs(self.workflow_requests[-1].subtitle_optimization, SubtitleOptimizationMode.RELAXED)
 
     def test_translate_passes_glossary_and_edit_options(self):
         lrcer = MagicMock()
@@ -194,11 +232,11 @@ class TestCLI(unittest.TestCase):
             )
 
         self.assertEqual(result.exit_code, 0, result.output)
-        kwargs = lrcer_cls.local_hy_mt2.call_args.kwargs
-        self.assertEqual(kwargs["glossary"], "terms.json")
-        self.assertTrue(kwargs["glossary_options"].force)
-        self.assertEqual(kwargs["edit_config"].max_rounds, 2)
-        self.assertTrue(kwargs["edit_config"].restore_enabled)
+        config = self.workflow_requests[-1].translation.config
+        self.assertEqual(config.glossary, "terms.json")
+        self.assertTrue(config.glossary_options.force)
+        self.assertEqual(config.edit_config.max_rounds, 2)
+        self.assertTrue(config.edit_config.restore_enabled)
 
     def test_translate_passes_complete_manual_brief_without_context_model(self):
         lrcer = MagicMock()
@@ -230,9 +268,9 @@ class TestCLI(unittest.TestCase):
             )
 
         self.assertEqual(result.exit_code, 0, result.output)
-        kwargs = lrcer_cls.local_hy_mt2.call_args.kwargs
-        self.assertIsNone(kwargs["context_llm"])
-        brief = kwargs["translation_brief"]
+        config = self.workflow_requests[-1].translation.config
+        self.assertIsNone(config.context_llm)
+        brief = config.translation_brief
         self.assertEqual(brief.summary, "A courtroom drama.")
         self.assertEqual(brief.characters[0].source_name, "John")
         self.assertEqual(brief.characters[0].target_name, "强尼")
@@ -272,7 +310,7 @@ class TestCLI(unittest.TestCase):
                 )
 
         self.assertEqual(result.exit_code, 0, result.output)
-        brief = lrcer_cls.local_hy_mt2.call_args.kwargs["translation_brief"]
+        brief = self.workflow_requests[-1].translation.config.translation_brief
         self.assertIsNone(brief.summary)
         self.assertEqual(brief.characters[0].target_name, "梅")
         self.assertIsNone(brief.tone_style)
@@ -500,11 +538,11 @@ class TestCLI(unittest.TestCase):
             )
 
         self.assertEqual(result.exit_code, 0, result.output)
-        kwargs = lrcer_cls.local_hy_mt2.call_args.kwargs
-        self.assertIsNone(kwargs["context_llm"])
-        self.assertEqual(kwargs["edit_config"].max_rounds, 0)
-        self.assertFalse(kwargs["edit_config"].semantic_review)
-        self.assertEqual(kwargs["translation_brief"].characters, [])
+        config = lrcer_cls.call_args.kwargs["translation"]
+        self.assertIsNone(config.context_llm)
+        self.assertEqual(config.edit_config.max_rounds, 0)
+        self.assertFalse(config.edit_config.semantic_review)
+        self.assertEqual(config.translation_brief.characters, [])
 
     def test_run_keep_temp_disables_cleanup(self):
         lrcer = MagicMock()
@@ -515,20 +553,30 @@ class TestCLI(unittest.TestCase):
             result = self.runner.invoke(app, ["run", "input.wav", "--keep-temp"])
 
         self.assertEqual(result.exit_code, 0)
-        self.assertFalse(lrcer.run.call_args.kwargs["clear_temp"])
+        self.assertFalse(self.workflow_requests[-1].clear_temp)
 
     def test_translate_prints_incomplete_review_status(self):
         lrcer = MagicMock()
         lrcer.translate.return_value = [Path("sample.lrc")]
         lrcer.review_statuses = {"sample": {"incomplete": True, "failed_chunks": [2], "total_chunks": 3}}
         lrcer_cls = MagicMock(return_value=lrcer)
-        with patch("openlrc.cli.main._lrcer_cls", return_value=lrcer_cls):
+        workflow_result = WorkflowResult(
+            job_id="cli-test",
+            workflow=WorkflowKind.TRANSLATE,
+            status=WorkflowStatus.SUCCEEDED_WITH_WARNINGS,
+            translation_mode=TranslationMode.STANDARD,
+            outputs=(Path("sample.lrc"),),
+            reviews=(ReviewStatus(item="sample", incomplete=True, details={"failed_chunks": [2], "total_chunks": 3}),),
+        )
+        with (
+            patch("openlrc.cli.main._lrcer_cls", return_value=lrcer_cls),
+            patch("openlrc.cli.main._execute_workflow", return_value=workflow_result),
+        ):
             result = self.runner.invoke(app, ["translate", "sample.json", "--translation", "online"])
 
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertIn("Editing incomplete", result.output)
         self.assertIn("chunks [2]", result.output)
-        self.assertTrue(lrcer.translate.call_args.kwargs["clear_checkpoint"])
 
     def test_run_local_translation_uses_local_lrcer_and_closes(self):
         lrcer = MagicMock()
@@ -539,10 +587,9 @@ class TestCLI(unittest.TestCase):
             result = self.runner.invoke(app, ["run", "input.wav", "--translation", "local"])
 
         self.assertEqual(result.exit_code, 0)
-        lrcer_cls.local.assert_called_once()
-        kwargs = lrcer.run.call_args.kwargs
-        self.assertFalse(kwargs["skip_trans"])
-        lrcer.close.assert_called_once()
+        config = self.workflow_requests[-1].translation
+        self.assertEqual(config.mode, TranslationMode.STANDARD)
+        self.assertEqual(config.config.chatbot.provider.value, "local_llama")
 
     def test_run_local_translation_infers_hy_mt2_profile_from_model_alias(self):
         lrcer = MagicMock()
@@ -555,12 +602,9 @@ class TestCLI(unittest.TestCase):
             )
 
         self.assertEqual(result.exit_code, 0)
-        lrcer_cls.local_hy_mt2.assert_called_once()
-        kwargs = lrcer_cls.local_hy_mt2.call_args.kwargs
-        self.assertEqual(kwargs["size"], "hy-mt2-7b")
-        self.assertEqual(kwargs["model"], "hy-mt2-7b")
-        self.assertEqual(kwargs["mode"].value, "fast")
-        lrcer.close.assert_called_once()
+        config = self.workflow_requests[-1].translation.config
+        self.assertEqual(config.local_llm.model_path, "HY-MT2-7B-Q6_K.gguf")
+        self.assertEqual(config.hy_mt2_mode.value, "fast")
 
     def test_run_hy_mt2_context_requires_explicit_context_model(self):
         result = self.runner.invoke(
@@ -597,10 +641,10 @@ class TestCLI(unittest.TestCase):
             )
 
         self.assertEqual(result.exit_code, 0, result.output)
-        kwargs = lrcer_cls.local_hy_mt2.call_args.kwargs
-        self.assertEqual(kwargs["mode"].value, "normal-plus")
-        self.assertIsNotNone(kwargs["context_llm"].local_llm)
-        self.assertEqual(kwargs["context_llm"].local_llm.model_path, "Qwen3.5-9B-Q4_K_M.gguf")
+        config = self.workflow_requests[-1].translation.config
+        self.assertEqual(config.hy_mt2_mode.value, "normal-plus")
+        self.assertIsNotNone(config.context_llm.local_llm)
+        self.assertEqual(config.context_llm.local_llm.model_path, "Qwen3.5-9B-Q4_K_M.gguf")
 
     def test_run_passes_complete_manual_brief_without_context_model(self):
         lrcer = MagicMock()
@@ -630,9 +674,9 @@ class TestCLI(unittest.TestCase):
             )
 
         self.assertEqual(result.exit_code, 0, result.output)
-        kwargs = lrcer_cls.local_hy_mt2.call_args.kwargs
-        self.assertIsNone(kwargs["context_llm"])
-        self.assertEqual(kwargs["translation_brief"].summary, "Known film.")
+        config = self.workflow_requests[-1].translation.config
+        self.assertIsNone(config.context_llm)
+        self.assertEqual(config.translation_brief.summary, "Known film.")
 
     def test_run_hy_mt2_pro_builds_staged_context_config(self):
         lrcer = MagicMock()
@@ -660,9 +704,9 @@ class TestCLI(unittest.TestCase):
             )
 
         self.assertEqual(result.exit_code, 0, result.output)
-        kwargs = lrcer_cls.local_hy_mt2.call_args.kwargs
-        self.assertEqual(kwargs["mode"].value, "pro")
-        self.assertIsNotNone(kwargs["context_llm"].local_llm)
+        config = self.workflow_requests[-1].translation.config
+        self.assertEqual(config.hy_mt2_mode.value, "pro")
+        self.assertIsNotNone(config.context_llm.local_llm)
 
     def test_run_hy_mt2_online_context_passes_provider_and_model(self):
         lrcer = MagicMock()
@@ -689,7 +733,7 @@ class TestCLI(unittest.TestCase):
             )
 
         self.assertEqual(result.exit_code, 0, result.output)
-        context_llm = lrcer_cls.local_hy_mt2.call_args.kwargs["context_llm"]
+        context_llm = self.workflow_requests[-1].translation.config.context_llm
         self.assertIsNone(context_llm.local_llm)
         self.assertEqual(context_llm.chatbot.name, "gpt-4.1-nano")
 
@@ -754,9 +798,9 @@ class TestCLI(unittest.TestCase):
             result = self.runner.invoke(app, ["translate", "input.json", "--translation", "local"])
 
         self.assertEqual(result.exit_code, 0)
-        lrcer_cls.local.assert_called_once()
-        lrcer.translate.assert_called_once()
-        lrcer.close.assert_called_once()
+        config = self.workflow_requests[-1].translation
+        self.assertEqual(config.mode, TranslationMode.STANDARD)
+        self.assertEqual(config.config.chatbot.provider.value, "local_llama")
 
     def test_translate_local_hy_mt2_30b_uses_explicit_model(self):
         lrcer = MagicMock()
@@ -779,11 +823,9 @@ class TestCLI(unittest.TestCase):
             )
 
         self.assertEqual(result.exit_code, 0)
-        kwargs = lrcer_cls.local_hy_mt2.call_args.kwargs
-        self.assertEqual(kwargs["size"], "hy-mt2-30b-a3b")
-        self.assertEqual(kwargs["model"], "/models/hy-mt2-30b-a3b-q6.gguf")
-        lrcer.translate.assert_called_once()
-        lrcer.close.assert_called_once()
+        config = self.workflow_requests[-1].translation.config
+        self.assertEqual(config.local_llm.model_path, "/models/hy-mt2-30b-a3b-q6.gguf")
+        self.assertEqual(config.hy_mt2_mode.value, "fast")
 
     def test_transcribe_prints_outputs_and_closes(self):
         lrcer = MagicMock()
@@ -793,10 +835,9 @@ class TestCLI(unittest.TestCase):
             result = self.runner.invoke(app, ["transcribe", "input.wav", "--src-lang", "en"])
 
         self.assertEqual(result.exit_code, 0)
-        lrcer_cls.assert_called_once()
-        lrcer.transcribe.assert_called_once()
+        self.assertIsInstance(self.workflow_requests[-1], TranscribeRequest)
+        self.assertEqual(self.workflow_requests[-1].src_lang, "en")
         self.assertIn("input_transcribed.json", result.output)
-        lrcer.close.assert_called_once()
 
 
 if __name__ == "__main__":

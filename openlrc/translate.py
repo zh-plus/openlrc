@@ -1,6 +1,8 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
+from __future__ import annotations
+
 import json
 import os
 import re
@@ -10,6 +12,10 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from itertools import zip_longest
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from openlrc.workflow import ExecutionContext
 
 import requests
 
@@ -64,6 +70,7 @@ class BaseLLMTranslator(Translator):
         timestamps: list[tuple[float, float | None]] | None = None,
         chunked_guideline: bool = False,
         prompt_profile: str = "default",
+        execution_context: ExecutionContext | None = None,
     ):
         self.chatbot = chatbot
         self.retry_chatbot = retry_chatbot
@@ -72,6 +79,7 @@ class BaseLLMTranslator(Translator):
         self.timestamps = timestamps
         self.chunked_guideline = chunked_guideline
         self.prompt_profile = prompt_profile
+        self.execution_context = execution_context
         self.api_fee = 0.0
         self.metrics = {
             "mode": prompt_profile,
@@ -301,6 +309,7 @@ class LeanTranslator(BaseLLMTranslator):
         enable_cr: bool = True,
         chunked_guideline: bool = False,
         prompt_profile: str = "default",
+        execution_context: ExecutionContext | None = None,
     ):
         """
         Args:
@@ -322,6 +331,7 @@ class LeanTranslator(BaseLLMTranslator):
             timestamps=timestamps,
             chunked_guideline=chunked_guideline,
             prompt_profile=prompt_profile,
+            execution_context=execution_context,
         )
         self.enable_cr = enable_cr
 
@@ -568,6 +578,14 @@ class LeanTranslator(BaseLLMTranslator):
                 "review_protocol_version",
             ):
                 ctx.pop(key, None)
+        if start_chunk > 0 and self.execution_context is not None:
+            from openlrc.workflow import StageOutcome, WorkflowStage
+
+            self.execution_context.stage_completed(
+                WorkflowStage.TRANSLATE,
+                outcome=StageOutcome.RESUMED,
+                message=f"Resuming after {start_chunk} completed translation chunks.",
+            )
         recent_pairs: list[tuple[int, str, str] | list] = ctx.get("recent_pairs", [])
         guideline = ctx.get("guideline", "")
 
@@ -583,10 +601,24 @@ class LeanTranslator(BaseLLMTranslator):
                 chunked_guideline=self.chunked_guideline,
                 prompter=LeanContextReviewPrompter(src_lang, target_lang),
             )
-            guideline = context_reviewer.build_context(
-                texts, title=info.title or "", glossary=info.glossary, forced_glossary=info.forced_glossary
-            )
+            if self.execution_context is None:
+                guideline = context_reviewer.build_context(
+                    texts, title=info.title or "", glossary=info.glossary, forced_glossary=info.forced_glossary
+                )
+            else:
+                from openlrc.workflow import WorkflowStage
+
+                with self.execution_context.stage(WorkflowStage.GUIDELINE):
+                    guideline = context_reviewer.build_context(
+                        texts, title=info.title or "", glossary=info.glossary, forced_glossary=info.forced_glossary
+                    )
             logger.debug(f"Translation Guideline:\n{guideline}")
+        elif self.enable_cr and self.execution_context is not None:
+            from openlrc.workflow import StageOutcome, WorkflowStage
+
+            self.execution_context.stage_completed(
+                WorkflowStage.GUIDELINE, outcome=StageOutcome.RESUMED, message="Guideline restored."
+            )
 
         if guideline:
             summary, characters, terminology = self._extract_cr_context(guideline)
@@ -619,6 +651,8 @@ class LeanTranslator(BaseLLMTranslator):
         logger.info(f"Translating {info.title}: {len(chunks)} chunks, {len(texts)} lines in total.")
 
         for i, chunk in list(enumerate(chunks, start=1))[start_chunk:]:
+            if self.execution_context is not None:
+                self.execution_context.check_cancelled()
             expected_ids = [line_id for line_id, _ in chunk]
             source_texts = {line_id: text for line_id, text in chunk}
             dynamic_context = context_timeline.context_for(i) if context_timeline is not None else None
@@ -717,6 +751,12 @@ class LeanTranslator(BaseLLMTranslator):
             )
 
             logger.info(f"Translated {info.title}: {i}/{len(chunks)}")
+            if self.execution_context is not None:
+                from openlrc.workflow import WorkflowStage
+
+                self.execution_context.stage_progress(
+                    WorkflowStage.TRANSLATE, i, len(chunks), message="Translation chunk"
+                )
 
         self.api_fee += sum(self.chatbot.api_fees[fee_start:])
         if self.cr_chatbot:
@@ -775,8 +815,18 @@ class LeanTranslator(BaseLLMTranslator):
         results: dict[int, str] = {
             int(line_id): value for line_id, value in (completed_results or {}).items() if int(line_id) in selected_set
         }
+        if results and self.execution_context is not None:
+            from openlrc.workflow import StageOutcome, WorkflowStage
+
+            self.execution_context.stage_completed(
+                WorkflowStage.DETERMINISTIC_REPAIR,
+                outcome=StageOutcome.RESUMED,
+                message=f"Restored {len(results)} repaired subtitle lines.",
+            )
         fee_start = len(self.chatbot.api_fees)
         for plan in plans:
+            if self.execution_context is not None:
+                self.execution_context.check_cancelled()
             active_ids = [line_id for line_id in plan.segment_ids if line_id in selected_set and line_id not in results]
             if not active_ids:
                 continue
@@ -826,6 +876,12 @@ class LeanTranslator(BaseLLMTranslator):
             results.update(zip(active_ids, translated))
             if checkpoint_hook is not None:
                 checkpoint_hook(dict(results), plan.chunk_id)
+            if self.execution_context is not None:
+                from openlrc.workflow import WorkflowStage
+
+                self.execution_context.stage_progress(
+                    WorkflowStage.DETERMINISTIC_REPAIR, len(results), len(selected), message="Targeted repair"
+                )
 
         self.api_fee += sum(self.chatbot.api_fees[fee_start:])
         if sorted(results) != selected:
@@ -1209,6 +1265,7 @@ class LLMTranslator(BaseLLMTranslator):
         intercept_line: int | None = None,
         chunked_guideline: bool = False,
         timestamps: list[tuple[float, float | None]] | None = None,
+        execution_context: ExecutionContext | None = None,
     ):
         """
         Initialize the LLMTranslator with given parameters.
@@ -1232,6 +1289,7 @@ class LLMTranslator(BaseLLMTranslator):
             chunk_size=chunk_size,
             timestamps=timestamps,
             chunked_guideline=chunked_guideline,
+            execution_context=execution_context,
         )
         self.intercept_line = intercept_line
         self.use_retry_cnt = 0
@@ -1436,6 +1494,14 @@ class LLMTranslator(BaseLLMTranslator):
         translations, compare_list, start_chunk, ctx = self._load_checkpoint(compare_path)
         summaries: list[str] = ctx.get("summaries", [])
         guideline: str = ctx.get("guideline", "")
+        if start_chunk > 0 and self.execution_context is not None:
+            from openlrc.workflow import StageOutcome, WorkflowStage
+
+            self.execution_context.stage_completed(
+                WorkflowStage.TRANSLATE,
+                outcome=StageOutcome.RESUMED,
+                message=f"Resuming after {start_chunk} completed translation chunks.",
+            )
 
         # Record fee baselines before CR and translation so we capture all costs.
         fee_start = len(self.chatbot.api_fees)
@@ -1453,13 +1519,29 @@ class LLMTranslator(BaseLLMTranslator):
                 retry_chatbot=self.retry_chatbot,
                 chunked_guideline=self.chunked_guideline,
             )
-            guideline = context_reviewer.build_context(
-                texts, title=info.title or "", glossary=info.glossary, forced_glossary=info.forced_glossary
-            )
+            if self.execution_context is None:
+                guideline = context_reviewer.build_context(
+                    texts, title=info.title or "", glossary=info.glossary, forced_glossary=info.forced_glossary
+                )
+            else:
+                from openlrc.workflow import WorkflowStage
+
+                with self.execution_context.stage(WorkflowStage.GUIDELINE):
+                    guideline = context_reviewer.build_context(
+                        texts, title=info.title or "", glossary=info.glossary, forced_glossary=info.forced_glossary
+                    )
             logger.debug(f"Translation Guideline:\n{guideline}")
+        elif self.execution_context is not None:
+            from openlrc.workflow import StageOutcome, WorkflowStage
+
+            self.execution_context.stage_completed(
+                WorkflowStage.GUIDELINE, outcome=StageOutcome.RESUMED, message="Guideline restored."
+            )
 
         context = TranslationContext(guideline=guideline, previous_summaries=summaries)
         for i, chunk in list(enumerate(chunks, start=1))[start_chunk:]:
+            if self.execution_context is not None:
+                self.execution_context.check_cancelled()
             atomic = False
             translated, context = self._translate_chunk(translator_agent, chunk, context, i, retry_agent=retry_agent)
 
@@ -1476,6 +1558,12 @@ class LLMTranslator(BaseLLMTranslator):
             translations.extend(translated)
             summaries.append(context.summary or "")
             logger.info(f"Translated {info.title}: {i}/{len(chunks)}")
+            if self.execution_context is not None:
+                from openlrc.workflow import WorkflowStage
+
+                self.execution_context.stage_progress(
+                    WorkflowStage.TRANSLATE, i, len(chunks), message="Translation chunk"
+                )
             logger.debug(f"Summary: {context.summary}")
             logger.debug(f"Scene: {context.scene}")
 

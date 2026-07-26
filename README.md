@@ -13,6 +13,12 @@ workflows:
   and a Qwen GGUF model.
 - An `openlrc` / `openlrc-mac` CLI for setup, diagnostics, model status,
   transcription, translation, glossary compliance, and transactional editing.
+- A keyboard-first Textual TUI v2 with mouse-equivalent actions for workflows,
+  jobs and recovery, models and setup, diagnostics, and settings, with two
+  runtime themes and English/Simplified Chinese presentation.
+- A typed in-process Workflow API for transcription, the five canonical
+  translation modes, full runs, progress events, cancellation, and structured
+  results shared by the CLI, TUI, and future GUI.
 
 The distribution name is `openlrc-mac`. The Python import package remains
 `openlrc` for compatibility with upstream-style scripts.
@@ -25,16 +31,23 @@ Working:
 - Build and use local `llama.cpp` for opt-in Qwen translation.
 - Generate `.lrc` and `.srt` subtitles through the existing OpenLRC pipeline.
 - Run common workflows from the CLI without editing Python scripts.
+- Run `Transcribe`, `Translate`, and `Run` through one lifecycle-managed
+  Workflow layer without duplicating the `LRCer` pipeline.
 - Load versioned task glossaries, report deterministic compliance, and run
   auditable line-scoped subtitle edits without repeating ASR.
 - Supply a complete or partial Translation Brief, locking known story,
   character-name, and tone/style guidance while inference fills only omissions.
+- Run the Textual TUI v2 through `openlrc tui` or `openlrc-tui`; its initial
+  release supports New Work, Jobs, Models, and Settings while keeping Edit
+  Subtitle visibly disabled for a later typed Edit integration. Appearance
+  changes preview immediately and support persisted English or Simplified
+  Chinese UI text, two distinct dark themes, and a static blue Logo when motion
+  is disabled.
 
 Still in progress:
 
 - macOS app packaging.
 - GUI model management.
-- Menu-style terminal UI.
 - More polished defaults and error messages for end users.
 
 ## Requirements
@@ -70,6 +83,14 @@ Check the local environment:
 ```shell
 uv run openlrc doctor
 uv run openlrc models status
+```
+
+Launch the interactive TUI:
+
+```shell
+uv run openlrc tui
+# equivalent standalone entrypoint
+uv run openlrc-tui
 ```
 
 Generate subtitles without translation:
@@ -189,7 +210,8 @@ uv run openlrc edit --source source.json --target translated.json \
 
 ## Python API
 
-The Python API remains available for scripts and future app orchestration:
+The Python API remains available for scripts and app orchestration. Existing
+`LRCer` entry points remain compatible:
 
 ```python
 from openlrc import LRCer
@@ -197,6 +219,38 @@ from openlrc import LRCer
 lrcer = LRCer()
 lrcer.run("video.mp4", src_lang="en", skip_trans=True)
 ```
+
+New integrations should use the typed Workflow API when they need progress,
+cancellation, structured errors, artifact discovery, or consistent cleanup:
+
+```python
+from openlrc.workflow import (
+    ExecutionContext,
+    TranscribeRequest,
+    WorkflowExecutor,
+    WorkflowKind,
+)
+
+context = ExecutionContext(
+    WorkflowKind.TRANSCRIBE,
+    event_sink=lambda event: print(event),
+)
+result = WorkflowExecutor().execute(
+    TranscribeRequest(("video.mp4",), src_lang="en"),
+    context,
+)
+print(result.status, result.outputs)
+```
+
+Each `ExecutionContext` represents one job and cannot be reused after execution
+or closure. `WorkflowResult.artifacts` contains only files retained when the job
+finishes; `ArtifactCreatedEvent` remains the chronological record of files that
+were created during execution, including temporary Run artifacts later cleaned
+up after success.
+
+The Workflow translation surface uses only `standard`, `fast`, `normal`,
+`normal-plus`, and `pro`. Existing CLI/config aliases `context` and
+`context-plus` are normalized before events and results are emitted.
 
 Local translation shortcut:
 
@@ -236,6 +290,8 @@ Longer-lived Python objects also have an idle timeout fallback.
 
 - [CLI_REFERENCE.md](CLI_REFERENCE.md): all current CLI commands, options, and
   behavior.
+- [TUI_REFERENCE.md](TUI_REFERENCE.md): TUI v2 pages, shortcuts, workflows,
+  lifecycle, themes, languages, and initial-release boundaries.
 - [TODO.md](TODO.md): living development roadmap.
 - [CHANGELOG.md](CHANGELOG.md): fork changelog and inherited upstream history.
 

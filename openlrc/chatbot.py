@@ -107,6 +107,17 @@ class ChatBot:
         self.fee_limit = fee_limit
 
         self.api_fees = []
+        self.cancellation_token = None
+
+    def _check_cancelled(self) -> None:
+        if self.cancellation_token is not None:
+            self.cancellation_token.raise_if_cancelled()
+
+    def _sleep(self, seconds: float) -> None:
+        if self.cancellation_token is None:
+            time.sleep(seconds)
+        else:
+            self.cancellation_token.wait_or_raise(seconds)
 
     def _compute_max_tokens(self, messages: list[dict], min_tokens: int | None = None) -> int | None:
         """Return ``max_tokens`` to send to the API, or ``None`` to let the server decide.
@@ -208,6 +219,7 @@ class ChatBot:
         """
         if not messages_list:
             raise ValueError("Empty message list.")
+        self._check_cancelled()
 
         # Normalise to list[list[dict]] so downstream code has a single type.
         normalised: list[list[dict]]
@@ -243,7 +255,12 @@ class ChatBot:
                     )
                     for message in normalised
                 ]
-                results = [f.result() for f in futures]
+                results = []
+                for future in futures:
+                    results.append(future.result())
+                    # Never start a later pipeline call after an in-flight SDK
+                    # request has returned and cancellation was requested.
+                    self._check_cancelled()
         except ChatBotException as e:
             logger.error(f"Failed to message with GPT. Error: {e}")
             raise
@@ -404,6 +421,7 @@ class GPTBot(ChatBot):
         response = None
         validated = False
         for i in range(self.retry):
+            self._check_cancelled()
             try:
                 create_kwargs: dict = {
                     "model": self.model_name,
@@ -421,6 +439,7 @@ class GPTBot(ChatBot):
 
                 response = self.client.chat.completions.create(**create_kwargs)  # pyright: ignore[reportArgumentType]
                 self.update_fee(response)
+                self._check_cancelled()
                 if response.choices[0].finish_reason == "length":
                     usage = response.usage
                     raise LengthExceedException(
@@ -459,7 +478,7 @@ class GPTBot(ChatBot):
             ) as e:
                 sleep_time = self._get_sleep_time(e)
                 logger.warning(f"{type(e).__name__}: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.")
-                time.sleep(sleep_time)
+                self._sleep(sleep_time)
 
         if not response:
             raise ChatBotException("Failed to create a chat.")
@@ -569,6 +588,7 @@ class ClaudeBot(ChatBot):
         response = None
         validated = False
         for i in range(self.retry):
+            self._check_cancelled()
             try:
                 request_kwargs: dict[str, Any] = {
                     "model": self.model_name,
@@ -585,6 +605,7 @@ class ClaudeBot(ChatBot):
 
                 response = self.client.messages.create(**request_kwargs)
                 self.update_fee(response)
+                self._check_cancelled()
 
                 if response.stop_reason == "max_tokens":
                     usage = response.usage
@@ -623,7 +644,7 @@ class ClaudeBot(ChatBot):
             ) as e:
                 sleep_time = self._get_sleep_time(e)
                 logger.warning(f"{type(e).__name__}: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.")
-                time.sleep(sleep_time)
+                self._sleep(sleep_time)
 
         if not response:
             raise ChatBotException("Failed to create a chat.")
@@ -775,12 +796,14 @@ class GeminiBot(ChatBot):
         response = None
         validated = False
         for i in range(self.retry):
+            self._check_cancelled()
             try:
                 response = self.client.models.generate_content(model=self.model_name, contents=user_msg, config=config)
                 self.update_fee(response)
+                self._check_cancelled()
                 if not response.text:
                     logger.warning(f"Get None response. Wait 15s. Retry num: {i + 1}.")
-                    time.sleep(15)
+                    self._sleep(15)
                     continue
 
                 response_text = remove_stop(response.text, stop_sequences)
@@ -796,7 +819,7 @@ class GeminiBot(ChatBot):
                     # Rate limit is a client error (4xx) but is retryable.
                     sleep_time = self._get_sleep_time(e)
                     logger.warning(f"Rate limited: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.")
-                    time.sleep(sleep_time)
+                    self._sleep(sleep_time)
                 elif e.code in (401, 403):
                     # Authentication/permission errors are deterministic.
                     raise ChatBotException(f"Authentication failed: {e}") from e
@@ -806,7 +829,7 @@ class GeminiBot(ChatBot):
             except genai_errors.ServerError as e:
                 sleep_time = self._get_sleep_time(e)
                 logger.warning(f"ServerError: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.")
-                time.sleep(sleep_time)
+                self._sleep(sleep_time)
 
         if not response:
             raise ChatBotException("Failed to create a chat.")
@@ -888,7 +911,7 @@ class LiteLLMBot(ChatBot):
         min_tokens: int | None = None,
     ):
         try:
-            import litellm
+            import litellm  # pyright: ignore[reportMissingImports]
         except ImportError:
             raise ImportError(
                 "litellm is required for the litellm: provider. Install with: pip install 'openlrc-mac[litellm]'"
@@ -919,9 +942,11 @@ class LiteLLMBot(ChatBot):
         response = None
         validated = False
         for i in range(self.retry):
+            self._check_cancelled()
             try:
                 response = litellm.completion(**completion_kwargs)
                 self.update_fee(response)
+                self._check_cancelled()
 
                 if response.choices[0].finish_reason == "length":
                     usage = getattr(response, "usage", None)
@@ -958,7 +983,7 @@ class LiteLLMBot(ChatBot):
             ) as e:
                 sleep_time = self._get_sleep_time(e)
                 logger.warning(f"{type(e).__name__}: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.")
-                time.sleep(sleep_time)
+                self._sleep(sleep_time)
 
         if not response:
             raise ChatBotException("Failed to create a chat.")

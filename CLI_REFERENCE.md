@@ -8,13 +8,14 @@ openlrc
 openlrc-mac
 ```
 
-两个入口等价。下面示例统一使用 `uv run openlrc ...`。
+两个入口等价。下面 CLI 示例统一使用 `uv run openlrc ...`。
 
 ## 总览
 
 ```shell
 uv run openlrc --help
 uv run openlrc --version
+uv run openlrc tui
 uv run openlrc doctor [--strict]
 uv run openlrc models status
 uv run openlrc glossary validate|inspect|check [OPTIONS]
@@ -27,9 +28,21 @@ uv run openlrc run PATH... [OPTIONS]
 uv run openlrc edit --source SOURCE.json --target TARGET.json --action verify|review|retranslate|restore [OPTIONS]
 ```
 
-当前 CLI 是普通命令行工具，不是菜单式 TUI。裸 `openlrc` 会显示 help。
+裸 `openlrc` 会显示 CLI help；`openlrc tui` 会启动独立的 Textual TUI v2。TUI 的完整
+页面、快捷键和功能边界见 [TUI_REFERENCE.md](TUI_REFERENCE.md)。
 
 ## 基础命令
+
+### `openlrc tui`
+
+启动键盘优先、鼠标等价操作的 Textual TUI v2。以下两个入口等价：
+
+```shell
+uv run openlrc tui
+uv run openlrc-tui
+```
+
+该命令进入交互界面，不改变其他 CLI 命令的参数或脚本语义。
 
 ### `openlrc --version`
 
@@ -42,7 +55,7 @@ uv run openlrc --version
 当前输出类似：
 
 ```text
-OpenLRC Mac 0.3.0 (distribution: openlrc-mac; upstream base: OpenLRC 1.7.0a1)
+OpenLRC Mac 0.4.0 (distribution: openlrc-mac; upstream base: OpenLRC 1.7.0a1)
 ```
 
 ### `openlrc doctor`
@@ -79,9 +92,12 @@ uv run openlrc models status
 
 检查内容包括：
 
+- `whisper-cli`
 - 默认 Whisper 模型
 - 默认 Whisper VAD 模型
 - 默认本地 Qwen GGUF 模型
+- 默认 Hy-MT2 7B GGUF 模型
+- `llama-server`
 
 ## Setup 命令
 
@@ -173,6 +189,12 @@ uv run openlrc setup all --skip-models
 ```
 
 ## 工作流命令
+
+`transcribe`、`translate` 和 `run` 现在共用 `openlrc.workflow` 执行层。Typer
+参数和最终 Generated Files 表保持不变；交互式终端可显示阶段/模型进度，重定向
+或测试捕获等非交互输出不会写动态控制字符。`Ctrl-C` 会先请求协作取消并清理
+OpenLRC-owned 子进程，然后以退出码 130 结束。失败返回 1；Normal Plus/Pro 的
+review incomplete 仍生成可用结果并返回 0，同时保留恢复材料。
 
 ### `openlrc transcribe`
 
@@ -416,7 +438,8 @@ uv run openlrc edit --source source.json --target translated.json \
 
 - 默认地址：`http://127.0.0.1:8088/v1`。
 - 如果 8088 上已有匹配 model alias 的 server，OpenLRC 会复用它。
-- 如果 server 是 OpenLRC 自己启动的，CLI workflow 会在命令结束时主动关闭。
+- 如果 server 是 OpenLRC 自己启动的，CLI workflow 会在成功、失败或取消后的
+  cleanup 中主动关闭。
 - Python API 长生命周期对象还有 idle timeout 兜底，默认 300 秒。
 - 如果 server 是用户外部手动启动的，OpenLRC 不会关闭它。
 

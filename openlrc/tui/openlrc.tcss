@@ -1,0 +1,473 @@
+Screen {
+    background: $background;
+    color: $foreground;
+    layout: vertical;
+}
+
+ListView, ActionList {
+    background: transparent;
+    border: none;
+    scrollbar-color: $border;
+    scrollbar-background: $background;
+}
+
+ActionItem {
+    height: 1;
+    padding: 0 2;
+    color: $foreground;
+    background: transparent;
+    border-left: tall transparent;
+}
+
+ActionItem.action-has-detail {
+    height: 2;
+}
+
+ActionItem:hover {
+    background: $boost;
+}
+
+ActionItem.-highlight {
+    background: $primary-muted;
+    border-left: tall $primary;
+    color: $text;
+}
+
+ActionItem:disabled {
+    color: $text-disabled;
+    background: transparent;
+}
+
+ActionGroupHeading {
+    height: 2;
+    padding: 0 2;
+    border-top: solid $border;
+    border-left: solid $border;
+    border-right: solid $border;
+    background: $panel;
+    color: $accent;
+    opacity: 100%;
+}
+
+.action-group-title {
+    height: 1;
+    color: $accent;
+    text-style: bold;
+}
+
+ActionGroupSpacer,
+ActionGroupSpacer:disabled {
+    height: 1;
+    padding: 0;
+    border-left: solid $border;
+    border-right: solid $border;
+    background: $panel;
+    opacity: 100%;
+}
+
+ActionItem.action-group-row {
+    border-left: solid $border;
+    border-right: solid $border;
+    background: $panel;
+}
+
+ActionItem.action-group-row:hover {
+    background: $boost;
+}
+
+ActionItem.action-group-row.-highlight {
+    border-left: tall $primary;
+    background: $primary-muted;
+    color: $text;
+}
+
+ActionItem.action-group-last {
+    height: 2;
+    margin-bottom: 1;
+    border-bottom: solid $border;
+}
+
+ActionItem.action-has-detail.action-group-last {
+    height: 3;
+}
+
+ActionItem.action-group-last.action-list-terminal {
+    margin-bottom: 0;
+}
+
+ActionItem.action-primary .action-label {
+    color: $accent;
+}
+
+ActionItem.action-primary.-highlight {
+    border-left: tall $accent;
+    background: $accent-muted;
+}
+
+.action-content {
+    width: 1fr;
+    height: auto;
+}
+
+.action-label {
+    height: 1;
+    text-style: bold;
+    text-overflow: ellipsis;
+}
+
+.action-detail {
+    display: none;
+    height: 1;
+    color: $text-muted;
+    text-overflow: ellipsis;
+}
+
+ActionItem.action-has-detail .action-detail {
+    display: block;
+}
+
+ActionItem:disabled .action-label,
+ActionItem:disabled .action-detail {
+    color: $text-disabled;
+}
+
+ActionItem.action-primary:disabled {
+    color: $text-disabled;
+    background: transparent;
+    border-left: tall transparent;
+}
+
+ActionItem.action-primary.action-group-row:disabled {
+    background: $panel;
+    border-left: solid $border;
+    border-right: solid $border;
+}
+
+ActionItem.action-primary.action-group-last:disabled {
+    border-bottom: solid $border;
+}
+
+.muted {
+    color: $text-muted;
+}
+
+.page-header {
+    height: 3;
+    width: 1fr;
+    padding: 1 2 0 2;
+    border-bottom: solid $border;
+    background: $surface;
+}
+
+.page-title {
+    width: 1fr;
+    text-style: bold;
+    color: $text;
+}
+
+.page-context {
+    width: auto;
+    color: $text-muted;
+    text-align: right;
+}
+
+.workflow-steps {
+    height: 2;
+    width: 1fr;
+    padding: 0 2;
+    border-bottom: solid $border;
+    background: $surface;
+    content-align-vertical: middle;
+}
+
+.page-list {
+    height: 1fr;
+    padding: 1 2;
+}
+
+.page-footer {
+    height: 2;
+    width: 1fr;
+    padding: 0 2;
+    border-top: solid $border;
+    color: $text-muted;
+    background: $surface;
+    content-align-vertical: middle;
+}
+
+#home-shell {
+    width: 1fr;
+    height: 1fr;
+}
+
+#home-topbar {
+    height: 2;
+    width: 1fr;
+    padding: 0 2;
+    border-bottom: solid $border;
+    background: $surface;
+    content-align-vertical: middle;
+}
+
+#home-version {
+    width: 1fr;
+    text-style: bold;
+    content-align-vertical: middle;
+}
+
+#doctor-status {
+    width: 18;
+    height: 1;
+    min-width: 14;
+    border: none;
+    background: transparent;
+    color: $primary;
+    text-style: bold;
+    padding: 0;
+}
+
+#doctor-status:hover, #doctor-status:focus {
+    background: $primary-muted;
+    color: $primary-lighten-2;
+}
+
+#home-main {
+    height: 1fr;
+    width: 1fr;
+}
+
+#home-brand {
+    width: 1fr;
+    height: 1fr;
+    padding: 1 2;
+    border-right: solid $border-blurred;
+    align: center middle;
+}
+
+#home-logo {
+    width: 1fr;
+    height: auto;
+    color: $primary;
+    text-align: center;
+    content-align: center middle;
+    margin-bottom: 1;
+}
+
+.brand-line {
+    width: 1fr;
+    height: 1;
+    text-align: center;
+}
+
+#home-cards {
+    width: 1fr;
+    height: 1fr;
+    padding: 0 2;
+    align: left middle;
+    overflow-y: auto;
+}
+
+HomeCard {
+    height: 4;
+    padding: 0 2;
+    border: solid $border;
+    border-left: solid $border;
+    background: $surface;
+}
+
+HomeCard.action-has-detail {
+    height: 4;
+}
+
+HomeCard .action-content {
+    height: 2;
+    align: left middle;
+}
+
+HomeCard .action-label {
+    color: $foreground;
+}
+
+HomeCard.-highlight {
+    border: solid $primary;
+    border-left: solid $accent;
+    background: $primary-muted;
+}
+
+HomeCard.-highlight .action-label {
+    color: $text;
+}
+
+HomeCard:disabled {
+    border: solid $border-blurred;
+    background: $background-lighten-1;
+}
+
+HomeCard:disabled .action-label, HomeCard:disabled .action-detail {
+    color: $text-disabled;
+}
+
+#input-files-body, #running-body, #setup-running-body {
+    height: 1fr;
+}
+
+#input-files-body .page-list, #running-body .page-list, #setup-running-body .page-list {
+    height: 1fr;
+}
+
+.issue-summary {
+    height: auto;
+    max-height: 4;
+    color: $error;
+    padding: 0 2;
+}
+
+#preflight-body {
+    height: 1fr;
+    padding: 1 2 0 2;
+}
+
+#preflight-readonly {
+    height: 1fr;
+    min-height: 5;
+    padding: 0 2;
+    border: solid $border;
+    background: $panel;
+    overflow-y: auto;
+}
+
+#preflight-list {
+    height: auto;
+    min-height: 8;
+    max-height: 8;
+    overflow-y: hidden;
+}
+
+#preflight-list ActionGroupHeading {
+    margin-top: 0;
+}
+
+#preflight-list ActionItem.action-group-last {
+    height: 3;
+    margin-bottom: 0;
+}
+
+#running-summary, #setup-stage {
+    height: 3;
+    padding: 1 4;
+    color: $primary;
+    text-style: bold;
+}
+
+ModalScreen {
+    align: center middle;
+    background: #000000 55%;
+}
+
+.modal-dialog {
+    width: 72;
+    max-width: 92%;
+    height: auto;
+    max-height: 88%;
+    padding: 1 2;
+    border: solid $border;
+    background: $surface;
+}
+
+.modal-title {
+    height: 2;
+    text-style: bold;
+    color: $primary;
+}
+
+.modal-message {
+    height: auto;
+    max-height: 20;
+    color: $foreground;
+    margin-bottom: 1;
+    overflow-y: auto;
+}
+
+.detail-dialog {
+    height: 75%;
+}
+
+.detail-content {
+    height: 1fr;
+}
+
+.choice-dialog {
+    height: auto;
+    max-height: 75%;
+}
+
+.choice-dialog ActionList {
+    height: auto;
+    max-height: 24;
+}
+
+.text-dialog {
+    height: auto;
+    min-height: 15;
+    max-height: 88%;
+}
+
+.modal-field-frame {
+    height: 5;
+    padding: 0 1;
+    border: solid $border;
+    background: $background;
+    margin-bottom: 1;
+}
+
+.modal-field-title {
+    height: 1;
+    color: $accent;
+    text-style: bold;
+}
+
+.modal-field-frame Input {
+    height: 3;
+}
+
+.paths-dialog {
+    height: 78%;
+}
+
+.paths-dialog TextArea {
+    height: 1fr;
+    border: solid $border;
+    background: $background;
+}
+
+.modal-action-list {
+    height: auto;
+    min-height: 3;
+    max-height: 6;
+    margin-top: 1;
+    border-top: solid $border;
+    overflow-y: hidden;
+}
+
+.file-picker-dialog {
+    width: 88%;
+    height: 88%;
+}
+
+.file-picker-location-row {
+    height: 3;
+}
+
+.file-picker-location-row Input {
+    width: 1fr;
+}
+
+.file-picker-location-row Button {
+    width: auto;
+    margin-left: 1;
+}
+
+#file-tree {
+    height: 1fr;
+    border: solid $border;
+}

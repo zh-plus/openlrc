@@ -1,15 +1,17 @@
 #  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
+import json
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 try:
     import torch
 except ImportError:
     torch = None
 
-from openlrc.media_utils import extract_audio, get_file_type, release_memory
+from openlrc.media_utils import _probe_media, extract_audio, get_file_type, release_memory
 from openlrc.utils import (
     extend_filename,
     format_timestamp,
@@ -18,6 +20,7 @@ from openlrc.utils import (
     normalize,
     parse_timestamp,
 )
+from openlrc.workflow import ExecutionContext, WorkflowCancelled, WorkflowKind
 
 TEST_DATA_DIR = Path(__file__).parent / "data"
 
@@ -40,6 +43,75 @@ class TestUtils(unittest.TestCase):
 
         with self.assertRaises(RuntimeError):
             extract_audio(self.unsupported)
+
+    @patch("openlrc.media_utils.subprocess.Popen")
+    def test_workflow_probe_registers_and_drains_owned_process(self, popen: MagicMock):
+        process = popen.return_value
+        process.communicate.return_value = (b'{"streams": [], "format": {}}', b"")
+        process.returncode = 0
+        process.poll.return_value = 0
+        context = ExecutionContext(WorkflowKind.RUN)
+        with (
+            patch.object(context.processes, "register", wraps=context.processes.register) as register,
+            patch.object(context.processes, "unregister", wraps=context.processes.unregister) as unregister,
+        ):
+            result = _probe_media(self.video_file, execution_context=context)
+        context.close()
+
+        self.assertEqual(result, {"streams": [], "format": {}})
+        register.assert_called_once_with(process)
+        unregister.assert_called_with(process)
+        process.communicate.assert_called_once_with()
+
+    @patch("openlrc.media_utils.subprocess.Popen")
+    def test_workflow_probe_prioritizes_cancellation_and_cleans_process(self, popen: MagicMock):
+        process = popen.return_value
+        process.returncode = -15
+        process.poll.side_effect = [None, 0]
+        context = ExecutionContext(WorkflowKind.RUN)
+
+        def cancel_during_communicate():
+            context.cancellation_token.cancel()
+            return b"", b"cancelled"
+
+        process.communicate.side_effect = cancel_during_communicate
+        try:
+            with self.assertRaises(WorkflowCancelled):
+                _probe_media(self.video_file, execution_context=context)
+        finally:
+            context.close()
+
+        process.terminate.assert_called_once_with()
+        process.wait.assert_called_once()
+
+    @patch("openlrc.media_utils.subprocess.Popen")
+    def test_workflow_probe_reports_nonzero_exit_and_invalid_json(self, popen: MagicMock):
+        import ffmpeg
+
+        process = popen.return_value
+        process.returncode = 1
+        process.poll.return_value = 1
+        process.communicate.return_value = (b"", b"probe failed")
+        context = ExecutionContext(WorkflowKind.RUN)
+        with self.assertRaises(ffmpeg.Error):
+            _probe_media(self.video_file, execution_context=context)
+        context.close()
+
+        process.reset_mock()
+        process.returncode = 0
+        process.poll.return_value = 0
+        process.communicate.return_value = (b"not-json", b"")
+        context = ExecutionContext(WorkflowKind.RUN)
+        with self.assertRaises(json.JSONDecodeError):
+            _probe_media(self.video_file, execution_context=context)
+        context.close()
+
+    @patch("ffmpeg.probe", return_value={"streams": [], "format": {}})
+    def test_direct_probe_preserves_ffmpeg_python_path(self, probe: MagicMock):
+        result = _probe_media(self.video_file)
+
+        self.assertEqual(result, {"streams": [], "format": {}})
+        probe.assert_called_once_with(self.video_file)
 
     def test_get_file_type(self):
         self.assertEqual(get_file_type(self.video_file), "video")

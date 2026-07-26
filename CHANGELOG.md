@@ -1,5 +1,189 @@
 # Changelog
 
+## OpenLRC Mac 0.4.0
+
+Shared Workflow/application services and Textual TUI v2 release, with hardened
+local transcription, cancellation, recovery, and bilingual terminal UX.
+
+### Highlights
+
+- **Shared execution foundation:** typed Workflow and application contracts now
+  serve CLI and TUI without duplicating `LRCer` or the subtitle pipeline.
+- **Textual TUI v2:** delivers keyboard/mouse-equivalent New Work, Jobs,
+  Models, Doctor, and working-copy Settings flows in English and Simplified
+  Chinese, with deterministic visual baselines.
+- **Safer local processing:** strengthens subprocess ownership, cancellation,
+  atomic output, checkpoint retention, multi-file scheduling, and collision
+  protection across Whisper, ffmpeg, Qwen, and Hy-MT2 work.
+
+### Added
+
+- Added `openlrc.workflow`, a typed synchronous execution layer for Transcribe,
+  Translate, and Run. It provides canonical translation modes, per-file stage
+  and chunk events, artifact/review results, structured errors, cooperative
+  cancellation, and owned-process cleanup while retaining `LRCer` as the
+  business orchestrator.
+- Added explicit Workflow coverage for Standard, Fast, Normal, Normal Plus, and
+  Pro, including online providers, local Qwen/Hy-MT2, Brief/Timeline stages,
+  deterministic repair, semantic review, checkpoints, Restore, and staged
+  one-model residency. Deprecated config/CLI aliases are reported canonically.
+- Added a shared local preflight that validates input schemas, required
+  resources, output collisions, and destination permissions before an
+  interactive job starts.
+- Added reusable application services for schema-versioned atomic settings,
+  secret-free history, Keychain/environment credential resolution, provider
+  probes, shared resource status, workflow recipes, and single-job control.
+- Added the Textual TUI v2 with a branded single-screen Home, four active cards,
+  a disabled Edit placeholder, keyboard/mouse-equivalent action lists, four
+  workflow types, all supported translation engines and modes, Jobs/Recovery,
+  Models/Setup, Doctor, and working-copy Settings.
+- Added typed glossary and cancellable Setup application adapters plus a shared
+  operation guard so Workflow and resource mutation cannot run concurrently.
+- Added `openlrc tui` and `openlrc-tui` entrypoints, real Textual SVG visual
+  baselines, Pilot interaction coverage, and a new `TUI_REFERENCE.md`.
+- Added a persisted English/Simplified Chinese TUI language setting with
+  presentation-only localization across Home, workflows, jobs, models,
+  diagnostics, settings, modals, help, notifications, and dynamic counts.
+
+### Changed
+
+- Removed the experimental TUI v1 presentation layer, its dedicated tests, and
+  entrypoints before rebuilding them as TUI v2. The new
+  presentation layer continues to reuse the application and Workflow services.
+- Removed spaCy model/CLI loading from transcription sentence segmentation;
+  Unicode punctuation classification now covers the only tokenizer property
+  that stage required, so Transcribe does not trigger a language-model download.
+- Migrated the `transcribe`, `translate`, and `run` CLI commands to
+  `WorkflowExecutor` without changing their options, output table, or successful
+  incomplete-review exit semantics. Interactive cancellation now waits for
+  owned-resource cleanup and exits with status 130.
+- Reworked multi-file Run execution around controlled futures and cancellation-
+  aware queues. Duplicate inputs execute once, results retain first-input order,
+  worker failures propagate, and recovery files are not cleared on failure,
+  cancellation, or incomplete review.
+- Added fixed Run scheduling: online Standard translation keeps the overlapping
+  producer/consumer Pipeline, while managed local Qwen and all Hy-MT2 modes use
+  Memory Saver and finish every transcription before any local translation.
+- Added an explicit Workflow Run checkpoint-retention choice for interactive
+  clients while preserving the CLI's historical cleanup default.
+- Extended model lifecycle events with optional role and endpoint metadata and
+  shared resource discovery without changing existing event consumers.
+- Refined TUI v2 around the shorter `New Work` label, exact four work titles,
+  amber task keywords, grouped one-dimensional configuration pages, a fixed
+  three-step guide, and a highlighted `Continue to Preflight` action.
+- Connected Appearance to Textual's runtime theme system. `OpenLRC Dark` is a
+  registered cyan/amber theme, while `Textual Dark` uses the distinct built-in
+  palette; both now drive shared CSS color tokens and preview before Save.
+- Centered the fixed four-row Home card stack vertically in the right pane and
+  compacted every shared action list to one title row or two title/detail rows,
+  with explicit one-row heading/action spacers, a single inter-group gap, and
+  content-aware runtime reflow.
+
+### Fixed
+
+- Declared Click as a direct runtime dependency for spaCy/Weasel compatibility,
+  preventing `No module named 'click'` after Whisper transcription.
+- Drained whisper.cpp stdout and stderr concurrently so large JSON output cannot
+  deadlock on pipe backpressure, and made transcription JSON commits atomic.
+- Made `WhisperCLIBackend` read JSON from an owned temporary output file before
+  falling back to stdout for older whisper.cpp builds. Current builds may omit
+  JSON with `--no-prints` or mix a human-readable transcript into stdout.
+- Registered owned Whisper, ffmpeg extraction/normalization, and llama-server
+  processes for terminate/kill/wait cleanup. Externally managed llama-server
+  instances remain untouched.
+- Made provider retry waits, preprocessing chunks, Brief/Timeline work, and
+  translation/review chunks cancellation-aware without forcibly closing an
+  active remote SDK call from another thread.
+- Made an already-requested cancellation take precedence over concurrent worker
+  or subprocess errors, hardened failure-event credential redaction, and made
+  each `ExecutionContext` explicitly single-use with idempotent cleanup.
+- Kept Run transcription JSON as an intermediate artifact, excluded deleted
+  artifacts from final results, and propagated per-file identity through nested
+  Brief, Timeline, and model lifecycle events.
+- Registered Workflow `ffprobe` processes for owned cancellation cleanup and
+  guaranteed DeepFilterNet model release after cancellation or preprocessing
+  failures.
+- Prevented duplicate application-job starts and lost cancellation during the
+  gap before a worker registers its job. Starting-history failures block
+  execution, and terminal-history failures release the active slot.
+- Prevented cleanup from deleting pre-existing checkpoints or same-stem media
+  sidecars by tracking runtime-owned paths and refusing ambiguous output
+  collisions before processing.
+- Made every TUI action list wrap across its enabled items while skipping group
+  headings and disabled rows. Clean provisional drafts are now discarded
+  silently; only real input or parameter changes trigger draft recovery.
+- Made Preflight request/check output read-only, leaving only Start and Back in
+  the focus sequence. Page Up/Down scrolls long previews without moving action
+  focus, and returning from a nested input editor immediately refreshes counts.
+- Replaced clipped Settings input button rows with keyboard/mouse-equivalent
+  Apply/Cancel action lists that remain visible at 80×24 and preserve masked
+  credential input.
+- Changed the wide and compact ASCII Logo shimmer from flattened character
+  traversal to a terminal-column sweep so glyphs at the same x-coordinate move
+  together.
+- Preserved keyboard focus after Appearance changes by updating ordinary rows
+  in place and restoring the stable action ID only after a language recompose
+  mounts its new ActionList.
+- Made disabled Logo animation and Reduced motion render a fresh static bright
+  blue Logo instead of freezing the final yellow shimmer frame. Animated
+  non-highlighted glyphs remain blue.
+- Aligned the full-width Home Logo block with the two introduction lines,
+  moved no-detail four-row card titles to the upper interior cell, and made
+  wide/compact Logo rows share one padded terminal-cell matrix.
+- Added inert bordered spacer rows after group headings and between adjacent
+  actions. Disabled Settings Save now keeps the same structural border token as
+  its heading, spacers, and Discard row instead of breaking the group frame.
+
+### Verified
+
+- Verified TUI v2 at 80×24, 100×30, and 160×50 with deterministic Home SVG
+  snapshots plus representative Workflow, Jobs, Models, Settings, Doctor, and
+  confirmation snapshots. Pilot covers disabled-card focus/click behavior,
+  active mouse routing, input shortcut isolation, and a persisted Workflow
+  result.
+- Verified an actual 100×30 PTY session through Home, New Workflow, Jobs,
+  Models, Settings, Doctor (10/10 local checks), Esc navigation, and confirmed
+  exit. A second actual TUI session completed Transcribe to JSON with the
+  installed whisper.cpp/base model using CPU/no-flash-attention settings,
+  persisted a successful Job, and produced 13 segments from a 30.3-second test
+  audio file. The complete suite passes with `527 passed, 25 skipped`; Ruff,
+  Pyright (`0 errors`), and `git diff --check` also pass.
+- Reverified the TUI interaction revision with `28` focused TUI tests, Textual
+  SVG baselines at 80×24, 100×30, and 160×50, three consecutive wide Logo
+  frames, an inspected 80×24 Preflight render, and an actual PTY input/preflight
+  path. The complete suite passes with `539 passed, 25 skipped`; Ruff, Pyright
+  (`0 errors`), and `git diff --check` pass. An actual TUI Transcribe to JSON
+  run reached Succeeded and produced an output.
+- Verified Appearance and localization with `34` focused TUI/Pilot/SVG tests
+  (`57` with application settings), distinct 80×24 theme renders, Simplified
+  Chinese Home and static-Logo baselines, and manual PNG inspection. The full
+  suite passes with `546 passed, 25 skipped`; Ruff and Pyright (`0 errors`)
+  pass. An isolated 80×24 PTY also confirmed uninterrupted keyboard focus after
+  theme/language changes, immediate static-blue Logo rendering when animation is
+  disabled, and persisted theme, language, and animation state after restart.
+- Verified the visual-layout repair with `65` focused TUI/application tests,
+  including 19 normalized SVG baselines and manual colored PNG inspection.
+  Pilot measures centered Home gaps at 80×24, 100×30, and 160×50, dynamic
+  one/two-row actions, one-row group spacing, clean/dirty Save styling, and
+  fixed Logo columns. Isolated actual 80×24 and 100×30 `openlrc-tui` PTYs
+  completed keyboard-only Home/Settings paths; the latter also saved an
+  Appearance change. Affected Ruff checks and production-TUI Pyright pass.
+- Reverified the follow-up Logo/card/group corrections with `42` TUI/Pilot/SVG
+  tests and all 19 normalized baselines, plus Ruff, production-TUI Pyright
+  (`0 errors, 0 warnings`), and manual PNG inspection. Isolated actual PTYs
+  confirmed 80×24 Work Type fit with a complete bottom frame and 160×50
+  Home/Settings alignment, spacer rows, and continuous disabled-Save borders.
+- After removing TUI v1, verified the CLI/application/Workflow boundary with
+  `102 passed`; affected Ruff lint, CLI help, and `git diff --check` also pass.
+- Verified a real Workflow Transcribe with the installed whisper.cpp/base model
+  and a staged local Normal path that loaded and stopped Qwen3.5 9B before
+  loading and stopping Hy-MT2 7B. No models were downloaded for validation.
+- Final 0.4.0 release validation passes with `554 passed, 25 skipped,
+  21 warnings`, Ruff, production-package Pyright (`0 errors`), CLI version
+  output, and `git diff --check`. `uv build` produced the 0.4.0 sdist and wheel;
+  the wheel contains the TUI stylesheet, application/workflow modules, and all
+  three console entrypoints.
+
 ## OpenLRC Mac 0.3.0
 
 User-guided Translation Brief, glossary compliance, and recoverable

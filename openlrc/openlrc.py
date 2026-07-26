@@ -8,13 +8,14 @@ import json
 import shutil
 import time
 import traceback
-from contextlib import nullcontext
+import uuid
+from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from dataclasses import asdict
 from pathlib import Path
 from pprint import pformat
-from queue import Queue
-from threading import Lock
+from queue import Empty, Queue
+from threading import Event, Lock
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
     from openlrc.editing import EditResult
     from openlrc.glossary import GlossaryCatalog
     from openlrc.whisper_types import Segment
+    from openlrc.workflow import ExecutionContext, RunExecutionStrategy
 
 from openlrc.config import (
     ContextLLMConfig,
@@ -90,15 +92,18 @@ class LRCer:
         transcription: TranscriptionConfig | None = None,
         translation: TranslationConfig | None = None,
         subtitle_optimization: SubtitleOptimizationMode | str = SubtitleOptimizationMode.AGGRESSIVE,
+        execution_context: ExecutionContext | None = None,
     ):
         self._transcription_config = transcription or TranscriptionConfig()
         self._translation_config = translation or TranslationConfig()
         self.subtitle_optimization = SubtitleOptimizationMode(subtitle_optimization)
+        self._execution_context = execution_context
 
         # Translation state
         self.fee_limit = self._translation_config.fee_limit
         self.api_fee = 0  # Can be updated in different thread, operation should be thread-safe
         self.from_video = set()
+        self._owned_temp_paths: set[Path] = set()
         from openlrc.glossary import GlossaryService
 
         self.glossary_options = deepcopy(self._translation_config.glossary_options)
@@ -135,6 +140,7 @@ class LRCer:
         self.consumer_thread = self._translation_config.consumer_thread
         self.review_statuses: dict[str, dict] = {}
         self._keep_completed_checkpoint = False
+        self._transcription_artifact_primary: bool | None = None
         self._model_load_count = 0
         self._task_started_at = time.perf_counter()
 
@@ -232,6 +238,7 @@ class LRCer:
                         cli_path=self._transcription_config.cli_path,
                         vad_model=self._transcription_config.vad_model,
                         asr_options=self.asr_options,
+                        execution_context=self._execution_context,
                     )
         return self._transcriber
 
@@ -257,7 +264,13 @@ class LRCer:
                     else:
                         model_config = ModelConfig(provider=ModelProvider.OPENAI, name="gpt-4.1-nano")
                     model_config = self._prepare_local_chatbot_config(model_config)
-                    self._chatbot = create_chatbot(model_config, self.fee_limit)
+                    self._chatbot = create_chatbot(
+                        model_config,
+                        self.fee_limit,
+                        cancellation_token=(
+                            self._execution_context.cancellation_token if self._execution_context else None
+                        ),
+                    )
         return self._chatbot
 
     @property
@@ -272,7 +285,13 @@ class LRCer:
             with self._chatbot_lock:
                 if self._retry_chatbot is None:
                     model_config = self._prepare_local_chatbot_config(self._translation_config.retry_chatbot)
-                    self._retry_chatbot = create_chatbot(model_config, self.fee_limit)
+                    self._retry_chatbot = create_chatbot(
+                        model_config,
+                        self.fee_limit,
+                        cancellation_token=(
+                            self._execution_context.cancellation_token if self._execution_context else None
+                        ),
+                    )
         return self._retry_chatbot
 
     @property
@@ -287,7 +306,13 @@ class LRCer:
             with self._chatbot_lock:
                 if self._cr_chatbot is None:
                     model_config = self._prepare_local_chatbot_config(self._translation_config.cr_chatbot)
-                    self._cr_chatbot = create_chatbot(model_config, self.fee_limit)
+                    self._cr_chatbot = create_chatbot(
+                        model_config,
+                        self.fee_limit,
+                        cancellation_token=(
+                            self._execution_context.cancellation_token if self._execution_context else None
+                        ),
+                    )
         return self._cr_chatbot
 
     def _local_llm_enabled(self) -> bool:
@@ -314,6 +339,7 @@ class LRCer:
                 startup_timeout=config.startup_timeout,
                 extra_args=config.extra_args,
                 allow_external=self.hy_mt2_mode is HyMT2Mode.FAST,
+                execution_context=self._execution_context,
             )
 
         return self._local_llm_server
@@ -362,6 +388,65 @@ class LRCer:
             self._local_llm_server.close()
             self._local_llm_server = None
 
+    def _check_cancelled(self) -> None:
+        if self._execution_context is not None:
+            self._execution_context.check_cancelled()
+
+    def _workflow_stage(self, stage: str, *, item: str | Path | None = None):
+        if self._execution_context is None:
+            return nullcontext()
+        from openlrc.workflow import WorkflowStage
+
+        return self._execution_context.stage(WorkflowStage(stage), item=item)
+
+    def _workflow_item(self, item: str | Path | None):
+        if self._execution_context is None:
+            return nullcontext()
+        return self._execution_context.item(item)
+
+    @contextmanager
+    def _workflow_file(self, transcribed_path: Path, base_name: str):
+        """Scope typed events and review metadata to one unambiguous input."""
+        item = str(transcribed_path.resolve())
+        with self._workflow_item(item):
+            try:
+                yield
+            finally:
+                status = self.review_statuses.get(base_name)
+                if status is not None:
+                    status["_workflow_item"] = item
+
+    def _workflow_progress(
+        self, stage: str, completed: float, total: float, *, item: str | Path | None = None, message: str | None = None
+    ) -> None:
+        if self._execution_context is not None:
+            from openlrc.workflow import WorkflowStage
+
+            self._execution_context.stage_progress(WorkflowStage(stage), completed, total, item=item, message=message)
+
+    def _workflow_artifact(
+        self, path: str | Path, kind: str, *, item: str | None = None, primary: bool = False
+    ) -> None:
+        if self._execution_context is not None:
+            from openlrc.workflow import ArtifactKind, WorkflowArtifact
+
+            item = item or self._execution_context.current_item
+            self._execution_context.artifact_created(
+                WorkflowArtifact(Path(path), ArtifactKind(kind), item=item, primary=primary)
+            )
+
+    def _register_owned_path(self, path: str | Path) -> None:
+        resolved = Path(path).expanduser().resolve(strict=False)
+        self._owned_temp_paths.add(resolved)
+        if self._execution_context is not None:
+            self._execution_context.register_owned_path(resolved)
+
+    def _owns_path(self, path: str | Path) -> bool:
+        resolved = Path(path).expanduser().resolve(strict=False)
+        if self._execution_context is not None:
+            return self._execution_context.owns_path(resolved)
+        return resolved in self._owned_temp_paths
+
     def __enter__(self):
         return self
 
@@ -392,6 +477,7 @@ class LRCer:
             cr_chatbot=self.cr_chatbot,
             timestamps=timestamps,
             chunked_guideline=self.chunked_guideline,
+            execution_context=self._execution_context,
         )
 
     def _create_lean_translator(self, timestamps):
@@ -405,6 +491,7 @@ class LRCer:
             enable_cr=self.enable_cr,
             chunked_guideline=self.chunked_guideline,
             prompt_profile=self.prompt_profile,
+            execution_context=self._execution_context,
         )
 
     @staticmethod
@@ -449,19 +536,42 @@ class LRCer:
         """
         transcribed_path = extend_filename(audio_path, TRANSCRIBED_SUFFIX).with_suffix(".json")
         if not transcribed_path.exists():
-            with Timer("Transcription process"):
+            with self._workflow_stage("transcribe", item=transcribed_path.resolve()), Timer("Transcription process"):
                 logger.info(
                     f"Audio length: {audio_path}: {format_timestamp(get_audio_duration(audio_path), fmt='srt')}"
                 )
                 segments, info = self.transcriber.transcribe(audio_path, language=src_lang)
                 logger.info(f"Detected language: {info.language}")
-
-            self.to_json(segments, name=transcribed_path, lang=info.language)
+                self._check_cancelled()
+                self.to_json(segments, name=transcribed_path, lang=info.language)
+                self._register_owned_path(transcribed_path)
         else:
             logger.info(f"Found transcribed json file: {transcribed_path}")
+            if self._execution_context is not None:
+                from openlrc.workflow import StageOutcome, WorkflowStage
+
+                self._execution_context.stage_completed(
+                    WorkflowStage.TRANSCRIBE,
+                    outcome=StageOutcome.SKIPPED,
+                    item=transcribed_path.resolve(),
+                    message="Using cached transcription.",
+                )
+        transcription_is_primary = self._transcription_artifact_primary
+        if transcription_is_primary is None and self._execution_context is not None:
+            from openlrc.workflow import WorkflowKind
+
+            transcription_is_primary = self._execution_context.workflow is WorkflowKind.TRANSCRIBE
+        self._workflow_artifact(
+            transcribed_path,
+            "transcription",
+            item=str(transcribed_path.resolve()),
+            primary=bool(transcription_is_primary),
+        )
         return transcribed_path
 
-    def produce_transcriptions(self, transcription_queue, audio_paths, src_lang):
+    def produce_transcriptions(
+        self, transcription_queue, audio_paths, src_lang, sentinel_count: int = 1, stop_event: Event | None = None
+    ):
         """
         Sequentially produce transcriptions for given audio paths and put them in the queue.
 
@@ -473,12 +583,19 @@ class LRCer:
         This method processes each audio file sequentially, transcribing it if necessary,
         and puts the path of the transcribed JSON file into the queue.
         """
-        for audio_path in audio_paths:
-            transcribed_path = self._transcribe_single(audio_path, src_lang)
-            transcription_queue.put(transcribed_path)
-
-        transcription_queue.put(None)
-        logger.info("Transcription producer finished.")
+        try:
+            for audio_path in audio_paths:
+                self._check_cancelled()
+                if stop_event is not None and stop_event.is_set():
+                    return
+                transcribed_path = self._transcribe_single(audio_path, src_lang)
+                transcription_queue.put(transcribed_path)
+        finally:
+            # The queue is intentionally unbounded, so termination signals cannot
+            # block even when a producer or consumer fails.
+            for _ in range(sentinel_count):
+                transcription_queue.put_nowait(None)
+            logger.info("Transcription producer finished.")
 
     def transcribe(
         self,
@@ -507,21 +624,24 @@ class LRCer:
             logger.warning("No audio/video file given. Skip transcription.")
             return []
 
+        self._transcription_artifact_primary = None
+
         if isinstance(paths, (str, Path)):
             paths = [paths]
 
         # Keep behavior aligned with pre_process(): de-duplicate repeated inputs.
-        paths = [Path(p) for p in set(paths)]
+        paths = list(dict.fromkeys(Path(p) for p in paths))
 
-        if skip_preprocess:
-            audio_paths = [get_preprocessed_path(p) for p in paths]
-            for p in audio_paths:
-                if not p.exists():
-                    raise FileNotFoundError(
-                        f"Preprocessed file not found: {p}. Run pre_process() first or set skip_preprocess=False."
-                    )
-        else:
-            audio_paths = self.pre_process(paths, noise_suppress=noise_suppress)
+        with self._workflow_stage("preprocess"):
+            if skip_preprocess:
+                audio_paths = [get_preprocessed_path(p) for p in paths]
+                for p in audio_paths:
+                    if not p.exists():
+                        raise FileNotFoundError(
+                            f"Preprocessed file not found: {p}. Run pre_process() first or set skip_preprocess=False."
+                        )
+            else:
+                audio_paths = self.pre_process(paths, noise_suppress=noise_suppress)
 
         logger.info(f"Transcribing {len(audio_paths)} audio files: {pformat(audio_paths)}")
 
@@ -576,6 +696,8 @@ class LRCer:
                 return self._translate(base_name, target_lang, transcribed_opt_sub, translated_path)
         except Exception as e:
             self.exception = e
+            if self._execution_context is not None:
+                raise
             return None
 
     def _has_incomplete_hymt2_review(self, compare_path: Path) -> bool:
@@ -615,6 +737,7 @@ class LRCer:
         result_path = subtitle_path.parent.parent / f"{base_name}.{subtitle_format}"
         shutil.move(subtitle_path, result_path)
         self.transcribed_paths.append(result_path)
+        self._workflow_artifact(result_path, "subtitle", primary=True)
 
     def _handle_bilingual_subtitles(self, transcribed_path, base_name, transcribed_opt_sub, subtitle_format):
         """
@@ -639,16 +762,18 @@ class LRCer:
             bilingual_optimizer.extend_time()
 
         bilingual_path = getattr(bilingual_subtitle, f"to_{subtitle_format}")()
-        shutil.move(bilingual_path, bilingual_path.parent.parent / bilingual_path.name)
+        bilingual_result = bilingual_path.parent.parent / bilingual_path.name
+        shutil.move(bilingual_path, bilingual_result)
+        self._workflow_artifact(bilingual_result, "bilingual-subtitle")
 
         non_translated_subtitle = transcribed_opt_sub
         optimizer = SubtitleOptimizer(non_translated_subtitle)
         if self.subtitle_optimization is SubtitleOptimizationMode.AGGRESSIVE:
             optimizer.extend_time()
         non_translated_path = getattr(non_translated_subtitle, f"to_{subtitle_format}")()
-        shutil.move(
-            non_translated_path, non_translated_path.parent.parent / f"{base_name}{NONTRANS_SUFFIX}.{subtitle_format}"
-        )
+        source_result = non_translated_path.parent.parent / f"{base_name}{NONTRANS_SUFFIX}.{subtitle_format}"
+        shutil.move(non_translated_path, source_result)
+        self._workflow_artifact(source_result, "source-subtitle")
 
     def _process_transcribed_file(
         self, transcribed_path: Path, target_lang: str | None, skip_trans: bool = False, bilingual_sub: bool = False
@@ -667,28 +792,43 @@ class LRCer:
             bilingual_sub (bool): Whether to generate bilingual subtitles.
         """
         base_name = self._get_base_name(transcribed_path)
-        subtitle_format = "srt" if self._is_video_transcription(transcribed_path, base_name) else "lrc"
+        temporary_dir = transcribed_path.parent
+        existing_temporary_paths = set(temporary_dir.iterdir()) if temporary_dir.is_dir() else set()
+        try:
+            with self._workflow_file(transcribed_path, base_name):
+                subtitle_format = "srt" if self._is_video_transcription(transcribed_path, base_name) else "lrc"
 
-        transcribed_sub = Subtitle.from_json(transcribed_path)
-        optimized_output = (
-            extend_filename(transcribed_path, RELAXED_OPTIMIZED_SUFFIX)
-            if self.subtitle_optimization is SubtitleOptimizationMode.RELAXED
-            else None
-        )
-        transcribed_opt_sub = self.post_process(
-            transcribed_sub,
-            output_name=optimized_output,
-            update_name=True,
-            mode=self.subtitle_optimization,
-            stage="source",
-        )
+                with self._workflow_stage("source-optimize"):
+                    transcribed_sub = Subtitle.from_json(transcribed_path)
+                    optimized_output = (
+                        extend_filename(transcribed_path, RELAXED_OPTIMIZED_SUFFIX)
+                        if self.subtitle_optimization is SubtitleOptimizationMode.RELAXED
+                        else None
+                    )
+                    transcribed_opt_sub = self.post_process(
+                        transcribed_sub,
+                        output_name=optimized_output,
+                        update_name=True,
+                        mode=self.subtitle_optimization,
+                        stage="source",
+                    )
 
-        final_subtitle = self._build_final_subtitle(base_name, target_lang, transcribed_opt_sub, skip_trans)
+                final_subtitle = self._build_final_subtitle(base_name, target_lang, transcribed_opt_sub, skip_trans)
+                if final_subtitle is None:
+                    return
 
-        self._generate_subtitle_files(final_subtitle, base_name, subtitle_format)
+                with self._workflow_stage("export"):
+                    self._generate_subtitle_files(final_subtitle, base_name, subtitle_format)
 
-        if not skip_trans and bilingual_sub:
-            self._handle_bilingual_subtitles(transcribed_path, base_name, transcribed_opt_sub, subtitle_format)
+                    if not skip_trans and bilingual_sub:
+                        self._handle_bilingual_subtitles(
+                            transcribed_path, base_name, transcribed_opt_sub, subtitle_format
+                        )
+        finally:
+            if temporary_dir.is_dir():
+                for candidate in set(temporary_dir.iterdir()) - existing_temporary_paths:
+                    if candidate.is_file():
+                        self._register_owned_path(candidate)
 
     def translate(
         self,
@@ -717,13 +857,17 @@ class LRCer:
         self.transcribed_paths = []
         self.exception = None
         self.review_statuses = {}
-        self._keep_completed_checkpoint = not clear_checkpoint
+        # Defer checkpoint cleanup until every input has completed. This keeps
+        # earlier files recoverable if a later file fails or is cancelled.
+        self._keep_completed_checkpoint = True
 
         if isinstance(transcribed_paths, Path):
             transcribed_paths = [transcribed_paths]
 
         logger.info(f"Translating {len(transcribed_paths)} transcribed files: {pformat(transcribed_paths)}")
 
+        completed_checkpoints: list[Path] = []
+        has_incomplete_review = False
         for transcribed_path in transcribed_paths:
             self._process_transcribed_file(transcribed_path, target_lang, bilingual_sub=bilingual_sub)
 
@@ -733,9 +877,13 @@ class LRCer:
 
             base_name = self._get_base_name(transcribed_path)
             status = self.review_statuses.get(base_name, {})
-            if clear_checkpoint and not status.get("incomplete"):
-                checkpoint = transcribed_path.parent / f"{base_name}{COMPARE_SUFFIX}.json"
-                checkpoint.unlink(missing_ok=True)
+            has_incomplete_review = has_incomplete_review or bool(status.get("incomplete"))
+            completed_checkpoints.append(transcribed_path.parent / f"{base_name}{COMPARE_SUFFIX}.json")
+
+        if clear_checkpoint and not has_incomplete_review:
+            for checkpoint in completed_checkpoints:
+                if self._owns_path(checkpoint):
+                    checkpoint.unlink(missing_ok=True)
 
         logger.info(f"Total API fee used: {self.api_fee:.4f} USD")
 
@@ -1362,10 +1510,13 @@ class LRCer:
                 executor.submit(self.translation_worker, transcription_queue, target_lang, skip_trans, bilingual_sub)
                 for _ in range(self.consumer_thread)
             ]
-            concurrent.futures.wait(futures)
+            for future in futures:
+                future.result()
         logger.info("Transcription consumer finished.")
 
-    def translation_worker(self, transcription_queue, target_lang, skip_trans, bilingual_sub):
+    def translation_worker(
+        self, transcription_queue, target_lang, skip_trans, bilingual_sub, stop_event: Event | None = None
+    ):
         """
         Worker function for parallel translation and subtitle processing.
 
@@ -1380,16 +1531,32 @@ class LRCer:
         """
         while True:
             logger.debug("Translation worker waiting transcription...")
-            transcribed_path = transcription_queue.get()
+            try:
+                transcribed_path = transcription_queue.get(timeout=0.1)
+            except Empty:
+                self._check_cancelled()
+                if stop_event is not None and stop_event.is_set():
+                    return
+                continue
 
             if transcribed_path is None:
-                transcription_queue.put(None)
+                if stop_event is None:
+                    # Compatibility path for callers of consume_transcriptions(),
+                    # which historically used one self-propagating sentinel.
+                    transcription_queue.put_nowait(None)
                 logger.debug("Translation worker finished.")
                 return
 
             logger.info(f"Got transcription: {transcribed_path}")
 
-            self._process_transcribed_file(transcribed_path, target_lang, skip_trans, bilingual_sub)
+            try:
+                self._process_transcribed_file(transcribed_path, target_lang, skip_trans, bilingual_sub)
+                if self.exception:
+                    raise self.exception
+            except Exception:
+                if stop_event is not None:
+                    stop_event.set()
+                raise
 
             logger.info(f"Translation fee til now: {self.api_fee:.4f} USD")
 
@@ -1419,6 +1586,8 @@ class LRCer:
                 startup_timeout=local.startup_timeout,
                 extra_args=local.extra_args,
                 allow_external=False,
+                execution_context=self._execution_context,
+                role="context",
             )
             try:
                 model_config.base_url = server.ensure_running(schedule_idle=False)
@@ -1429,7 +1598,11 @@ class LRCer:
                 raise
 
         try:
-            chatbot = create_chatbot(model_config, config.fee_limit)
+            chatbot = create_chatbot(
+                model_config,
+                config.fee_limit,
+                cancellation_token=(self._execution_context.cancellation_token if self._execution_context else None),
+            )
         except Exception:
             if server is not None:
                 server.close()
@@ -1559,28 +1732,47 @@ class LRCer:
             brief = TranslationBrief(**checkpoint["translation_brief"])
             checkpoint.update(metadata, translation_brief=self._dump_model(brief))
             save_checkpoint(compare_path, checkpoint)
+            if self._execution_context is not None:
+                from openlrc.workflow import StageOutcome, WorkflowStage
+
+                self._execution_context.stage_completed(
+                    WorkflowStage.BRIEF,
+                    outcome=StageOutcome.RESUMED,
+                    message="Translation Brief restored from checkpoint.",
+                )
             return brief, {key: value for key, value in checkpoint.items() if key != "compare"}
 
-        if self.translation_brief_input is not None and self.translation_brief_input.is_complete:
-            brief = TranslationBriefAgent(chatbot=None, src_lang=src_lang, target_lang=target_lang).build(
-                texts, title=info.title or "", glossary=info.glossary, translation_brief=self.translation_brief_input
-            )
-        else:
-            if self.context_llm is None:
-                raise ValueError("Automatic or Partial Translation Brief completion requires a context model.")
-            chatbot, server = self._create_context_chatbot()
-            try:
-                brief = TranslationBriefAgent(chatbot=chatbot, src_lang=src_lang, target_lang=target_lang).build(
+        with self._workflow_stage("brief"):
+            if self.translation_brief_input is not None and self.translation_brief_input.is_complete:
+                brief = TranslationBriefAgent(
+                    chatbot=None, src_lang=src_lang, target_lang=target_lang, execution_context=self._execution_context
+                ).build(
                     texts,
                     title=info.title or "",
                     glossary=info.glossary,
                     translation_brief=self.translation_brief_input,
                 )
-                self.api_fee += sum(chatbot.api_fees)
-            finally:
-                chatbot.close()
-                if server is not None:
-                    server.close()
+            else:
+                if self.context_llm is None:
+                    raise ValueError("Automatic or Partial Translation Brief completion requires a context model.")
+                chatbot, server = self._create_context_chatbot()
+                try:
+                    brief = TranslationBriefAgent(
+                        chatbot=chatbot,
+                        src_lang=src_lang,
+                        target_lang=target_lang,
+                        execution_context=self._execution_context,
+                    ).build(
+                        texts,
+                        title=info.title or "",
+                        glossary=info.glossary,
+                        translation_brief=self.translation_brief_input,
+                    )
+                    self.api_fee += sum(chatbot.api_fees)
+                finally:
+                    chatbot.close()
+                    if server is not None:
+                        server.close()
 
         checkpoint = {"compare": [], **metadata, "translation_brief": self._dump_model(brief)}
         save_checkpoint(compare_path, checkpoint)
@@ -1707,27 +1899,52 @@ class LRCer:
             chatbot, server = self._create_context_chatbot()
             try:
                 if brief is None:
-                    brief = TranslationBriefAgent(chatbot=chatbot, src_lang=src_lang, target_lang=target_lang).build(
-                        texts,
-                        title=info.title or "",
-                        glossary=info.glossary,
-                        translation_brief=self.translation_brief_input,
-                    )
+                    with self._workflow_stage("brief"):
+                        brief = TranslationBriefAgent(
+                            chatbot=chatbot,
+                            src_lang=src_lang,
+                            target_lang=target_lang,
+                            execution_context=self._execution_context,
+                        ).build(
+                            texts,
+                            title=info.title or "",
+                            glossary=info.glossary,
+                            translation_brief=self.translation_brief_input,
+                        )
                     checkpoint.update(translation_brief=self._dump_model(brief), pipeline_stage="context_plan")
                     save_checkpoint(compare_path, checkpoint)
-                timeline = ContextTimelineAgent(chatbot=chatbot, src_lang=src_lang).build(
-                    plans,
-                    texts=texts,
-                    brief=brief,
-                    chunk_signature=signature,
-                    checkpoint_path=compare_path,
-                    checkpoint=checkpoint,
-                )
+                elif self._execution_context is not None:
+                    from openlrc.workflow import StageOutcome, WorkflowStage
+
+                    self._execution_context.stage_completed(
+                        WorkflowStage.BRIEF, outcome=StageOutcome.RESUMED, message="Brief restored."
+                    )
+                if timeline is None:
+                    with self._workflow_stage("timeline"):
+                        timeline = ContextTimelineAgent(
+                            chatbot=chatbot, src_lang=src_lang, execution_context=self._execution_context
+                        ).build(
+                            plans,
+                            texts=texts,
+                            brief=brief,
+                            chunk_signature=signature,
+                            checkpoint_path=compare_path,
+                            checkpoint=checkpoint,
+                        )
             finally:
                 self.api_fee += sum(chatbot.api_fees)
                 chatbot.close()
                 if server is not None:
                     server.close()
+        elif self._execution_context is not None:
+            from openlrc.workflow import StageOutcome, WorkflowStage
+
+            self._execution_context.stage_completed(
+                WorkflowStage.BRIEF, outcome=StageOutcome.RESUMED, message="Brief restored."
+            )
+            self._execution_context.stage_completed(
+                WorkflowStage.TIMELINE, outcome=StageOutcome.RESUMED, message="Timeline restored."
+            )
 
         assert brief is not None and timeline is not None
         checkpoint.update(
@@ -1991,8 +2208,17 @@ class LRCer:
                         issues, patches, completed = [], [], []
                 else:
                     issues, patches, completed = [], [], []
+                if completed and self._execution_context is not None:
+                    from openlrc.workflow import StageOutcome, WorkflowStage
+
+                    self._execution_context.stage_completed(
+                        WorkflowStage.SEMANTIC_REVIEW,
+                        outcome=StageOutcome.RESUMED,
+                        message=f"Restored {len(completed)} semantic-review chunks for round {round_index}.",
+                    )
                 failed_chunks.clear()
                 for plan in plans:
+                    self._check_cancelled()
                     active_ids = [line_id for line_id in plan.segment_ids if line_id in scope_set]
                     if not active_ids or plan.chunk_id in completed:
                         continue
@@ -2018,6 +2244,7 @@ class LRCer:
                         patches.extend(chunk_patches)
                         completed.append(plan.chunk_id)
                     except Exception as exc:
+                        self._check_cancelled()
                         failed_chunks.add(plan.chunk_id)
                         issues.append(
                             EditIssue.create(
@@ -2045,6 +2272,12 @@ class LRCer:
                         }
                     )
                     save_checkpoint(compare_path, progress)
+                    self._workflow_progress(
+                        "semantic-review",
+                        len(completed) + len(failed_chunks),
+                        len(plans),
+                        message=f"Semantic round {round_index}",
+                    )
                 return (
                     issues,
                     patches,
@@ -2059,6 +2292,7 @@ class LRCer:
             session = pipeline.run_semantic_rounds(session, review=review if self.edit_config.semantic_review else None)
             self.api_fee += sum(chatbot.api_fees)
         except Exception as exc:
+            self._check_cancelled()
             logger.warning(f"Hy-MT2 semantic editing failed; keeping the current translation: {exc}")
             session.status = EditSessionStatus.INCOMPLETE
             session.unresolved_issues.append(
@@ -2363,6 +2597,15 @@ class LRCer:
                 if item["risk"] == "high":
                     output[int(item["id"]) - 1] = item["revised_translation"]
 
+        if reviewed_chunks and self._execution_context is not None:
+            from openlrc.workflow import StageOutcome, WorkflowStage
+
+            self._execution_context.stage_completed(
+                WorkflowStage.SEMANTIC_REVIEW,
+                outcome=StageOutcome.RESUMED,
+                message=f"Restored {len(reviewed_chunks)} reviewed chunks.",
+            )
+
         if reviewed_chunks == expected_chunk_indexes and not failed_chunks:
             checkpoint.update(review_incomplete=False, pipeline_stage="complete", final_translations=output)
             save_checkpoint(compare_path, checkpoint)
@@ -2379,6 +2622,7 @@ class LRCer:
         try:
             reviewer = HyMT2RiskReviewAgent(chatbot=chatbot, src_lang=src_lang, target_lang=target_lang)
             for chunk_index, chunk in enumerate(chunks, 1):
+                self._check_cancelled()
                 if chunk_index in reviewed_chunks:
                     continue
                 mapping = {line_id: output[line_id - 1] for line_id, _ in chunk}
@@ -2405,6 +2649,7 @@ class LRCer:
                     reviewed_chunks.add(chunk_index)
                     failed_chunks.discard(chunk_index)
                 except Exception as exc:
+                    self._check_cancelled()
                     failed_chunks.add(chunk_index)
                     logger.warning(f"Hy-MT2 risk review failed for chunk {chunk_index}; keeping draft: {exc}")
 
@@ -2418,6 +2663,12 @@ class LRCer:
                     final_translations=output,
                 )
                 save_checkpoint(compare_path, checkpoint)
+                self._workflow_progress(
+                    "semantic-review",
+                    len(reviewed_chunks) + len(failed_chunks),
+                    len(chunks),
+                    message="Risk-review chunk",
+                )
             self.api_fee += sum(chatbot.api_fees)
         finally:
             chatbot.close()
@@ -2648,18 +2899,19 @@ class LRCer:
                 or checkpoint.get("raw_hymt2_translations")
                 or Subtitle.from_json(translated_path).texts
             )
-            target_texts = self._review_hymt2_translations(
-                audio_name,
-                transcribed_opt_sub.texts,
-                draft,
-                src_lang=transcribed_opt_sub.lang,
-                target_lang=target_lang,
-                brief=translation_brief,
-                compare_path=compare_path,
-                context_timeline=context_timeline,
-                chunk_plans=resume_plans,
-                source_subtitle=transcribed_opt_sub,
-            )
+            with self._workflow_stage("semantic-review"):
+                target_texts = self._review_hymt2_translations(
+                    audio_name,
+                    transcribed_opt_sub.texts,
+                    draft,
+                    src_lang=transcribed_opt_sub.lang,
+                    target_lang=target_lang,
+                    brief=translation_brief,
+                    compare_path=compare_path,
+                    context_timeline=context_timeline,
+                    chunk_plans=resume_plans,
+                    source_subtitle=transcribed_opt_sub,
+                )
             translated_sub = deepcopy(transcribed_opt_sub)
             translated_sub.set_texts(target_texts, lang=target_lang)
             translated_sub.save(translated_path, update_name=True)
@@ -2716,6 +2968,14 @@ class LRCer:
                 if translation_complete:
                     target_texts = list(raw_translations)
                     logger.info("Resuming Pro from completed Hy-MT2 translation; skipping Hy-MT2 model load.")
+                    if self._execution_context is not None:
+                        from openlrc.workflow import StageOutcome, WorkflowStage
+
+                        self._execution_context.stage_completed(
+                            WorkflowStage.TRANSLATE,
+                            outcome=StageOutcome.RESUMED,
+                            message="Translation restored from checkpoint.",
+                        )
 
             if not translation_complete:
                 try:
@@ -2736,7 +2996,8 @@ class LRCer:
                                 context_timeline=context_timeline,
                                 resolved_glossary=self.glossary_state.merged_entries,
                             )
-                        target_texts = translator.translate(transcribed_opt_sub.texts, **translate_kwargs)
+                        with self._workflow_stage("translate"):
+                            target_texts = translator.translate(transcribed_opt_sub.texts, **translate_kwargs)
                         if (
                             self.prompt_profile == HY_MT2_PROMPT_PROFILE
                             and self.hy_mt2_mode is not HyMT2Mode.FAST
@@ -2751,17 +3012,18 @@ class LRCer:
                                 pipeline_stage="deterministic_edit",
                             )
                             save_checkpoint(compare_path, edit_checkpoint)
-                            target_texts = self._run_deterministic_hymt2_edit(
-                                audio_name,
-                                transcribed_opt_sub,
-                                target_texts,
-                                target_lang=target_lang,
-                                brief=translation_brief,
-                                compare_path=compare_path,
-                                translator=translator,
-                                chunk_plans=chunk_plans,
-                                context_timeline=context_timeline,
-                            )
+                            with self._workflow_stage("deterministic-repair"):
+                                target_texts = self._run_deterministic_hymt2_edit(
+                                    audio_name,
+                                    transcribed_opt_sub,
+                                    target_texts,
+                                    target_lang=target_lang,
+                                    brief=translation_brief,
+                                    compare_path=compare_path,
+                                    translator=translator,
+                                    chunk_plans=chunk_plans,
+                                    context_timeline=context_timeline,
+                                )
                 finally:
                     if self.prompt_profile == HY_MT2_PROMPT_PROFILE and self.hy_mt2_mode is not HyMT2Mode.FAST:
                         self._close_primary_local_stage()
@@ -2779,17 +3041,18 @@ class LRCer:
                     try:
                         with self._local_llm_session():
                             translator = self._create_translator(timestamps)
-                            target_texts = self._run_deterministic_hymt2_edit(
-                                audio_name,
-                                transcribed_opt_sub,
-                                target_texts,
-                                target_lang=target_lang,
-                                brief=translation_brief,
-                                compare_path=compare_path,
-                                translator=translator,
-                                chunk_plans=chunk_plans,
-                                context_timeline=context_timeline,
-                            )
+                            with self._workflow_stage("deterministic-repair"):
+                                target_texts = self._run_deterministic_hymt2_edit(
+                                    audio_name,
+                                    transcribed_opt_sub,
+                                    target_texts,
+                                    target_lang=target_lang,
+                                    brief=translation_brief,
+                                    compare_path=compare_path,
+                                    translator=translator,
+                                    chunk_plans=chunk_plans,
+                                    context_timeline=context_timeline,
+                                )
                     finally:
                         self._close_primary_local_stage()
 
@@ -2804,19 +3067,20 @@ class LRCer:
                 review_checkpoint.update(current_snapshot=list(target_texts), pipeline_stage="review")
                 save_checkpoint(compare_path, review_checkpoint)
                 assert translation_brief is not None
-                target_texts = self._review_hymt2_translations(
-                    audio_name,
-                    transcribed_opt_sub.texts,
-                    target_texts,
-                    src_lang=transcribed_opt_sub.lang,
-                    target_lang=target_lang,
-                    brief=translation_brief,
-                    compare_path=compare_path,
-                    translator=translator,
-                    chunk_plans=chunk_plans,
-                    context_timeline=context_timeline,
-                    source_subtitle=transcribed_opt_sub,
-                )
+                with self._workflow_stage("semantic-review"):
+                    target_texts = self._review_hymt2_translations(
+                        audio_name,
+                        transcribed_opt_sub.texts,
+                        target_texts,
+                        src_lang=transcribed_opt_sub.lang,
+                        target_lang=target_lang,
+                        brief=translation_brief,
+                        compare_path=compare_path,
+                        translator=translator,
+                        chunk_plans=chunk_plans,
+                        context_timeline=context_timeline,
+                        source_subtitle=transcribed_opt_sub,
+                    )
 
             if translator is not None:
                 with self._lock:
@@ -2829,6 +3093,12 @@ class LRCer:
             translated_sub.save(translated_path, update_name=True)
         else:
             logger.info(f"Found translated json file: {translated_path}")
+            if self._execution_context is not None:
+                from openlrc.workflow import StageOutcome, WorkflowStage
+
+                self._execution_context.stage_completed(
+                    WorkflowStage.TRANSLATE, outcome=StageOutcome.SKIPPED, message="Using cached translation."
+                )
         translated_sub = Subtitle.from_json(translated_path)
 
         self._finalize_edit_artifacts(
@@ -2841,14 +3111,15 @@ class LRCer:
             output_dir=translated_path.parent.parent,
         )
 
-        final_subtitle = self.post_process(
-            translated_sub,
-            output_name=json_filename,
-            update_name=True,
-            extend_time=True,
-            mode=self.subtitle_optimization,
-            stage="target",
-        )  # xxx.json
+        with self._workflow_stage("target-optimize"):
+            final_subtitle = self.post_process(
+                translated_sub,
+                output_name=json_filename,
+                update_name=True,
+                extend_time=True,
+                mode=self.subtitle_optimization,
+                stage="target",
+            )  # xxx.json
 
         return final_subtitle
 
@@ -2856,13 +3127,15 @@ class LRCer:
         self,
         paths: str | Path | list[str | Path],
         src_lang: str | None = None,
-        target_lang="zh-cn",
-        skip_trans=False,
-        noise_suppress=False,
-        bilingual_sub=False,
-        clear_temp=True,
-        skip_preprocess=False,
-    ) -> list[str]:
+        target_lang: str = "zh-cn",
+        skip_trans: bool = False,
+        noise_suppress: bool = False,
+        bilingual_sub: bool = False,
+        clear_temp: bool = True,
+        clear_checkpoint: bool | None = None,
+        skip_preprocess: bool = False,
+        execution_strategy: RunExecutionStrategy | str | None = None,
+    ) -> list[Path]:
         """
         Run the entire transcription and translation process.
 
@@ -2900,10 +3173,15 @@ class LRCer:
             bilingual_sub (bool): Whether to generate bilingual subtitles. Default is False.
             clear_temp (bool): Whether to clear temporary files after complete success.
                                Incomplete review checkpoints are retained. Default is True.
+            clear_checkpoint (Optional[bool]): Whether to remove completed translation checkpoints.
+                               ``None`` preserves the historical behavior where checkpoint cleanup
+                               follows ``clear_temp``. Incomplete review checkpoints are always retained.
             skip_preprocess (bool): Whether to skip the preprocessing step. When True, assumes that
                                preprocessed files already exist at the expected locations (as returned by
                                get_preprocessed_path()). This is useful when preprocessing and transcription
                                are run in separate stages. Default is False.
+            execution_strategy: Optional Workflow scheduling strategy. ``None`` preserves the
+                               historical producer/consumer behavior used by direct API calls.
 
         Returns:
             List[str]: List of paths to the generated subtitle files.
@@ -2918,7 +3196,10 @@ class LRCer:
         """
         self.transcribed_paths = []
         self.review_statuses = {}
-        self._keep_completed_checkpoint = not clear_temp
+        self._transcription_artifact_primary = False
+        # Successful Run cleanup removes the whole per-input temporary tree.
+        # Until that global decision, never delete a completed file's checkpoint.
+        self._keep_completed_checkpoint = True
 
         if not paths:
             logger.warning("No audio/video file given. Skip LRCer.run()")
@@ -2927,65 +3208,118 @@ class LRCer:
         if isinstance(paths, (str, Path)):
             paths = [paths]
 
-        paths = list(map(Path, paths))
+        input_paths: list[Path] = list(dict.fromkeys(Path(path) for path in paths))
 
-        if skip_preprocess:
-            # Use preprocessed files directly without running preprocessing
-            audio_paths = [get_preprocessed_path(p) for p in paths]
-            for p in audio_paths:
-                if not p.exists():
-                    raise FileNotFoundError(
-                        f"Preprocessed file not found: {p}. Run pre_process() first or set skip_preprocess=False."
-                    )
-        else:
-            audio_paths = self.pre_process(paths, noise_suppress=noise_suppress)
+        with self._workflow_stage("preprocess"):
+            if skip_preprocess:
+                # Use preprocessed files directly without running preprocessing
+                audio_paths = [get_preprocessed_path(p) for p in input_paths]
+                for p in audio_paths:
+                    if not p.exists():
+                        raise FileNotFoundError(
+                            f"Preprocessed file not found: {p}. Run pre_process() first or set skip_preprocess=False."
+                        )
+            else:
+                audio_paths = self.pre_process(input_paths, noise_suppress=noise_suppress)
 
         if skip_trans:
             # Transcribe-only: no translation threads needed
-            transcribed_paths = self.transcribe(paths, src_lang=src_lang, skip_preprocess=True)
+            transcribed_paths = [self._transcribe_single(path, src_lang) for path in audio_paths]
             for transcribed_path in transcribed_paths:
                 self._process_transcribed_file(transcribed_path, target_lang=None, skip_trans=True)
 
             if clear_temp and not skip_preprocess:
-                logger.info("Clearing temporary folder...")
-                self.clear_temp_files(audio_paths)
+                with self._workflow_stage("cleanup"):
+                    logger.info("Clearing temporary folder...")
+                    self.clear_temp_files(audio_paths)
 
             return self.transcribed_paths
 
         logger.info(f"Working on {len(audio_paths)} audio files: {pformat(audio_paths)}")
 
-        transcription_queue = Queue()
+        from openlrc.workflow import RunExecutionStrategy
 
-        with Timer("Transcription (Producer) and Translation (Consumer) process"):
-            consumer = concurrent.futures.ThreadPoolExecutor(thread_name_prefix="Consumer").submit(
-                self.consume_transcriptions, transcription_queue, target_lang, skip_trans, bilingual_sub
-            )
-            producer = concurrent.futures.ThreadPoolExecutor(thread_name_prefix="Producer").submit(
-                self.produce_transcriptions, transcription_queue, audio_paths, src_lang
-            )
+        strategy = (
+            RunExecutionStrategy.PIPELINE if execution_strategy is None else RunExecutionStrategy(execution_strategy)
+        )
+        if strategy is RunExecutionStrategy.MEMORY_SAVER:
+            with Timer("Memory-saving transcription then translation process"):
+                transcribed_paths = [self._transcribe_single(path, src_lang) for path in audio_paths]
+                for transcribed_path in transcribed_paths:
+                    self._check_cancelled()
+                    self._process_transcribed_file(transcribed_path, target_lang, skip_trans, bilingual_sub)
+                    if self.exception:
+                        raise self.exception
+        else:
+            transcription_queue = Queue()
+            stop_event = Event()
 
-            producer.result()
-            consumer.result()
+            with Timer("Transcription (Producer) and Translation (Consumer) process"):
+                with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=self.consumer_thread + 1, thread_name_prefix="OpenLRC"
+                ) as executor:
+                    consumer_futures = [
+                        executor.submit(
+                            self.translation_worker,
+                            transcription_queue,
+                            target_lang,
+                            skip_trans,
+                            bilingual_sub,
+                            stop_event,
+                        )
+                        for _ in range(self.consumer_thread)
+                    ]
+                    producer_future = executor.submit(
+                        self.produce_transcriptions,
+                        transcription_queue,
+                        audio_paths,
+                        src_lang,
+                        self.consumer_thread,
+                        stop_event,
+                    )
+                    futures = [producer_future, *consumer_futures]
+                    done, _ = concurrent.futures.wait(futures, return_when=concurrent.futures.FIRST_EXCEPTION)
+                    failure = next((future.exception() for future in done if future.exception() is not None), None)
+                    if failure is not None:
+                        stop_event.set()
+                    concurrent.futures.wait(futures)
+                    if failure is None:
+                        failure = next(
+                            (future.exception() for future in futures if future.exception() is not None), None
+                        )
+                    if failure is not None:
+                        raise failure
 
-            if self.exception:
-                traceback.print_exception(type(self.exception), self.exception, self.exception.__traceback__)
-                raise self.exception
+                if self.exception:
+                    traceback.print_exception(type(self.exception), self.exception, self.exception.__traceback__)
+                    raise self.exception
 
         logger.info(f"Total API fee used: {self.api_fee:.4f} USD")
 
-        if clear_temp and not skip_preprocess:
-            incomplete = [name for name, status in self.review_statuses.items() if status.get("incomplete")]
-            if incomplete:
-                logger.warning(
-                    "Keeping temporary files so incomplete Hy-MT2 review can resume: " + ", ".join(incomplete)
-                )
-            else:
-                logger.info("Clearing temporary folder...")
-                self.clear_temp_files(audio_paths)
+        incomplete = [name for name, status in self.review_statuses.items() if status.get("incomplete")]
+        if incomplete:
+            logger.warning("Keeping temporary files so incomplete Hy-MT2 review can resume: " + ", ".join(incomplete))
+        else:
+            if clear_checkpoint is True and not clear_temp:
+                self._clear_completed_run_checkpoints(audio_paths)
+            if clear_temp and not skip_preprocess:
+                with self._workflow_stage("cleanup"):
+                    logger.info("Clearing temporary folder...")
+                    self.clear_temp_files(audio_paths, keep_checkpoints=clear_checkpoint is False)
 
+        input_order = {(path.parent.resolve(), path.stem): index for index, path in enumerate(input_paths)}
+        self.transcribed_paths.sort(
+            key=lambda output: input_order.get((Path(output).parent.resolve(), Path(output).stem), len(input_order))
+        )
         return self.transcribed_paths
 
-    def clear_temp_files(self, paths):
+    def _clear_completed_run_checkpoints(self, audio_paths: list[Path]) -> None:
+        for audio_path in audio_paths:
+            transcribed_path = extend_filename(audio_path, TRANSCRIBED_SUFFIX).with_suffix(".json")
+            base_name = self._get_base_name(transcribed_path)
+            (transcribed_path.parent / f"{base_name}{COMPARE_SUFFIX}.json").unlink(missing_ok=True)
+
+    def clear_temp_files(self, paths: list[Path], *, keep_checkpoints: bool = False) -> None:
         """
         Clear the temporary files generated during the transcription and translation process.
 
@@ -3005,12 +3339,17 @@ class LRCer:
                 f"{base_name}.json",
                 f"{base_name}.lrc",
                 f"{base_name}.srt",
-                f"{base_name}{COMPARE_SUFFIX}.json",
                 f"{base_name}{BILINGUAL_SUFFIX}.json",
             }
+            if not keep_checkpoints:
+                exact_names.add(f"{base_name}{COMPARE_SUFFIX}.json")
             for candidate in folder.iterdir():
                 belongs_to_input = candidate.name == path.name or candidate.name.startswith(f"{path.stem}_")
-                if candidate.is_file() and (belongs_to_input or candidate.name in exact_names):
+                if (
+                    candidate.is_file()
+                    and (belongs_to_input or candidate.name in exact_names)
+                    and self._owns_path(candidate)
+                ):
                     candidate.unlink()
                     logger.debug(f"Removed {candidate}")
 
@@ -3023,7 +3362,7 @@ class LRCer:
 
         for input_video_path in self.from_video:
             generated_wave = input_video_path.with_suffix(".wav")
-            if generated_wave.exists():
+            if generated_wave.exists() and self._owns_path(generated_wave):
                 generated_wave.unlink()
                 logger.debug(f"Removed generated wav (from video): {generated_wave}")
 
@@ -3050,8 +3389,15 @@ class LRCer:
             for segment in segments:
                 result["segments"].append({"start": segment.start, "end": segment.end, "text": segment.text})
 
-        with open(name, "w", encoding="utf-8") as f:
-            json.dump(result, f, ensure_ascii=False, indent=4)
+        output_path = Path(name)
+        temporary_path = output_path.with_name(f".{output_path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            with open(temporary_path, "w", encoding="utf-8") as f:
+                json.dump(result, f, ensure_ascii=False, indent=4)
+                f.flush()
+            temporary_path.replace(output_path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
 
         logger.info(f"File saved to {name}")
 
@@ -3068,22 +3414,35 @@ class LRCer:
         Returns:
             List[Path]: Preprocessed audio file paths
         """
-        paths = [Path(p) for p in set(paths)]
+        paths = list(dict.fromkeys(Path(p) for p in paths))
 
         for i, path in enumerate(paths):
+            self._check_cancelled()
             if not path.is_file():
                 raise FileNotFoundError(f"File not found: {path}")
 
             if get_file_type(path) == "video":
-                self.from_video.add(path.with_suffix(""))
                 audio_path = path.with_suffix(".wav")
-                if not audio_path.exists():
-                    extract_audio(path)
+                if audio_path.exists():
+                    raise FileExistsError(
+                        f"Cannot process {path}: sidecar {audio_path} already exists and is not owned by this run."
+                    )
+                extract_audio(path, execution_context=self._execution_context)
+                self.from_video.add(path.with_suffix(""))
+                self._register_owned_path(audio_path)
                 paths[i] = audio_path
 
         from openlrc.preprocess import Preprocessor
 
-        return Preprocessor(paths, options=self.preprocess_options).run(noise_suppress)
+        expected_paths = [get_preprocessed_path(path) for path in paths]
+        missing_before = {path for path in expected_paths if not path.exists()}
+        processed = Preprocessor(paths, options=self.preprocess_options, execution_context=self._execution_context).run(
+            noise_suppress
+        )
+        for path in processed:
+            if path in missing_before and path.exists():
+                self._register_owned_path(path)
+        return processed
 
     @staticmethod
     def post_process(

@@ -1,13 +1,13 @@
 # OpenLRC Mac To Do List
 
-Last verified: 2026-07-18
+Last verified: 2026-07-27
 
-本文档记录 OpenLRC Mac 在 0.3.0 基线上的已完成能力、当前风险和后续优先级。
+本文档记录 OpenLRC Mac 在 0.4.0 基线上的已完成能力、当前风险和后续优先级。
 它不是发布承诺。项目仍以 macOS 本地字幕工作流为核心，优先保证转写稳定性、
 翻译一致性和可恢复性。产品最终提供 CLI、TUI、GUI 三种访问模式：CLI 与 TUI
 优先获得新功能，GUI 在交互和服务稳定后跟进。
 
-## 当前基线：0.3.0
+## 当前基线：0.4.0
 
 ### 核心流水线
 
@@ -19,6 +19,10 @@ Last verified: 2026-07-18
 - [x] 提供 aggressive/relaxed 两种字幕优化 profile；宽松模式保持 segment
       数量、顺序和时间边界，并使用独立内部缓存。
 - [x] 成功后默认只清理当前输入的临时文件，支持显式保留调试产物。
+- [x] 提供 `openlrc.workflow` 同步 Workflow service，统一 Transcribe、Translate、
+      Run 的请求、事件、结果、取消、错误和 owned subprocess 生命周期。
+- [x] Run 根据主翻译资源自动选择执行策略：在线 Standard 使用 Pipeline；本地
+      Qwen/Hy-MT2 使用 Memory Saver，全部转写完成后才开始本地翻译。
 
 ### whisper.cpp 与资源
 
@@ -66,7 +70,7 @@ Last verified: 2026-07-18
 
 ### CLI、发行与文档
 
-- [x] 发行身份为 `openlrc-mac`，当前版本 0.3.0，同时保留 `import openlrc`。
+- [x] 发行身份为 `openlrc-mac`，当前版本 0.4.0，同时保留 `import openlrc`。
 - [x] 提供等价的 `openlrc` / `openlrc-mac` console scripts。
 - [x] CLI 覆盖 `doctor`、`models status`、`setup`、`transcribe`、`translate`、
       `run`、`glossary` 和 `edit`。
@@ -80,7 +84,7 @@ Last verified: 2026-07-18
 
 ## P0 - 稳定本地转写后端
 
-- [ ] 修复或实测证明 `WhisperCLIBackend` 在长音频/大 JSON 输出下不会因
+- [x] 修复并测试 `WhisperCLIBackend` 在长音频/大 JSON 输出下不会因
       stdout/stderr pipe 填满而阻塞。
 - [ ] 增加真实 whisper.cpp JSON fixture：正常、多 segment、空结果、异常 JSON、
       缺少 word timestamp、缺少 offset、不同语言。
@@ -94,11 +98,10 @@ Last verified: 2026-07-18
 
 ## P0 - 开发体验和测试基线
 
-- [ ] 处理当前 4 个未通过全量 Ruff format check 的历史文件。
-- [ ] 修复或配置 Pyright 对 LiteLLM、Torch、DeepFilterNet 可选依赖的 4 个
+- [x] 全量 Ruff format check 已通过。
+- [x] 修复或配置 Pyright 对 LiteLLM、Torch、DeepFilterNet 可选依赖的 4 个
       missing-import 问题。
-- [ ] 将 pytest 纳入稳定的开发依赖/离线环境，避免 `uv run --with pytest`
-      在无网络和无缓存环境中无法执行。
+- [x] 将 pytest 8.x 纳入稳定开发依赖，避免临时 `--with pytest` 解析到不兼容版本。
 - [ ] 保持 `tests/test_lazy_imports.py` 对 heavy import 和 `faster_whisper`
       forbidden import 的保护。
 - [ ] 补充 app bundle resource 优先级测试；现有测试已覆盖显式配置、环境变量、
@@ -128,7 +131,8 @@ Last verified: 2026-07-18
 - [x] 支持查看最终合并术语表，并区分用户提供与模型生成条目。
 - [x] 记录术语命中、未命中和因格式失败而移除术语表的指标。
 - [x] 为术语大小写、alias、Unicode/CJK 和字幕跨行场景增加测试。
-- [x] CLI 通过统一 `GlossaryService` 复用 package 逻辑；未来 TUI/GUI 沿用该服务。
+- [x] CLI 通过统一 `GlossaryService` 和 Workflow 配置复用 package 逻辑；TUI v2
+      与未来 GUI 沿用该服务。
 
 ### 定向多轮编辑
 
@@ -141,7 +145,7 @@ Last verified: 2026-07-18
 - [x] 保证定向编辑不改变未选择行、时间轴、行数和 ID 对齐。
 - [x] 记录每轮编辑前后文本、模型信息、原因、验证结果和停止原因，支持回滚比较。
 - [x] 提供稳定 `LRCer.edit()` API 与 CLI 入口，供后续 TUI/GUI 编排。
-- [ ] 后续增加 `apply-instruction` 和 `accept-draft`，不在 0.3.0 首发范围内。
+- [ ] 后续增加 `apply-instruction` 和 `accept-draft`，不在 0.4.0 首发范围内。
 
 ### 后续上下文演进
 
@@ -171,22 +175,44 @@ Last verified: 2026-07-18
 
 ## P1 - CLI、TUI 与共享服务边界
 
-产品访问层规划：CLI 是当前主入口和最快更新入口；TUI 是下一阶段的交互式终端
-入口，功能更新尽量紧跟 CLI；GUI 面向稳定、易用的图形体验，允许晚于 CLI/TUI
+产品访问层规划：CLI 是当前完整、可脚本化的入口；TUI v2 是新的交互式终端入口并
+尽量紧跟 CLI；GUI 面向稳定、易用的图形体验，允许晚于 CLI/TUI
 接入新功能。三者必须复用同一套 package service，不能形成三套 pipeline。
 
 - [x] 保持 CLI 为当前完整、可脚本化的主入口。
 - [ ] 为真实常见失败补充 CLI 文档和 smoke：缺 ffmpeg、缺 submodule、缺模型、
       端口冲突、context 配置不完整、review incomplete。
 - [ ] 让 doctor 显示可选 Hy-MT2 profile、Metal/build 信息和更具体的修复命令。
-- [ ] 抽出 CLI/TUI/GUI 共用的 job runner 和服务接口。
-- [ ] 统一 progress event，覆盖预处理、转写、优化、Brief、翻译、review、导出。
-- [ ] 统一错误类型：资源、模型、ffmpeg、whisper.cpp、provider、llama-server、
+- [x] 抽出 CLI/TUI/GUI 共用的同步 `WorkflowExecutor` 和 typed request/result 接口。
+- [x] 统一 progress event，覆盖预处理、转写、优化、Brief、Timeline、翻译、
+      deterministic repair、semantic review、导出和清理。
+- [x] 统一错误类型：资源、模型、ffmpeg、whisper.cpp、provider、llama-server、
       checkpoint、格式校验。
-- [ ] 增加可控取消机制，并验证取消后的 subprocess、模型和临时文件状态。
-- [ ] 新增独立 TUI 前端；不要把当前 Typer CLI 改造成菜单框架。
-- [ ] 建立 CLI/TUI/GUI 功能矩阵：新能力默认先落到 API/CLI，再同步 TUI，最后
+- [x] 增加协作取消与 owned-process registry；取消时清理 Whisper、ffprobe/ffmpeg
+      worker 和 OpenLRC-owned llama-server，保留 checkpoint 和已完成产物。
+- [x] 收口 Workflow 运行时语义：Context 一次性使用，取消优先于并发进程错误，
+      Run 中间 artifact 不冒充主输出，最终结果不返回已删除路径，逐文件事件可归属。
+- [x] 将 `transcribe`、`translate`、`run` CLI 迁移到 Workflow；保留参数、输出表、
+      review incomplete 退出语义以及五模式配置推断。
+- [x] 移除旧 Textual TUI 界面层、专属测试和旧入口，保留 application/workflow
+      共享服务作为 TUI v2 基础。
+- [x] 开发 TUI v2：品牌化卡片 Home、列表式内页、全键盘和鼠标等价操作。
+- [x] 初版提供 New Work、Jobs、Models、Settings；Edit 卡片保持 disabled，
+      后续在 typed Edit contract 完成后启用。
+- [x] 重建 macOS native picker、Terminal Browser、统一输入 normalizer 与启动前
+      Preflight；Resume 必须回到 Confirm 审查。
+- [x] 重建 Jobs、计划输出、增量日志、Settings working copy，以及
+      Starting/取消/历史持久化竞态保护的 TUI v2 消费层。
+- [x] 建立 CLI/TUI/GUI 功能边界：新能力默认先落到 API/CLI，再同步 TUI，最后
       在交互稳定后进入 GUI。
+- [x] TUI v2 使用真实 Textual SVG snapshot 与 Pilot 覆盖 160×50、100×30、80×24、
+      Home 卡片、动态状态、disabled Edit、键盘/鼠标路径和单活跃任务限制。
+- [x] 完成 2026-07-24 可用性修订：列表首尾循环、页面分组、New Work 三步进度、
+      readonly Preflight、clean/dirty Draft、80×24 键盘输入 Modal 和 Logo 整列流光。
+- [x] 完成 Appearance 运行时主题、stable action 焦点恢复、静态蓝色 Logo、
+      English/简体中文设置、持久化与两主题/中文 snapshot。
+- [x] 完成 Home Logo/介绍中心轴、卡片内部标题位置、显式分组 spacer 和 disabled
+      Save 连续结构边框，并通过 80×24、100×30、160×50 Pilot/SVG/PTY 验收。
 
 ## P2 - macOS GUI 与打包
 
@@ -196,7 +222,7 @@ Last verified: 2026-07-18
 - [ ] 展示各阶段 progress、日志、错误和取消状态。
 - [ ] 预览 `.srt` / `.lrc`，并集成术语表与定向编辑工作流。
 - [ ] 保留高级路径覆盖，但不放在普通用户主流程中心。
-- [ ] GUI 优先接入已经在 CLI/TUI 验证稳定的功能，不要求与实验性命令同步发布。
+- [ ] GUI 优先接入已经在 CLI、当前 TUI v2 验证稳定的功能，不要求与实验性命令同步发布。
 - [ ] 在服务边界稳定后再处理 app bundle 资源、签名、notarization 和 packaging。
 
 ## 文档与发布维护
@@ -206,6 +232,8 @@ Last verified: 2026-07-18
 - [x] 发布相关变更同步 `CHANGELOG.md` 与 `CHANGELOG.zh-CN.md`。
 - [x] 已实现并验证的架构、模块、状态或测试发生变化后，同步本地
       `PROJECT_ARCHITECTURE.md`；纯规划和路线讨论只写 TODO 或独立计划文档。
+- [x] TUI 架构、页面、设置 schema、主题、语言、焦点、Logo 或验收变化时，同步
+      本地持续维护的 TUI v2 开发文档；不从公共文档链接 `DevelopDocument/`。
 - [x] 已实现并验证的 Hy-MT2 profile、prompt、模式或 checkpoint 变化后，
       同步本地 Hy-MT2 适配文档。
 - [ ] 为普通用户补充从零开始的 macOS 安装、模型下载和转写/翻译教程。

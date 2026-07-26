@@ -1,6 +1,9 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
+import subprocess
+import sys
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -9,6 +12,7 @@ from openlrc.transcribe import Transcriber, TranscriptionInfo, _parse_timestamp_
 from openlrc.whisper_backend import WhisperCLIBackend
 from openlrc.whisper_resources import DEFAULT_MODEL_NAME, DEFAULT_VAD_MODEL_NAME
 from openlrc.whisper_types import Segment, Word
+from openlrc.workflow import ExecutionContext, WorkflowCancelled, WorkflowKind
 
 # === Shared mock return value (compatible with original test_transcribe.py) ===
 return_tuple = (
@@ -87,6 +91,26 @@ class TestTranscriber(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             transcriber.transcribe("audio.wav")
 
+    @patch("openlrc.transcribe.WhisperCLIBackend")
+    def test_build_extra_args_supports_cpu_fallback(self, MockBackend):
+        transcriber = Transcriber(asr_options={"use_gpu": False, "flash_attn": False})
+
+        self.assertIn("-ng", transcriber._build_extra_args())
+        self.assertIn("-nfa", transcriber._build_extra_args())
+
+    @patch("openlrc.transcribe.WhisperCLIBackend")
+    def test_sentence_split_does_not_require_spacy_model(self, MockBackend):
+        transcriber = Transcriber()
+        words = [
+            Word(index, index + 1, word, probability=0.9)
+            for index, word in enumerate(["This", " is", " a", " sentence."])
+        ]
+        segment = Segment(0, 0, 0, 4, "This is a sentence.", [], 0.8, 0, 0, words=words, temperature=0)
+
+        result = transcriber.sentence_split([segment], "en")
+
+        self.assertEqual("".join(item.text for item in result), segment.text)
+
 
 class TestWhisperCLIBackend(unittest.TestCase):
     @patch("openlrc.whisper_backend.resolve_vad_model_path", return_value="/tmp/vad.bin")
@@ -101,6 +125,96 @@ class TestWhisperCLIBackend(unittest.TestCase):
         self.assertEqual(backend.cli_path, "/tmp/whisper-cli")
         self.assertEqual(backend.model_path, "/tmp/model.bin")
         self.assertEqual(backend.vad_model_path, "/tmp/vad.bin")
+
+    def test_backend_drains_large_stdout_and_stderr_concurrently(self):
+        backend = object.__new__(WhisperCLIBackend)
+        backend.cli_path = "/tmp/whisper-cli"
+        backend.model_path = "/tmp/model.bin"
+        backend.vad_model_path = ""
+        real_popen = subprocess.Popen
+        script = (
+            "import json,sys; "
+            "sys.stdout.write(json.dumps({'result': {'language': 'en'}, 'padding': 'x' * 524288})); "
+            "sys.stdout.flush(); "
+            "sys.stderr.write('progress = 50%\\n' + 'e' * 524288); "
+            "sys.stderr.flush()"
+        )
+
+        def launch(_command, **kwargs):
+            return real_popen([sys.executable, "-c", script], **kwargs)
+
+        progress = []
+        with patch("openlrc.whisper_backend.subprocess.Popen", side_effect=launch):
+            result = backend.transcribe("audio.wav", progress_cb=progress.append)
+
+        self.assertEqual(len(result["padding"]), 524288)
+        self.assertIn(50, progress)
+
+    def test_backend_reads_owned_json_file_for_current_whisper_cli(self):
+        backend = object.__new__(WhisperCLIBackend)
+        backend.cli_path = "/tmp/whisper-cli"
+        backend.model_path = "/tmp/model.bin"
+        backend.vad_model_path = ""
+        real_popen = subprocess.Popen
+        commands = []
+
+        def launch(command, **kwargs):
+            commands.append(command)
+            output_base = Path(command[command.index("-of") + 1])
+            output_base.with_suffix(".json").write_text(
+                '{"result": {"language": "en"}, "transcription": []}', encoding="utf-8"
+            )
+            return real_popen([sys.executable, "-c", "print(\"human-readable transcript\")"], **kwargs)
+
+        with patch("openlrc.whisper_backend.subprocess.Popen", side_effect=launch):
+            result = backend.transcribe("audio.wav")
+
+        self.assertEqual(result["result"]["language"], "en")
+        self.assertNotIn("--no-prints", commands[0])
+        self.assertNotEqual(commands[0][commands[0].index("-of") + 1], "-")
+
+    def test_backend_cancellation_stops_owned_process(self):
+        backend = object.__new__(WhisperCLIBackend)
+        backend.cli_path = "/tmp/whisper-cli"
+        backend.model_path = "/tmp/model.bin"
+        backend.vad_model_path = ""
+        real_popen = subprocess.Popen
+        started = threading.Event()
+        processes = []
+        errors = []
+        context = ExecutionContext(WorkflowKind.TRANSCRIBE)
+
+        def launch(_command, **kwargs):
+            process = real_popen([sys.executable, "-c", "import time; time.sleep(60)"], **kwargs)
+            processes.append(process)
+            started.set()
+            return process
+
+        def transcribe() -> None:
+            try:
+                backend.transcribe(
+                    "audio.wav", cancellation_token=context.cancellation_token, process_registry=context.processes
+                )
+            except Exception as exc:
+                errors.append(exc)
+
+        with patch("openlrc.whisper_backend.subprocess.Popen", side_effect=launch):
+            worker = threading.Thread(target=transcribe)
+            worker.start()
+            self.assertTrue(started.wait(1))
+            context.cancellation_token.cancel()
+            worker.join(2)
+
+        try:
+            self.assertFalse(worker.is_alive())
+            self.assertIsInstance(errors[0], WorkflowCancelled)
+            self.assertIsNotNone(processes[0].poll())
+        finally:
+            for process in processes:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+            context.close()
 
 
 class TestMapCliJsonToSegments(unittest.TestCase):

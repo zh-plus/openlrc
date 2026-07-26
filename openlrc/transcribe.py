@@ -1,8 +1,14 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
+from __future__ import annotations
+
+import unicodedata
 from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
+
+if TYPE_CHECKING:
+    from openlrc.workflow import ExecutionContext
 
 import pysbd
 from pysbd.languages import LANGUAGE_CODES
@@ -10,7 +16,7 @@ from tqdm import tqdm
 
 from openlrc.defaults import default_whisper_cpp_options
 from openlrc.logger import logger
-from openlrc.media_utils import get_audio_duration, spacy_load
+from openlrc.media_utils import get_audio_duration
 from openlrc.utils import Timer, format_timestamp
 from openlrc.whisper_backend import WhisperCLIBackend
 from openlrc.whisper_resources import DEFAULT_MODEL_NAME, DEFAULT_VAD_MODEL_NAME
@@ -181,10 +187,12 @@ class Transcriber:
         vad_model: str = DEFAULT_VAD_MODEL_NAME,
         asr_options: dict | None = None,
         vad_filter: bool = True,
+        execution_context: ExecutionContext | None = None,
     ):
         self.model_name = model_name
         self.continuous_scripted = ["ja", "zh", "zh-cn", "th", "vi", "lo", "km", "my", "bo"]
         self.asr_options = {**default_whisper_cpp_options, **(asr_options or {})}
+        self.execution_context = execution_context
 
         self.cli_backend = WhisperCLIBackend(
             cli_path=cli_path, model_path=model_name, vad_model_path=vad_model if vad_filter else ""
@@ -205,19 +213,48 @@ class Transcriber:
         """
         total_duration = get_audio_duration(audio_path)
 
-        # 进度条
-        pbar = tqdm(total=100, unit="%", desc="Transcribing")
+        # Direct API calls retain tqdm; Workflow clients receive typed progress events.
+        pbar = None if self.execution_context is not None else tqdm(total=100, unit="%", desc="Transcribing")
+        model_ready = False
+        if self.execution_context is not None:
+            self.execution_context.model_event(self.model_name, "starting", owned=True, role="transcription")
+            from openlrc.workflow import WorkflowStage
+
+            self.execution_context.stage_progress(WorkflowStage.TRANSCRIBE, 0, 100, item=audio_path, message="Whisper")
 
         def _progress_cb(pct: int) -> None:
-            delta = pct - pbar.n
-            if delta > 0:
-                pbar.update(delta)
+            nonlocal model_ready
+            if self.execution_context is not None and not model_ready:
+                self.execution_context.model_event(self.model_name, "ready", owned=True, role="transcription")
+                model_ready = True
+            if pbar is not None:
+                delta = pct - pbar.n
+                if delta > 0:
+                    pbar.update(delta)
+            if self.execution_context is not None:
+                from openlrc.workflow import WorkflowStage
+
+                self.execution_context.stage_progress(
+                    WorkflowStage.TRANSCRIBE, pct, 100, item=audio_path, message="Whisper"
+                )
 
         # 调用 whisper-cli
-        cli_json = self.cli_backend.transcribe(
-            audio_path=str(audio_path), lang=language, progress_cb=_progress_cb, extra_args=self._build_extra_args()
-        )
-        pbar.close()
+        try:
+            cli_json = self.cli_backend.transcribe(
+                audio_path=str(audio_path),
+                lang=language,
+                progress_cb=_progress_cb,
+                extra_args=self._build_extra_args(),
+                cancellation_token=(self.execution_context.cancellation_token if self.execution_context else None),
+                process_registry=(self.execution_context.processes if self.execution_context else None),
+            )
+            if self.execution_context is not None:
+                _progress_cb(100)
+        finally:
+            if pbar is not None:
+                pbar.close()
+            if self.execution_context is not None:
+                self.execution_context.model_event(self.model_name, "stopped", owned=True, role="transcription")
 
         # JSON -> Segment 列表
         segments = map_cli_json_to_segments(cli_json)
@@ -273,6 +310,10 @@ class Transcriber:
             args.extend(["-t", str(opts["temperature"])])
         if opts.get("suppress_nst", False):
             args.append("-sns")
+        if opts.get("use_gpu", True) is False or opts.get("no_gpu", False):
+            args.append("-ng")
+        if opts.get("flash_attn", True) is False:
+            args.append("-nfa")
 
         return args
 
@@ -294,9 +335,6 @@ class Transcriber:
         if lang not in LANGUAGE_CODES:
             logger.warning(f"Language {lang} not supported. Skipping sentence split.")
             return segments
-
-        # Load language-specific NLP model
-        nlp = spacy_load(lang)
 
         def seg_from_words(seg: Segment, seg_id: int, words: list, tokens: list):
             """
@@ -347,10 +385,9 @@ class Transcriber:
             if seg_entry.words is None:
                 raise ValueError("Segment must have word-level timestamps for splitting")
             text = seg_entry.text
-            doc = nlp(text)
 
             def is_punct(char):
-                return doc.vocab[char].is_punct
+                return bool(char) and unicodedata.category(char[-1]).startswith("P")
 
             splittable = int(len(text) / 3)
 

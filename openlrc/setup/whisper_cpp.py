@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,18 +33,25 @@ def run(cmd: list[str], cwd: Path = REPO_ROOT) -> None:
     subprocess.run(cmd, cwd=cwd, check=True)
 
 
-def ensure_submodule() -> None:
+CommandRunner = Callable[[list[str], Path], None]
+
+
+def ensure_submodule(*, runner: CommandRunner | None = None) -> None:
+    runner = runner or run
     if (VENDOR_DIR / "CMakeLists.txt").exists():
         return
-    run(["git", "submodule", "update", "--init", "--recursive", "vendor/whisper.cpp"])
+    runner(["git", "submodule", "update", "--init", "--recursive", "vendor/whisper.cpp"], REPO_ROOT)
     if not (VENDOR_DIR / "CMakeLists.txt").exists():
         raise RuntimeError("vendor/whisper.cpp is missing after submodule initialization.")
 
 
-def build_whisper_cpp() -> Path:
+def build_whisper_cpp(*, runner: CommandRunner | None = None) -> Path:
+    runner = runner or run
     build_dir = VENDOR_DIR / "build"
-    run(["cmake", "-S", ".", "-B", str(build_dir), "-DCMAKE_BUILD_TYPE=Release"], cwd=VENDOR_DIR)
-    run(["cmake", "--build", str(build_dir), "--config", "Release", "--parallel", str(os.cpu_count() or 1)])
+    runner(["cmake", "-S", ".", "-B", str(build_dir), "-DCMAKE_BUILD_TYPE=Release"], VENDOR_DIR)
+    runner(
+        ["cmake", "--build", str(build_dir), "--config", "Release", "--parallel", str(os.cpu_count() or 1)], REPO_ROOT
+    )
 
     cli_path = build_dir / "bin" / "whisper-cli"
     if not cli_path.exists():
@@ -51,10 +59,13 @@ def build_whisper_cpp() -> Path:
     return cli_path
 
 
-def download_models(model_dir: Path, model: str, vad_model: str) -> tuple[Path, Path]:
+def download_models(
+    model_dir: Path, model: str, vad_model: str, *, runner: CommandRunner | None = None
+) -> tuple[Path, Path]:
+    runner = runner or run
     model_dir.mkdir(parents=True, exist_ok=True)
-    run(["sh", "models/download-ggml-model.sh", model, str(model_dir)], cwd=VENDOR_DIR)
-    run(["sh", "models/download-vad-model.sh", vad_model, str(model_dir)], cwd=VENDOR_DIR)
+    runner(["sh", "models/download-ggml-model.sh", model, str(model_dir)], VENDOR_DIR)
+    runner(["sh", "models/download-vad-model.sh", vad_model, str(model_dir)], VENDOR_DIR)
 
     whisper_model = model_dir / f"ggml-{model}.bin"
     vad_model_path = model_dir / f"ggml-{vad_model}.bin"
@@ -71,18 +82,20 @@ def setup_whisper_cpp(
     model_dir: Path | None = None,
     skip_build: bool = False,
     skip_models: bool = False,
+    runner: CommandRunner | None = None,
 ) -> WhisperSetupResult:
-    ensure_submodule()
+    runner = runner or run
+    ensure_submodule(runner=runner)
 
     cli_path: Path | None = None
     if not skip_build:
-        cli_path = build_whisper_cpp()
+        cli_path = build_whisper_cpp(runner=runner)
 
     whisper_model: Path | None = None
     vad_model_path: Path | None = None
     if not skip_models:
         whisper_model, vad_model_path = download_models(
-            (model_dir or default_model_dir()).expanduser(), model, vad_model
+            (model_dir or default_model_dir()).expanduser(), model, vad_model, runner=runner
         )
 
     return WhisperSetupResult(cli_path=cli_path, whisper_model=whisper_model, vad_model=vad_model_path)
