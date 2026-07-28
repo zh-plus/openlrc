@@ -21,6 +21,7 @@ from rich.table import Table
 from openlrc import __app_name__, __dist_name__, __upstream_version__, __version__
 from openlrc.application.resources import ResourceStatusService
 from openlrc.config import (
+    ContextAssistance,
     ContextLLMConfig,
     EditConfig,
     GlossaryOptions,
@@ -28,6 +29,7 @@ from openlrc.config import (
     SubtitleOptimizationMode,
     TranscriptionConfig,
     TranslationConfig,
+    context_model_required,
     normalize_hymt2_mode,
 )
 from openlrc.context import TranslationBriefInput
@@ -255,16 +257,32 @@ def _glossary_and_edit_options(
 
 
 def _translation_brief_input(
-    *, summary: str | None, characters: str | None, tone_style: str | None
+    *,
+    summary: str | None,
+    characters: str | None,
+    tone_style: str | None,
+    context_assistance: ContextAssistance = ContextAssistance.AUTO,
+    mode: HyMT2Mode | None = None,
 ) -> TranslationBriefInput | None:
     """Parse strict CLI brief fields while preserving omitted versus explicitly empty values."""
+    assistance = ContextAssistance(context_assistance)
+    selected_mode = HyMT2Mode(mode).canonical if mode is not None else None
+    contextual_off = assistance is ContextAssistance.OFF and selected_mode is not HyMT2Mode.FAST
+    if contextual_off:
+        if summary is None or not summary.strip():
+            raise typer.BadParameter("Context assistance off requires --brief-summary.", param_hint="--brief-summary")
+        summary = summary.strip()
+        characters = characters if characters is not None else ""
+        tone_style = tone_style if tone_style is not None else ""
     if summary is None and characters is None and tone_style is None:
         return None
 
     parsed_characters = None
     if characters is not None:
         raw = characters
-        if raw.startswith("@"):
+        if contextual_off and not raw.strip():
+            parsed_characters = []
+        elif raw.startswith("@"):
             path_text = raw[1:]
             if not path_text:
                 raise typer.BadParameter("Expected a UTF-8 JSON file after '@'.", param_hint="--brief-characters")
@@ -275,35 +293,20 @@ def _translation_brief_input(
                 raise typer.BadParameter(
                     f"Cannot read brief characters file {path}: {exc}", param_hint="--brief-characters"
                 ) from exc
-        try:
-            parsed_characters = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise typer.BadParameter(
-                f"Brief characters must be valid JSON: {exc.msg}", param_hint="--brief-characters"
-            ) from exc
-        if not isinstance(parsed_characters, list):
-            raise typer.BadParameter("Brief characters JSON must be an array.", param_hint="--brief-characters")
+        if parsed_characters is None:
+            try:
+                parsed_characters = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise typer.BadParameter(
+                    f"Brief characters must be valid JSON: {exc.msg}", param_hint="--brief-characters"
+                ) from exc
+            if not isinstance(parsed_characters, list):
+                raise typer.BadParameter("Brief characters JSON must be an array.", param_hint="--brief-characters")
 
     try:
         return TranslationBriefInput(summary=summary, characters=parsed_characters, tone_style=tone_style)
     except ValueError as exc:
         raise typer.BadParameter(f"Invalid Translation Brief: {exc}") from exc
-
-
-def _brief_is_complete(brief: TranslationBriefInput | None) -> bool:
-    return brief is not None and brief.is_complete
-
-
-def _context_model_required(
-    *, mode: HyMT2Mode, translation_brief: TranslationBriefInput | None, edit_rounds: int, semantic_editor: bool
-) -> bool:
-    if mode is HyMT2Mode.PRO:
-        return True
-    if mode is HyMT2Mode.NORMAL:
-        return not _brief_is_complete(translation_brief)
-    if mode is HyMT2Mode.NORMAL_PLUS:
-        return not _brief_is_complete(translation_brief) or (semantic_editor and edit_rounds > 0)
-    return False
 
 
 def _lrcer_cls():
@@ -397,6 +400,7 @@ def _workflow_translation_for(
     context_model: str | None,
     context_base_url: str | None,
     context_fee_limit: float,
+    context_assistance: ContextAssistance = ContextAssistance.AUTO,
     glossary: Path | None = None,
     force_glossary: bool = False,
     glossary_strict: bool = True,
@@ -407,6 +411,7 @@ def _workflow_translation_for(
 ) -> WorkflowTranslationConfig:
     """Build the CLI's canonical translation request through the shared factory."""
     hy_mt2_mode = normalize_hymt2_mode(hy_mt2_mode)
+    context_assistance = ContextAssistance(context_assistance)
     glossary_value, glossary_options, edit_config = _glossary_and_edit_options(
         glossary=glossary,
         force_glossary=force_glossary,
@@ -414,6 +419,7 @@ def _workflow_translation_for(
         edit_rounds=edit_rounds,
         enable_restore=enable_restore,
     )
+    edit_config.semantic_review = bool(semantic_editor and edit_rounds > 0)
     if translation.value == TranslationBackend.local.value:
         profile_name, selected_model = _selected_profile_and_model(
             local_model_profile=local_model_profile, llama_model=llama_model
@@ -421,6 +427,22 @@ def _workflow_translation_for(
         if profile_name != QWEN35_9B_PROFILE:
             if hy_mt2_mode is HyMT2Mode.FAST and translation_brief is not None:
                 raise typer.BadParameter("Translation Brief is not supported in Hy-MT2 fast mode.")
+            if context_assistance is ContextAssistance.OFF and any(
+                (context_provider is not None, context_model, context_base_url)
+            ):
+                raise typer.BadParameter(
+                    "Context assistance off cannot be combined with Context provider/model options.",
+                    param_hint="--context-assistance",
+                )
+            try:
+                requires_context = context_model_required(
+                    mode=hy_mt2_mode,
+                    translation_brief=translation_brief,
+                    edit_config=edit_config,
+                    context_assistance=context_assistance,
+                )
+            except ValueError as exc:
+                raise typer.BadParameter(str(exc), param_hint="--context-assistance") from exc
             context_llm = _context_llm_config(
                 mode=hy_mt2_mode,
                 provider=context_provider,
@@ -428,12 +450,7 @@ def _workflow_translation_for(
                 base_url=context_base_url,
                 fee_limit=context_fee_limit,
                 port=llama_port,
-                required=_context_model_required(
-                    mode=hy_mt2_mode,
-                    translation_brief=translation_brief,
-                    edit_rounds=edit_rounds,
-                    semantic_editor=semantic_editor,
-                ),
+                required=requires_context,
             )
             return WorkflowTranslationFactory.hymt2(
                 mode=TranslationMode(hy_mt2_mode.value),
@@ -442,6 +459,7 @@ def _workflow_translation_for(
                 idle_timeout=idle_timeout,
                 port=llama_port,
                 context_llm=context_llm,
+                context_assistance=context_assistance,
                 glossary=glossary_value,
                 glossary_options=glossary_options,
                 edit_config=edit_config,
@@ -449,7 +467,12 @@ def _workflow_translation_for(
             )
         if translation_brief is not None:
             raise typer.BadParameter("Translation Brief requires a Hy-MT2 local model profile.")
-        if hy_mt2_mode is not HyMT2Mode.FAST or context_provider is not None or context_model is not None:
+        if (
+            hy_mt2_mode is not HyMT2Mode.FAST
+            or context_provider is not None
+            or context_model is not None
+            or context_assistance is not ContextAssistance.AUTO
+        ):
             raise typer.BadParameter("Hy-MT2 context options require a Hy-MT2 local model profile.")
         return WorkflowTranslationFactory.standard_local_qwen(
             model=selected_model or llama_model,
@@ -461,6 +484,8 @@ def _workflow_translation_for(
         )
     if translation_brief is not None:
         raise typer.BadParameter("Translation Brief requires a Hy-MT2 local translation backend.")
+    if context_assistance is not ContextAssistance.AUTO:
+        raise typer.BadParameter("Context assistance requires a Hy-MT2 local translation backend.")
     return WorkflowTranslationFactory.standard_online(
         glossary=glossary_value, glossary_options=glossary_options, edit_config=edit_config
     )
@@ -478,6 +503,7 @@ def _lrcer_for_translation(
     context_model: str | None,
     context_base_url: str | None,
     context_fee_limit: float,
+    context_assistance: ContextAssistance = ContextAssistance.AUTO,
     subtitle_optimization: SubtitleOptimizationMode,
     glossary: Path | None = None,
     force_glossary: bool = False,
@@ -499,6 +525,7 @@ def _lrcer_for_translation(
         context_model=context_model,
         context_base_url=context_base_url,
         context_fee_limit=context_fee_limit,
+        context_assistance=context_assistance,
         glossary=glossary,
         force_glossary=force_glossary,
         glossary_strict=glossary_strict,
@@ -843,6 +870,10 @@ def translate(
     hy_mt2_mode: Annotated[
         HyMT2Mode, typer.Option("--hy-mt2-mode", help="Hy-MT2 quality/context mode.")
     ] = HyMT2Mode.FAST,
+    context_assistance: Annotated[
+        ContextAssistance,
+        typer.Option("--context-assistance", help="Use a Context model automatically, or require a manual Brief."),
+    ] = ContextAssistance.AUTO,
     context_provider: Annotated[
         ContextProvider | None, typer.Option("--context-provider", help="General model provider for Hy-MT2 context.")
     ] = None,
@@ -858,7 +889,11 @@ def translate(
 ) -> None:
     """Translate existing transcription JSON files."""
     translation_brief = _translation_brief_input(
-        summary=brief_summary, characters=brief_characters, tone_style=brief_tone_style
+        summary=brief_summary,
+        characters=brief_characters,
+        tone_style=brief_tone_style,
+        context_assistance=context_assistance,
+        mode=hy_mt2_mode,
     )
     workflow_translation = _workflow_translation_for(
         translation=translation,
@@ -871,6 +906,7 @@ def translate(
         context_model=context_model,
         context_base_url=context_base_url,
         context_fee_limit=context_fee_limit,
+        context_assistance=context_assistance,
         glossary=glossary,
         force_glossary=force_glossary,
         glossary_strict=glossary_strict,
@@ -962,6 +998,10 @@ def run(
     hy_mt2_mode: Annotated[
         HyMT2Mode, typer.Option("--hy-mt2-mode", help="Hy-MT2 quality/context mode.")
     ] = HyMT2Mode.FAST,
+    context_assistance: Annotated[
+        ContextAssistance,
+        typer.Option("--context-assistance", help="Use a Context model automatically, or require a manual Brief."),
+    ] = ContextAssistance.AUTO,
     context_provider: Annotated[
         ContextProvider | None, typer.Option("--context-provider", help="General model provider for Hy-MT2 context.")
     ] = None,
@@ -977,7 +1017,11 @@ def run(
 ) -> None:
     """Run the transcription pipeline and optionally translate subtitles."""
     translation_brief = _translation_brief_input(
-        summary=brief_summary, characters=brief_characters, tone_style=brief_tone_style
+        summary=brief_summary,
+        characters=brief_characters,
+        tone_style=brief_tone_style,
+        context_assistance=context_assistance,
+        mode=hy_mt2_mode,
     )
     transcription_config = _transcription_config(whisper_model, vad_model)
     workflow_translation = None
@@ -993,6 +1037,7 @@ def run(
             context_model=context_model,
             context_base_url=context_base_url,
             context_fee_limit=context_fee_limit,
+            context_assistance=context_assistance,
             glossary=glossary,
             force_glossary=force_glossary,
             glossary_strict=glossary_strict,
@@ -1053,6 +1098,10 @@ def edit_command(
     ] = None,
     llama_port: Annotated[int, typer.Option("--llama-port", help="Local llama-server port.")] = DEFAULT_LLAMA_PORT,
     hy_mt2_mode: Annotated[HyMT2Mode, typer.Option("--hy-mt2-mode", help="Hy-MT2 edit mode.")] = HyMT2Mode.FAST,
+    context_assistance: Annotated[
+        ContextAssistance,
+        typer.Option("--context-assistance", help="Use a Context model automatically, or require a manual Brief."),
+    ] = ContextAssistance.AUTO,
     context_provider: Annotated[
         ContextProvider | None, typer.Option("--context-provider", help="Explicit context-model provider.")
     ] = None,
@@ -1067,8 +1116,16 @@ def edit_command(
     ] = 0.8,
 ) -> None:
     """Verify, review, retranslate, or restore existing subtitles without ASR."""
+    if action is not EditAction.RETRANSLATE and context_assistance is ContextAssistance.OFF:
+        raise typer.BadParameter(
+            "--context-assistance off is only supported by edit retranslate.", param_hint="--context-assistance"
+        )
     translation_brief = _translation_brief_input(
-        summary=brief_summary, characters=brief_characters, tone_style=brief_tone_style
+        summary=brief_summary,
+        characters=brief_characters,
+        tone_style=brief_tone_style,
+        context_assistance=context_assistance,
+        mode=hy_mt2_mode,
     )
     if action in {EditAction.VERIFY, EditAction.RESTORE} and translation_brief is not None:
         raise typer.BadParameter(f"Translation Brief is not supported by edit {action.value}.")
@@ -1133,6 +1190,7 @@ def edit_command(
             context_model=context_model,
             context_base_url=context_base_url,
             context_fee_limit=context_fee_limit,
+            context_assistance=context_assistance,
             subtitle_optimization=SubtitleOptimizationMode.RELAXED,
             glossary=glossary,
             force_glossary=force_glossary,

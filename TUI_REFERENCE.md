@@ -78,6 +78,22 @@ margin。运行时新增或清空 detail 会立即重排该行，不需要重组
 Normal Plus、Pro 四种公开模式。配置页按当前 engine/mode 显示 provider、模型、重试、
 Context、Translation Brief、术语表、字幕格式和清理选项。
 
+Hy-MT2 Normal 和零轮语义审查的 Normal Plus 提供 `Context assistance`：
+
+- `Auto` 在 Brief 缺失或不完整时显示并要求 Context provider/model；
+- `Off` 隐藏 Context provider/model，要求人工 summary；空 Characters 显示
+  `None · explicit`，空 Tone 显示 `No additional guidance`；
+- Pro 固定显示 `Required by Pro`；带语义审查的 Normal Plus 固定显示
+  `Required by semantic review`，两者都不能选择 Off；
+- 从 Off 切换到 Pro 会恢复 Auto；Off 下把 Normal Plus 语义轮数改为大于零会被拒绝，
+  不会静默改变配置。
+
+Off 的有效 request 不携带隐藏的 Context 配置，但 Draft 会暂存原 provider/model，便于
+切回 Auto。共享 Preflight 在此路径显示 `Context model: Off · Manual Brief`。
+新 Draft 在 Auto 需要 Context 时默认使用 `local` provider 和 Settings 当前的 Qwen
+model；若该设置为空，则使用内置 `qwen3.5-9b` profile。Resume 旧历史时，缺少的
+Context provider/model 也按这一当前默认值补齐。
+
 转写配置提供 `Whisper GPU` 与 `Whisper flash attention` 开关。二者默认开启；当本机
 whisper.cpp、Metal 或特定模型组合不兼容时，可以在单个 Workflow 中关闭，也可以在
 Settings 的 Transcription 默认值中统一关闭。
@@ -91,16 +107,29 @@ Settings 的 Transcription 默认值中统一关闭。
 只打开再退出 New Work 不会保留空 Draft，也不会在下次进入时弹出恢复提示。只有输入、
 参数或顺序相对初始 baseline 真正发生变化时，才提供 Continue/Discard。
 
-单行和多行输入弹窗使用与页面一致的列表式 `Apply` / `Cancel`。`Tab` /
-`Shift+Tab` 在输入区与 Actions 间移动，Actions 内方向键循环，`Enter` / `Space`
-激活，`Esc` 取消；多行输入也可用 `Ctrl+Enter` 应用。80×24 下输入框与两个动作保持
-同屏可见，API key 输入保持遮罩。
+单行和多行输入弹窗使用与页面一致的列表式 `Apply` / `Cancel`。Brief summary、
+Character mapping 和 tone/style 使用支持软换行的多行编辑器，弹窗内持续显示
+`Ctrl+Enter Apply · Esc Cancel · Tab Actions · Shift+Tab Editor`。`Tab` /
+`Shift+Tab` 在编辑区与 Actions 间移动，Actions 内方向键循环，`Enter` / `Space`
+激活；`Esc` 从编辑区直接取消，`Ctrl+Enter` 从编辑区直接应用。80×24 下编辑区、
+错误提示、两个动作和底边框保持同屏可见，API key 输入保持遮罩。
+
+Character mapping 每行使用 `Source Name = Target Name`。提交时会先使用与最终 Draft
+构造相同的解析器校验；无效行会显示行号、将编辑区边框标红并保持焦点，当前 Draft
+不会改变。开始修改后错误提示会清除，只有全部映射有效时才关闭弹窗并刷新参数页。
 
 ## Running 与 Jobs
 
 Workflow 和 Setup 共用单活动 operation 边界。Running 页面显示阶段、进度、逐文件状态、
 日志和产物；取消会调用共享 token/owned-process cleanup，只有底层返回终态后才显示
-Cancelled。启动前异常也会留在可见的 Failed 页面，不会停在 Starting。
+Cancelled。TUI 在调度 worker 前同步创建 token，因此 Starting 阶段、controller 尚未
+注册时的取消也会跳过 Workflow/Setup 的实际工作。启动前异常也会留在可见的 Failed
+页面，不会停在 Starting；完成或启动失败都会清除活动 token。
+
+Workflow 运行期间，OpenLRC logger 输出会进入页面下方固定的 `RUNTIME OUTPUT` 框，
+不会直接写入 terminal 并覆盖 Textual 画面；原 terminal handler 在退出 TUI 后恢复。
+任务进入终态后，Esc / `g h` 直接返回 Home，Jobs / New Work 则进入对应页面；这些
+路径都会先移除本次 Workflow 的整个配置栈并丢弃已消费 Draft。
 
 Jobs 历史不保存 API key。详情页提供：
 
@@ -110,6 +139,9 @@ Jobs 历史不保存 API key。详情页提供：
 - 删除历史前确认；正在运行的记录不能删除。
 
 Resume 会恢复为新 Draft 和新 Job ID，并返回 Confirm 重新检查，不会绕过 Preflight。
+若当前已有 dirty Draft，详情页先显示 `Discard Draft and Resume` /
+`Keep Current Draft`；确认前不修改 Draft、baseline、路径或当前页面，Keep/取消继续
+停留在 Job Detail，只有 Discard 才加载历史 recipe 并记录 `resumed_from`。
 
 ## Models、Doctor 与 Settings
 
@@ -120,6 +152,9 @@ Workflow 不能并行占用可变资源。
 Settings 是 working copy：子页修改只保存在内存，必须选择 `Save changes` 才原子写入
 `settings.json`。离开 dirty Settings 时可 Save、Discard 或 Stay。API key 写入 macOS
 Keychain，不进入 settings 或 job recipe；environment credential 只读取、不删除。
+Settings 根页面的 Esc、`g h` 和 Quit 共用同一个离开保护；子页 Esc 只返回 Settings
+根页面，不询问。Save 只有写盘成功才执行原导航，失败会保留 dirty working copy 和当前
+页面；Discard 恢复已保存设置后执行，Stay/关闭弹窗不执行。
 没有任何修改时，Save 和 Discard 都保持灰色 disabled，Save 不继承主动作的 amber；
 working copy 变脏后 Save 才恢复 amber 强调和键盘焦点。disabled 只改变文字和交互
 状态，Save、spacer 与同组其他行始终使用相同主题结构边框，外框不会中途断色。

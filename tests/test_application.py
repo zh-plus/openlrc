@@ -4,6 +4,7 @@ import importlib
 import stat
 import threading
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -21,7 +22,9 @@ from openlrc.application import (
     normalize_input_paths,
     preflight,
 )
+from openlrc.config import ContextAssistance
 from openlrc.workflow import (
+    CancellationToken,
     RunExecutionStrategy,
     RunRequest,
     TranscribeRequest,
@@ -245,6 +248,34 @@ def test_tui_v2_transcription_hardware_options_reach_whisper_config(tmp_path: Pa
     assert request.transcription.asr_options == {"use_gpu": False, "flash_attn": False}
 
 
+def test_tui_v2_hymt2_defaults_context_to_configured_qwen(tmp_path: Path) -> None:
+    transcription = tmp_path / "episode.json"
+    transcription.touch()
+    fallback_settings = AppSettings()
+    fallback_settings.local_models.qwen_model = ""
+    fallback_draft = WorkflowDraft.defaults(fallback_settings, WorkflowKind.TRANSLATE)
+    assert fallback_draft.context_provider == "local"
+    assert fallback_draft.context_model == "qwen3.5-9b"
+
+    settings = AppSettings()
+    settings.local_models.qwen_model = "custom-qwen.gguf"
+    draft = WorkflowDraft.defaults(settings, WorkflowKind.TRANSLATE)
+    draft.task = "translate-existing"
+    draft.paths = [str(transcription)]
+    draft.translation_backend = "local"
+    draft.mode = "normal"
+    draft.hymt2_model = "hy-mt2.gguf"
+
+    request = draft.build_request(settings, StaticCredentials())
+
+    assert draft.context_provider == "local"
+    assert draft.context_model == "custom-qwen.gguf"
+    assert isinstance(request, TranslateRequest)
+    assert request.translation.config.context_llm is not None
+    assert request.translation.config.context_llm.local_llm is not None
+    assert request.translation.config.context_llm.local_llm.model_path == "custom-qwen.gguf"
+
+
 def test_tui_v2_local_qwen_uses_shared_classic_factory(tmp_path: Path) -> None:
     transcription = tmp_path / "episode.json"
     transcription.touch()
@@ -318,6 +349,46 @@ def test_brief_characters_use_simple_source_target_lines(tmp_path: Path) -> None
     draft.brief_characters = "missing separator"
     with pytest.raises(ValueError, match="Source Name = Target Name"):
         draft._brief()
+
+
+def test_context_assistance_off_normalizes_manual_empty_sections_and_hides_context_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    transcription = tmp_path / "episode.json"
+    transcription.write_text('{"language":"en","segments":[]}', encoding="utf-8")
+    draft = WorkflowDraft(
+        workflow="translate",
+        paths=[str(transcription)],
+        translation_backend="local",
+        mode="normal",
+        context_assistance="off",
+        context_provider="local",
+        context_model="preserved-for-auto.gguf",
+        brief_summary="Story",
+    )
+
+    request = draft.build_request(AppSettings(), StaticCredentials())
+    assert isinstance(request, TranslateRequest)
+    config = request.translation.config
+    assert config.context_assistance is ContextAssistance.OFF
+    assert config.context_llm is None
+    assert config.translation_brief is not None
+    assert config.translation_brief.characters == []
+    assert config.translation_brief.tone_style == ""
+    recipe = draft.to_recipe()
+    assert "context_provider" not in recipe
+    assert "context_model" not in recipe
+
+    preflight_module = importlib.import_module("openlrc.application.preflight")
+    monkeypatch.setattr(preflight_module, "_check_resources", lambda *_args: None)
+    report = preflight(draft, AppSettings(), StaticCredentials())
+    assert report.summary["context_model"] == "Off · Manual Brief"
+
+
+def test_old_workflow_recipe_defaults_context_assistance_to_auto() -> None:
+    draft = WorkflowDraft.from_recipe({"workflow": "translate", "translation_backend": "local", "mode": "normal"})
+
+    assert draft.context_assistance == ContextAssistance.AUTO.value
 
 
 def test_normalize_input_paths_uses_full_identity_and_preserves_order(
@@ -467,6 +538,26 @@ def test_job_controller_enforces_one_active_job_and_cancels_with_workflow_token(
     assert controller.records[0].status is JobRecordStatus.CANCELLED
     assert any("cancelled" in line for line in controller.records[0].event_log)
     assert next(iter(controller.records[0].items.values())).state == "cancelled"
+
+
+def test_job_controller_honors_pre_cancelled_external_token_before_lrcer_creation(tmp_path: Path) -> None:
+    media = tmp_path / "episode.mp4"
+    media.touch()
+    controller = JobController(JobRepository(tmp_path / "jobs.json"))
+    token = CancellationToken()
+    token.cancel()
+
+    with patch("openlrc.workflow.executor.LRCer") as lrcer_cls:
+        result = controller.run(
+            WorkflowDraft(workflow="transcribe", paths=[str(media)]),
+            AppSettings(),
+            StaticCredentials(),
+            cancellation_token=token,
+        )
+
+    assert result.status is WorkflowStatus.CANCELLED
+    assert controller.records[0].status is JobRecordStatus.CANCELLED
+    lrcer_cls.assert_not_called()
 
 
 def test_job_controller_releases_active_state_when_final_history_save_fails(tmp_path: Path) -> None:

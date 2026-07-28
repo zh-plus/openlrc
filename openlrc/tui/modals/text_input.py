@@ -1,5 +1,7 @@
 """Single-line and multiline text entry modals."""
 
+from collections.abc import Callable
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
@@ -25,12 +27,7 @@ class TextInputModal(ModalScreen[str | None]):
             yield Static(tr(self.dialog_title), classes="modal-title", markup=False)
             with Vertical(classes="modal-field-frame"):
                 yield Static(tr("VALUE"), classes="modal-field-title", markup=False)
-                yield Input(
-                    value=self.value,
-                    placeholder=tr(self.placeholder),
-                    password=self.password,
-                    id="text-value",
-                )
+                yield Input(value=self.value, placeholder=tr(self.placeholder), password=self.password, id="text-value")
             yield _modal_actions("Apply")
 
     def on_mount(self) -> None:
@@ -59,10 +56,19 @@ class PathsModal(ModalScreen[str | None]):
         self.value = value
 
     def compose(self) -> ComposeResult:
-        with Vertical(classes="modal-dialog paths-dialog"):
+        with Vertical(classes="modal-dialog editor-dialog"):
             yield Static(tr("Paste Paths"), classes="modal-title", markup=False)
-            yield Static(tr("Enter one path per line. Missing paths stay visible for correction."), classes="muted")
-            yield TextArea(self.value, id="paths-value")
+            yield Static(
+                tr("Enter one path per line. Missing paths stay visible for correction."),
+                classes="modal-editor-help",
+                markup=False,
+            )
+            yield TextArea(self.value, id="paths-value", tab_behavior="focus")
+            yield Static(
+                tr("Ctrl+Enter Apply · Esc Cancel · Tab Actions · Shift+Tab Editor"),
+                classes="modal-editor-hint",
+                markup=False,
+            )
             yield _modal_actions("Add Paths")
 
     def on_mount(self) -> None:
@@ -92,27 +98,46 @@ class MultilineTextModal(ModalScreen[str | None]):
         Binding("shift+tab", "focus_editor", "Editor", show=False, priority=True),
     ]
 
-    def __init__(self, title: str, value: str = "", *, help_text: str = "") -> None:
+    def __init__(
+        self,
+        title: str,
+        value: str = "",
+        *,
+        help_text: str = "",
+        placeholder: str = "",
+        validator: Callable[[str], object] | None = None,
+    ) -> None:
         super().__init__()
         self.dialog_title = title
         self.value = value
         self.help_text = help_text
+        self.placeholder = placeholder
+        self.validator = validator
 
     def compose(self) -> ComposeResult:
-        with Vertical(classes="modal-dialog paths-dialog"):
+        with Vertical(classes="modal-dialog editor-dialog"):
             yield Static(tr(self.dialog_title), classes="modal-title", markup=False)
-            yield Static(tr(self.help_text), classes="muted", markup=False)
-            yield TextArea(self.value, id="multiline-value")
+            yield Static(tr(self.help_text), classes="modal-editor-help", markup=False)
+            yield TextArea(self.value, id="multiline-value", placeholder=tr(self.placeholder), tab_behavior="focus")
+            yield Static("", classes="modal-validation-error", markup=False)
+            yield Static(
+                tr("Ctrl+Enter Apply · Esc Cancel · Tab Actions · Shift+Tab Editor"),
+                classes="modal-editor-hint",
+                markup=False,
+            )
             yield _modal_actions("Apply")
 
     def on_mount(self) -> None:
         self.query_one(TextArea).focus()
 
     def on_action_list_activated(self, event: ActionList.Activated) -> None:
-        self.dismiss(self.query_one(TextArea).text if event.action_id == "apply" else None)
+        if event.action_id == "apply":
+            self._submit()
+        else:
+            self.dismiss(None)
 
     def action_apply(self) -> None:
-        self.dismiss(self.query_one(TextArea).text)
+        self._submit()
 
     def action_focus_actions(self) -> None:
         self.query_one(ActionList).focus()
@@ -122,6 +147,29 @@ class MultilineTextModal(ModalScreen[str | None]):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        if event.text_area.id != "multiline-value":
+            return
+        event.text_area.remove_class("input-invalid")
+        error = self.query_one(".modal-validation-error", Static)
+        error.remove_class("visible")
+        error.update("")
+
+    def _submit(self) -> None:
+        value = self.query_one(TextArea).text
+        if self.validator is not None:
+            try:
+                self.validator(value)
+            except ValueError as exc:
+                editor = self.query_one(TextArea)
+                editor.add_class("input-invalid")
+                error = self.query_one(".modal-validation-error", Static)
+                error.update(tr(str(exc)))
+                error.add_class("visible")
+                editor.focus()
+                return
+        self.dismiss(value)
 
 
 def _modal_actions(apply_label: str) -> ActionList:

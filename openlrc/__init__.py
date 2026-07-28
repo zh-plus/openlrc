@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from openlrc.config import (
+        ContextAssistance,
         ContextLLMConfig,
         EditConfig,
         GlossaryOptions,
@@ -29,6 +30,7 @@ __all__ = (
     "TranslationConfig",
     "LocalLLMConfig",
     "ContextLLMConfig",
+    "ContextAssistance",
     "GlossaryOptions",
     "EditConfig",
     "EditResult",
@@ -44,7 +46,7 @@ __all__ = (
     "list_chatbot_models",
     "ModelProvider",
 )
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 __upstream_version__ = "1.7.0a1"
 __app_name__ = "OpenLRC Mac"
 __dist_name__ = "openlrc-mac"
@@ -56,6 +58,7 @@ _LAZY_EXPORTS = {
     "TranslationConfig": ("openlrc.config", "TranslationConfig"),
     "LocalLLMConfig": ("openlrc.config", "LocalLLMConfig"),
     "ContextLLMConfig": ("openlrc.config", "ContextLLMConfig"),
+    "ContextAssistance": ("openlrc.config", "ContextAssistance"),
     "GlossaryOptions": ("openlrc.config", "GlossaryOptions"),
     "EditConfig": ("openlrc.config", "EditConfig"),
     "EditResult": ("openlrc.editing", "EditResult"),

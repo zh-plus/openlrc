@@ -5,6 +5,8 @@ run.py
 test_run.py
 /data/
 /dist/
+/.uv-cache/
+/.venv/
 /openfaker.egg-info/
 __pycache__/
 uv.lock

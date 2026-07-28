@@ -10,7 +10,7 @@ from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 
-from openlrc.config import HyMT2Mode, normalize_hymt2_mode
+from openlrc.config import ContextAssistance, HyMT2Mode, context_model_required, normalize_hymt2_mode
 from openlrc.defaults import (
     COMPARE_SUFFIX,
     EDIT_REPORT_SUFFIX,
@@ -332,18 +332,14 @@ def _validate_translation_config(workflow_config: WorkflowTranslationConfig) -> 
         raise ValueError("Hy-MT2 must be the local primary translation model.")
 
     brief = config.translation_brief
-    complete_brief = bool(brief is not None and getattr(brief, "is_complete", False))
-    needs_context = bool(
-        expected is HyMT2Mode.PRO
-        or (expected is not HyMT2Mode.FAST and not complete_brief)
-        or (
-            expected is HyMT2Mode.NORMAL_PLUS
-            and config.edit_config.semantic_review
-            and config.edit_config.max_rounds > 0
-        )
-    )
     if expected is HyMT2Mode.FAST and brief is not None:
         raise ValueError("Fast mode does not use a Translation Brief.")
+    assistance = ContextAssistance(config.context_assistance)
+    needs_context = context_model_required(
+        mode=expected, translation_brief=brief, edit_config=config.edit_config, context_assistance=assistance
+    )
+    if assistance is ContextAssistance.OFF and config.context_llm is not None:
+        raise ValueError("Context assistance off conflicts with an explicit context model.")
     if needs_context and config.context_llm is None:
         raise ValueError(f"{mode.value} mode requires a context model for this configuration.")
 

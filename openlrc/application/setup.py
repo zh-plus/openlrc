@@ -147,9 +147,15 @@ class SetupController:
         token.cancel()
         return True
 
-    def run(self, request: SetupRequest, *, on_event: SetupEventCallback | None = None) -> SetupResult:
+    def run(
+        self,
+        request: SetupRequest,
+        *,
+        on_event: SetupEventCallback | None = None,
+        cancellation_token: CancellationToken | None = None,
+    ) -> SetupResult:
         operation_id = str(uuid.uuid4())
-        token = CancellationToken()
+        token = cancellation_token or CancellationToken()
         processes = OwnedProcessRegistry()
         remove_callback = token.add_callback(processes.terminate_all)
         sequence = 0
@@ -195,6 +201,7 @@ class SetupController:
 
         try:
             with self.operation_guard.acquire("setup", f"{request.kind.value} setup"):
+                token.raise_if_cancelled()
                 emit(SetupStartedEvent)
                 paths = self._execute(request, runner, emit)
                 token.raise_if_cancelled()

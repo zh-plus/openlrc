@@ -8,7 +8,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openlrc.config import ContextLLMConfig, EditConfig, HyMT2Mode, TranscriptionConfig, TranslationConfig
+from openlrc.config import (
+    ContextAssistance,
+    ContextLLMConfig,
+    EditConfig,
+    HyMT2Mode,
+    TranscriptionConfig,
+    TranslationConfig,
+)
 from openlrc.context import TranslationBriefInput
 from openlrc.exceptions import ChatBotException, TranscribeException
 from openlrc.models import ModelConfig, ModelProvider
@@ -147,6 +154,26 @@ def test_normal_plus_with_semantic_rounds_requires_context_model(tmp_path: Path)
     assert result.status is WorkflowStatus.FAILED
     assert result.error is not None
     assert result.error.category is ErrorCategory.CONFIGURATION
+
+
+def test_workflow_validation_rejects_context_model_hidden_by_assistance_off(tmp_path: Path) -> None:
+    source = tmp_path / "source.json"
+    source.write_text("{}", encoding="utf-8")
+    complete = TranslationBriefInput(summary="Story", characters=[], tone_style="")
+    config = TranslationConfig.local_hy_mt2_7b(
+        mode=HyMT2Mode.NORMAL, context_assistance=ContextAssistance.OFF, translation_brief=complete
+    )
+    config.context_llm = ContextLLMConfig.online(provider=ModelProvider.OPENAI, model="hidden")
+    request = TranslateRequest((source,), WorkflowTranslationConfig(TranslationMode.NORMAL, config))
+
+    with patch("openlrc.workflow.executor.LRCer") as lrcer_cls:
+        result = WorkflowExecutor().execute(request)
+
+    assert result.status is WorkflowStatus.FAILED
+    assert result.error is not None
+    assert result.error.category is ErrorCategory.CONFIGURATION
+    assert "conflicts" in result.error.message
+    lrcer_cls.assert_not_called()
 
 
 def test_mode_config_mismatch_is_structured_failure(tmp_path: Path) -> None:

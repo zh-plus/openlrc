@@ -48,6 +48,8 @@ ZH_CN: dict[str, str] = {
     "Interrupted": "已中断",
     "Starting": "正在启动",
     "Working": "正在处理",
+    "RUNTIME OUTPUT": "运行输出",
+    "Waiting for runtime output...": "等待运行输出……",
     "Pending": "等待中",
     "Preparing": "准备中",
     "Missing": "缺失",
@@ -99,9 +101,7 @@ ZH_CN: dict[str, str] = {
         "[ENTER] 打开/保存   [ESC] 返回   退出时提示未保存更改"
     ),
     "[ENTER] Configure   [ESC] Back": "[ENTER] 配置   [ESC] 返回",
-    "[ENTER] Edit/Test   [SPACE] Toggle   [ESC] Back": (
-        "[ENTER] 编辑/测试   [SPACE] 切换   [ESC] 返回"
-    ),
+    "[ENTER] Edit/Test   [SPACE] Toggle   [ESC] Back": ("[ENTER] 编辑/测试   [SPACE] 切换   [ESC] 返回"),
     "[ENTER] Edit   [ESC] Back": "[ENTER] 编辑   [ESC] 返回",
     "[ENTER] Edit/Toggle   [ESC] Back": "[ENTER] 编辑/切换   [ESC] 返回",
     "[ENTER] Select/Inspect   [ESC] Back": "[ENTER] 选择/查看   [ESC] 返回",
@@ -110,15 +110,12 @@ ZH_CN: dict[str, str] = {
     "[UP/DOWN] Select   [ENTER] Details   [ESC] Back": "[↑/↓] 选择   [ENTER] 详情   [ESC] 返回",
     "[UP/DOWN] Select   [ENTER] Open   [ESC] Back": "[↑/↓] 选择   [ENTER] 打开   [ESC] 返回",
     "[ENTER] Details/Refresh   [ESC] Back": "[ENTER] 详情/刷新   [ESC] 返回",
-    "[ENTER] Edit/Start   [SPACE] Toggle   [ESC] Back": (
-        "[ENTER] 编辑/开始   [SPACE] 切换   [ESC] 返回"
-    ),
-    "[ENTER] Details   [C] Cancel   [ESC] Leave setup running": (
-        "[ENTER] 详情   [C] 取消   [ESC] 后台继续安装"
-    ),
+    "[ENTER] Edit/Start   [SPACE] Toggle   [ESC] Back": ("[ENTER] 编辑/开始   [SPACE] 切换   [ESC] 返回"),
+    "[ENTER] Details   [C] Cancel   [ESC] Leave setup running": ("[ENTER] 详情   [C] 取消   [ESC] 后台继续安装"),
     "[L] Logs   [O] Outputs   [C] Cancel   [ESC] Leave running": (
         "[L] 日志   [O] 输出   [C] 取消   [ESC] 后台继续运行"
     ),
+    "[L] Logs   [O] Outputs   [ESC] Home": "[L] 日志   [O] 输出   [ESC] 首页",
     "[R] Resume   [C] Cancel   [O/F/Y] Output   [D] Delete   [ESC] Back": (
         "[R] 恢复   [C] 取消   [O/F/Y] 输出   [D] 删除   [ESC] 返回"
     ),
@@ -180,8 +177,18 @@ ZH_CN: dict[str, str] = {
     "Hy-MT2 model": "Hy-MT2 模型",
     "Context provider": "Context 服务",
     "Context model": "Context 模型",
+    "Context Model": "Context 模型",
     "Context base URL": "Context Base URL",
     "Context fee limit": "Context 费用上限",
+    "Context assistance": "Context 辅助",
+    "Context Assistance": "Context 辅助",
+    "Required by Pro": "Pro 模式强制启用",
+    "Required by semantic review": "语义检查强制启用",
+    "Required": "必填",
+    "None · explicit": "无 · 已明确指定",
+    "No additional guidance": "无额外指导",
+    "Use a Context model when required": "需要时使用 Context 模型",
+    "Use only the complete manual Brief": "仅使用完整的人工 Brief",
     "Brief summary": "Brief 摘要",
     "Brief characters": "Brief 人物映射",
     "Brief tone & style": "Brief 语气与风格",
@@ -401,15 +408,33 @@ ZH_CN: dict[str, str] = {
     # Modals and help
     "VALUE": "值",
     "Enter one path per line. Missing paths stay visible for correction.": "每行输入一个路径；缺失路径会保留以便修正。",
+    "Ctrl+Enter Apply · Esc Cancel · Tab Actions · Shift+Tab Editor": (
+        "Ctrl+Enter 应用 · Esc 取消 · Tab 操作 · Shift+Tab 编辑"
+    ),
+    "Enter one mapping per line. Empty lines are ignored.": "每行输入一个映射；空行会被忽略。",
+    "Describe the story, setting, and context. Multiple lines are supported.": (
+        "描述故事、场景和上下文；支持多行输入。"
+    ),
+    "Story summary and important context": "故事摘要和重要上下文",
+    "Add optional tone, register, or style guidance. Multiple lines are supported.": (
+        "可选填写语气、语域或风格要求；支持多行输入。"
+    ),
+    "Tone, register, and style guidance": "语气、语域和风格要求",
+    "Invalid · edit to fix": "格式无效 · 请编辑修复",
     "No files selected": "尚未选择文件",
     "Use Selected": "使用已选文件",
     "Go": "前往",
     "Up": "上一级",
     "Keyboard Help": "键盘帮助",
     "Existing Workflow Draft": "已有任务草稿",
+    "Unsaved Workflow Draft": "未保存的任务草稿",
     "Continue Draft": "继续草稿",
     "Discard and Start New": "放弃并新建",
     "Remove the current unsaved Draft": "删除当前未保存草稿",
+    "Discard Draft and Resume": "放弃草稿并恢复任务",
+    "Replace the current unsaved Draft": "替换当前未保存草稿",
+    "Keep Current Draft": "保留当前草稿",
+    "Cancel Resume without changing the Draft": "取消恢复且不修改当前草稿",
     "Unsaved Settings": "未保存的设置",
     "Save and Leave": "保存并离开",
     "Write the settings working copy": "写入设置工作副本",
@@ -439,6 +464,17 @@ ZH_CN: dict[str, str] = {
     "q                Quit": "q                退出",
     "Single-character shortcuts are disabled while editing text.": "编辑文本时会停用单字符快捷键。",
     "Another operation is already active.": "已有另一个操作正在运行。",
+    "Enable Context assistance Auto before using Normal Plus semantic review.": (
+        "使用 Normal Plus 语义检查前，请先将 Context 辅助设为自动。"
+    ),
+    "Context assistance changed to Auto because Pro requires it.": "Pro 模式要求 Context 辅助，已切换为自动。",
+    "Enable Context assistance Auto before adding semantic review rounds.": (
+        "增加语义检查轮次前，请先将 Context 辅助设为自动。"
+    ),
+    "Pro requires Context assistance Auto.": "Pro 模式要求 Context 辅助为自动。",
+    "Set semantic review rounds to 0 before turning Context assistance Off.": (
+        "关闭 Context 辅助前，请先将语义检查轮次设为 0。"
+    ),
     "Credential saved to System Keychain.": "凭据已保存到系统钥匙串。",
     "Keychain credential removed.": "钥匙串凭据已移除。",
     "This field requires an integer.": "这个字段必须是整数。",
@@ -477,6 +513,13 @@ _COUNT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"^(\d+) model missing$"), r"\1 个模型缺失"),
     (re.compile(r"^(\d+)/(\d+) checks pass$"), r"\1/\2 项检查通过"),
     (re.compile(r"^(\d+)/(\d+) available$"), r"\1/\2 项可用"),
+)
+
+_VALIDATION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(r"^Brief character line (\d+) must use 'Source Name = Target Name'\.$"),
+        r"人物映射第 \1 行必须使用“源名称 = 目标名称”。",
+    ),
 )
 
 _PREFIXES = {
@@ -527,6 +570,9 @@ def tr(text: str, *, language: str | None = None) -> str:
             return localized_prefix + tr(text[len(prefix) :], language=selected_language)
     if " · " in text:
         return " · ".join(tr(part, language=selected_language) for part in text.split(" · "))
+    for pattern, replacement in _VALIDATION_PATTERNS:
+        if pattern.fullmatch(text):
+            return pattern.sub(replacement, text)
     for pattern, replacement in _COUNT_PATTERNS:
         if pattern.fullmatch(text):
             return pattern.sub(replacement, text)

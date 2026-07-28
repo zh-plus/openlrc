@@ -55,7 +55,7 @@ uv run openlrc --version
 当前输出类似：
 
 ```text
-OpenLRC Mac 0.4.0 (distribution: openlrc-mac; upstream base: OpenLRC 1.7.0a1)
+OpenLRC Mac 0.4.1 (distribution: openlrc-mac; upstream base: OpenLRC 1.7.0a1)
 ```
 
 ### `openlrc doctor`
@@ -262,6 +262,9 @@ uv run openlrc translate preprocessed/input_preprocessed_transcribed.json --tran
 - `--idle-timeout`: OpenLRC 自己启动的本地 server 空闲关闭时间，默认 `300` 秒。
 - `--hy-mt2-mode fast|normal|normal-plus|pro`: Hy-MT2 管线模式，默认 `fast`；
   `context` / `context-plus` 是 0.3.x deprecated alias。
+- `--context-assistance auto|off`: Context model 使用策略，默认 `auto`。Fast
+  不使用 Context/Brief；`off` 只允许 Normal 和零轮语义审查的 Normal Plus 使用
+  完整人工 Brief。
 - `--context-provider openai|anthropic|google|litellm|third-party|local`: normal/normal-plus/pro 使用的通用模型 provider。
 - `--context-model`: 通用模型名；local 时可传 Qwen alias、GGUF 文件名或路径。
 - `--context-base-url`: 自定义 OpenAI-compatible context endpoint；`third-party` 时必填。
@@ -303,10 +306,18 @@ Brief，跳过自动 Brief 和自动术语提取。`characters=[]` 表示明确�
 人工术语不放进 Brief 参数，仍统一使用 `--glossary`。任务词典优先级高于人工
 Characters 和自动 Brief；相同源名称冲突时以任务词典为准，并在最终 Prompt 中去重。
 
-无人工 Brief 或只提供 Partial Brief 时，`normal` / `normal-plus` / `pro` 必须显式
-配置 context model。完整人工 Brief 可让 Normal 跳过 context model；Normal Plus
-只有在 `--edit-rounds 0` 时可跳过，语义编辑仍需 reviewer；Pro 仍需 context model
-生成 Timeline。纯本地模式严格按“通用模型 -> 卸载 -> Hy-MT2”顺序运行；
+`--context-assistance auto` 保持原有行为：Normal 的无 Brief/Partial Brief 需要
+context model；Normal Plus 在 Brief 不完整或 `--edit-rounds` 大于零时需要；
+Pro 始终需要它生成 Timeline。完整人工 Brief 可让 Normal 跳过 context model，
+Normal Plus 仅在 `--edit-rounds 0` 时可跳过。
+
+`--context-assistance off` 是显式的“只使用人工 Brief”模式。除 Fast 外，它要求
+`--brief-summary`；未提供/空的 characters 会规范化为 `[]`，未提供/空的 tone/style
+会规范化为 `""`，因此用户可以明确表示没有人物映射或额外风格要求。Off 不允许同时
+传入 Context provider/model/base URL；Pro 和带语义审查的 Normal Plus 会给出明确
+错误。非 Hy-MT2 后端也拒绝 Off。
+
+纯本地模式严格按“通用模型 -> 卸载 -> Hy-MT2”顺序运行；
 Normal Plus 和 Pro 翻译后再卸载 Hy-MT2 并重新加载通用模型。Pro 在第一次
 通用模型驻留期间顺序生成完整 Timeline，并按 chunk 原子保存进度。Hy-MT2
 不提供 classic/lean engine 选择。
@@ -358,7 +369,8 @@ uv run openlrc run input.mp4 --src-lang en --target-lang zh-cn --translation onl
 - `--local-model-profile`: 本地 LLM profile，决定采样参数和 prompt。
 - `--llama-port`: 本地 `llama-server` 端口，默认 `8088`。
 - `--idle-timeout`: OpenLRC 自己启动的本地 server 空闲关闭时间，默认 `300` 秒。
-- Hy-MT2 的 `--hy-mt2-mode` 和 `--context-*` 参数与 `translate` 命令一致。
+- Hy-MT2 的 `--hy-mt2-mode`、`--context-assistance` 和其他 `--context-*`
+  参数与 `translate` 命令一致。
 - `--glossary`、`--force-glossary`、`--glossary-strict`、`--edit-rounds`
   和 `--enable-restore` 与 `translate` 命令一致。
 - `--brief-summary`、`--brief-characters` 和 `--brief-tone-style` 与
@@ -414,12 +426,14 @@ uv run openlrc edit --source source.json --target translated.json \
 - `verify`: 只运行结构、术语、人物/实体、数字、金额、日期和占位符检查；不加载模型。
 - `review`: 只审查 `--ids`，必须显式配置 `--context-provider` 与 `--context-model`。
 - `retranslate`: 只重译 `--ids`，必须显式配置 Hy-MT2；Normal/Normal Plus 在
-  Brief 不完整时需要 context model，Pro 始终需要它生成 Timeline。
+  Auto + Brief 不完整时需要 context model；也可按上述规则使用
+  `--context-assistance off`。Pro 始终需要 context model 生成 Timeline。
 - `restore`: 从稳定 edit session 恢复指定轮次；会校验源文、当前译文、行数和时间轴 fingerprint。
 
 `review` 和 `retranslate` 接受与翻译入口相同的三个人工 Brief 参数；完整 Brief
 只省略前置 Brief 生成，不替代 review 或 Pro Timeline 所需的模型。`verify` 和
-`restore` 不消费 Brief，因此传入这些参数会报错。
+`restore` 不消费 Brief，因此传入这些参数会报错。`--context-assistance off`
+只适用于 `edit retranslate`；review、verify、restore 和其他 edit action 会拒绝它。
 
 每次命令默认写 `<base>.edit-report.json`；`--markdown-report` 改写 Markdown
 报告。`verify` 出现 error severity 时返回非零退出码。事务失败时不提交任何 Patch。

@@ -3,6 +3,52 @@
 这个文件只记录 OpenLRC Mac fork 自己的变更。英文版见
 [CHANGELOG.md](CHANGELOG.md) 中的 OpenLRC Mac 条目；两个文件需要同步更新。
 
+## OpenLRC Mac 0.4.1
+
+本版本集中修复 TUI 可靠性：关闭 Starting 取消窗口，保护 Settings/Draft 导航事务，
+加入可关闭的 Context assistance，并改善 Brief 输入与运行日志展示。
+
+### 新增
+
+- 在 Python 配置、Hy-MT2 factory、Workflow recipe、CLI
+  `--context-assistance` 和 TUI 中新增公开 `ContextAssistance` 策略，支持
+  `auto` / `off`。`off` 可让 Normal 或零轮语义审查的 Normal Plus 使用完整人工
+  Translation Brief 运行，且不会构造 Context model。
+
+### 修复
+
+- TUI 挂载期间把 OpenLRC 运行日志捕获到页面下方固定的 `RUNTIME OUTPUT` 框，
+  不再让 terminal stream 覆盖 Textual 画面；退出 TUI 时会恢复原 terminal handler。
+- Workflow 进入终态后，Esc、Home、Jobs 和 New Work 会统一移除已完成任务的页面栈并
+  丢弃已消费 Draft，不再暴露刚才的配置页面。
+- 新建 Hy-MT2 Draft 在需要 Context assistance 时默认使用 Settings 中配置的本地
+  Qwen；配置为空时回退到内置 `qwen3.5-9b` profile。缺少旧 Context 字段的历史 recipe
+  Resume 时也会补入当前默认值。
+- Translation Brief 改用多行编辑器，并显示键盘提示、固定 Apply/Cancel 操作区；在
+  80×24 下输入框、操作和底边框仍完整可见。非法 Character 映射会留在编辑器中显示
+  行级错误且不修改 Draft，不再在页面重组时导致程序崩溃。
+- TUI 在调度 Workflow/Setup worker 前创建共享 cancellation token，关闭 Starting
+  阶段的取消窗口。即使 controller 尚未注册，确认取消也会送达 operation、跳过尚未
+  开始的工作、清理 owned resource，并只产生一个 Cancelled 终态。
+- dirty Settings 的根页面 Esc、返回 Home 和 Quit 统一使用事务式离开保护。保存失败
+  会保留 working copy 和当前页面，只有保存成功或明确 Discard 才执行后续导航。
+- 从历史 Resume 前保护现有 dirty Workflow Draft。只有确认丢弃后才创建新任务；
+  Keep 或取消会保留原 Draft。
+- 将 Hy-MT2 Context 依赖规则收口到配置、Workflow、application、CLI 和 `LRCer`
+  共用的 resolver。Auto 继续让模型补全缺失/Partial Brief；Off 要求 summary，并将
+  未提供的人物和语气规范化为显式空值；Pro 和带语义审查的 Normal Plus 拒绝 Off。
+- 从 Git 和源码发行包中排除仓库内 UV/虚拟环境缓存，避免 release archive 意外携带
+  本机构建缓存内容。
+
+### 验证
+
+- 0.4.1 发布回归为 `578 passed, 25 skipped, 21 warnings`；Ruff lint、修改文件的
+  format check、生产 `openlrc/` Pyright（`0 errors, 0 warnings`）和
+  `git diff --check` 通过。
+- `openlrc --version` 显示 0.4.1；`uv build --offline` 成功生成 0.4.1
+  sdist/wheel。包内容核对确认源码包无本地缓存，版本 metadata、TUI stylesheet、
+  application/workflow 模块及 `openlrc`、`openlrc-mac`、`openlrc-tui` 入口完整。
+
 ## OpenLRC Mac 0.4.0
 
 共享 Workflow/application service 与 Textual TUI v2 版本，同时强化本地转写、

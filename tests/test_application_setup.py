@@ -10,10 +10,12 @@ from openlrc.application import (
     SetupCompletedEvent,
     SetupController,
     SetupLogEvent,
+    SetupStartedEvent,
     SetupStatus,
     WhisperSetupRequest,
 )
 from openlrc.setup.whisper_cpp import WhisperSetupResult
+from openlrc.workflow import CancellationToken
 
 
 def test_setup_controller_returns_typed_result_and_events(tmp_path: Path, monkeypatch) -> None:
@@ -67,6 +69,22 @@ def test_setup_cancel_terminates_owned_process(tmp_path: Path, monkeypatch) -> N
     assert results[0].status is SetupStatus.CANCELLED
     assert any(isinstance(event, SetupLogEvent) for event in events)
     assert isinstance(events[-1], SetupCancelledEvent)
+
+
+def test_setup_controller_honors_pre_cancelled_external_token_before_setup_service(monkeypatch) -> None:
+    def unexpected_setup(**_kwargs):
+        raise AssertionError("setup service must not run for a pre-cancelled operation")
+
+    monkeypatch.setattr("openlrc.application.setup.setup_whisper_cpp", unexpected_setup)
+    token = CancellationToken()
+    token.cancel()
+    events = []
+
+    result = SetupController().run(WhisperSetupRequest(), on_event=events.append, cancellation_token=token)
+
+    assert result.status is SetupStatus.CANCELLED
+    assert not any(isinstance(event, SetupStartedEvent) for event in events)
+    assert sum(isinstance(event, SetupCancelledEvent) for event in events) == 1
 
 
 def test_operation_guard_rejects_parallel_resource_owner() -> None:

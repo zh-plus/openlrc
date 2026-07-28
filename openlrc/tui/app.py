@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
 from textual import work
 from textual.app import App
+from textual.await_complete import AwaitComplete
 from textual.binding import Binding
+from textual.message import Message
 from textual.notifications import SeverityLevel
 from textual.theme import Theme
 from textual.widgets import Input, TextArea
@@ -35,6 +38,8 @@ from openlrc.application import (
     test_provider_connection,
 )
 from openlrc.application.settings import GeneralSettings
+from openlrc.logger import handler as openlrc_terminal_handler
+from openlrc.logger import logger as openlrc_logger
 from openlrc.tui.i18n import tr
 from openlrc.tui.modals import ChoiceModal, ConfirmModal, DetailModal
 from openlrc.tui.modals.file_picker import choose_files_native
@@ -43,9 +48,39 @@ from openlrc.tui.screens.home import HomeScreen
 from openlrc.tui.screens.jobs import JobsScreen
 from openlrc.tui.screens.models import ModelsScreen, SetupRunningScreen
 from openlrc.tui.screens.settings import SettingsScreen
-from openlrc.tui.screens.workflow import RunningWorkflowScreen, WorkflowOptionsScreen, WorkflowTypeScreen
+from openlrc.tui.screens.workflow import (
+    ConfirmWorkflowScreen,
+    RunningWorkflowScreen,
+    WorkflowOptionsScreen,
+    WorkflowTypeScreen,
+)
 from openlrc.tui.widgets.logo import LogoWidget
-from openlrc.workflow import WorkflowEvent, WorkflowResult
+from openlrc.workflow import CancellationToken, WorkflowEvent, WorkflowResult
+
+
+class RuntimeLogLine(Message):
+    """A thread-safe OpenLRC log record routed into the active TUI operation."""
+
+    def __init__(self, operation_kind: str | None, line: str) -> None:
+        super().__init__()
+        self.operation_kind = operation_kind
+        self.line = line
+
+
+class _TextualLogHandler(logging.Handler):
+    """Forward OpenLRC records without writing through the terminal stream."""
+
+    def __init__(self, sink: Callable[[str], None]) -> None:
+        super().__init__()
+        self._sink = sink
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self._sink(self.format(record))
+        except Exception:
+            # Logging must never interrupt the Workflow or corrupt the TUI.
+            return
+
 
 OPENLRC_DARK = Theme(
     name="openlrc-dark",
@@ -117,11 +152,17 @@ class OpenLRCTUI(App[None]):
         self.setup_running_screen: SetupRunningScreen | None = None
         self.setup_stage = ""
         self.setup_logs: list[str] = []
+        self.workflow_output: list[str] = []
+        self._active_cancellation_token: CancellationToken | None = None
         self.exit_after_operation = False
         self._native_picker_callback: Callable[[list[str]], None] | None = None
         self._doctor_cache: list[ResourceStatus] | None = None
         self._model_cache: list[ResourceStatus] | None = None
         self._goto_pending = False
+        self._finished_workflow_close_pending = False
+        self._terminal_log_handler_removed = False
+        self._tui_log_handler = _TextualLogHandler(self._post_runtime_log)
+        self._tui_log_handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
 
     @property
     def settings_dirty(self) -> bool:
@@ -149,8 +190,44 @@ class OpenLRCTUI(App[None]):
         return self._draft.to_recipe() != self._draft_baseline
 
     def on_mount(self) -> None:
+        self._install_log_capture()
         self.apply_visual_settings(self.settings.general)
         self.push_screen(HomeScreen())
+
+    def on_unmount(self) -> None:
+        self._uninstall_log_capture()
+
+    def _install_log_capture(self) -> None:
+        if self._tui_log_handler in openlrc_logger.handlers:
+            return
+        if openlrc_terminal_handler in openlrc_logger.handlers:
+            openlrc_logger.removeHandler(openlrc_terminal_handler)
+            self._terminal_log_handler_removed = True
+        openlrc_logger.addHandler(self._tui_log_handler)
+
+    def _uninstall_log_capture(self) -> None:
+        if self._tui_log_handler in openlrc_logger.handlers:
+            openlrc_logger.removeHandler(self._tui_log_handler)
+        if self._terminal_log_handler_removed and openlrc_terminal_handler not in openlrc_logger.handlers:
+            openlrc_logger.addHandler(openlrc_terminal_handler)
+        self._terminal_log_handler_removed = False
+
+    def _post_runtime_log(self, line: str) -> None:
+        self.post_message(RuntimeLogLine(self.active_operation_kind, line))
+
+    def on_runtime_log_line(self, message: RuntimeLogLine) -> None:
+        if message.operation_kind == "workflow":
+            self.workflow_output.append(message.line)
+            del self.workflow_output[:-500]
+            screen = self.running_workflow_screen
+            if screen is not None and screen.is_mounted:
+                screen.append_runtime_output(message.line)
+        elif message.operation_kind == "setup":
+            self.setup_logs.append(message.line)
+            del self.setup_logs[:-1000]
+            screen = self.setup_running_screen
+            if screen is not None and screen.is_mounted:
+                screen.update_event()
 
     def apply_visual_settings(self, general: GeneralSettings | None = None) -> None:
         """Preview or restore presentation-only settings without touching Workflow state."""
@@ -226,12 +303,38 @@ class OpenLRCTUI(App[None]):
         self._draft_baseline = None
         self.input_issues = []
 
+    def resume_workflow(self, record: JobRecord) -> None:
+        draft = WorkflowDraft.from_recipe(record.recipe)
+        context_defaults = WorkflowDraft.defaults(self.settings)
+        draft.context_provider = draft.context_provider or context_defaults.context_provider
+        draft.context_model = draft.context_model or context_defaults.context_model
+        draft.paths = list(record.input_paths)
+        if not self.draft_dirty:
+            self._open_resumed_workflow(draft, record.job_id)
+            return
+        choices = [
+            ("resume", "Discard Draft and Resume", "Replace the current unsaved Draft"),
+            ("keep", "Keep Current Draft", "Cancel Resume without changing the Draft"),
+        ]
+        self.push_screen(
+            ChoiceModal("Unsaved Workflow Draft", choices),
+            lambda choice: self._resume_choice(choice, draft, record.job_id),
+        )
+
+    def _resume_choice(self, choice: str | None, draft: WorkflowDraft, job_id: str) -> None:
+        if choice == "resume":
+            self._open_resumed_workflow(draft, job_id)
+
+    def _open_resumed_workflow(self, draft: WorkflowDraft, job_id: str) -> None:
+        self.begin_workflow(draft)
+        self.push_screen(ConfirmWorkflowScreen(resumed_from=job_id))
+
     def establish_draft_baseline(self) -> None:
         if self._draft is not None and self._draft_baseline is None:
             self._draft_baseline = self._draft.to_recipe()
 
     def discard_clean_draft(self) -> None:
-        if self._draft is not None and not self.draft_dirty:
+        if not self._finished_workflow_close_pending and self._draft is not None and not self.draft_dirty:
             self.discard_draft()
 
     def discard_draft(self) -> None:
@@ -239,37 +342,73 @@ class OpenLRCTUI(App[None]):
         self._draft_baseline = None
         self.input_issues = []
 
+    def close_finished_workflow(self, destination: str | None = None) -> None:
+        """Leave a terminal Workflow result without retaining its configuration stack."""
+        self._finished_workflow_close_pending = True
+        completions = self._pop_to_home()
+        self.run_worker(
+            self._finalize_finished_workflow_close(completions, destination),
+            group="finished-workflow-close",
+            exclusive=True,
+        )
+
+    async def _finalize_finished_workflow_close(
+        self, completions: list[AwaitComplete], destination: str | None
+    ) -> None:
+        # pop_screen() removes stack entries synchronously but unmounts them
+        # asynchronously. Keep the consumed Draft alive until every old screen
+        # is detached, then make the discard atomic from the user's perspective.
+        for completion in completions:
+            await completion
+        self._finished_workflow_close_pending = False
+        self.discard_draft()
+        self.running_workflow_screen = None
+        if destination is not None:
+            self.open_route(destination)
+
     def go_back(self) -> None:
         if self.screen.id == "home":
             return
-        if self.screen.id == "settings-root" and self.settings_dirty:
-            choices = [
-                ("save", "Save and Leave", "Write the settings working copy"),
-                ("discard", "Discard and Leave", "Restore saved settings"),
-                ("stay", "Stay", "Continue editing"),
-            ]
-            self.push_screen(ChoiceModal("Unsaved Settings", choices), self._settings_leave)
+        if self.screen.id == "settings-root":
+            self._request_settings_leave(self.pop_screen)
             return
         self.pop_screen()
 
-    def _settings_leave(self, choice: str | None) -> None:
+    def _settings_open(self) -> bool:
+        return any(screen.id == "settings-root" for screen in self.screen_stack)
+
+    def _request_settings_leave(self, continuation: Callable[[], object]) -> None:
+        if not self.settings_dirty:
+            continuation()
+            return
+        choices = [
+            ("save", "Save and Leave", "Write the settings working copy"),
+            ("discard", "Discard and Leave", "Restore saved settings"),
+            ("stay", "Stay", "Continue editing"),
+        ]
+        self.push_screen(
+            ChoiceModal("Unsaved Settings", choices), lambda choice: self._settings_leave(choice, continuation)
+        )
+
+    def _settings_leave(self, choice: str | None, continuation: Callable[[], object]) -> None:
         if choice == "save":
-            self.save_settings()
-            self.pop_screen()
+            if self.save_settings():
+                continuation()
         elif choice == "discard":
             self.discard_settings()
-            self.pop_screen()
+            continuation()
 
-    def save_settings(self) -> None:
+    def save_settings(self) -> bool:
         try:
             self.settings_store.save(self.working_settings)
         except Exception as exc:
             self.notify(f"Settings were not saved: {exc}", severity="error", timeout=8)
-            return
+            return False
         self.settings = AppSettings.from_dict(self.working_settings.to_dict())
         self.apply_visual_settings(self.settings.general)
         self.clear_resource_cache()
         self.notify("Settings saved.")
+        return True
 
     def discard_settings(self) -> None:
         self.working_settings = AppSettings.from_dict(self.settings.to_dict())
@@ -277,6 +416,12 @@ class OpenLRCTUI(App[None]):
         self.notify("Unsaved settings discarded.")
 
     def action_quit_requested(self) -> None:
+        if self._settings_open() and self.settings_dirty:
+            self._request_settings_leave(self._show_quit_confirmation)
+            return
+        self._show_quit_confirmation()
+
+    def _show_quit_confirmation(self) -> None:
         if self.operation_state != "idle":
             message = "The active operation must be cancelled and cleaned up before OpenLRC exits."
         else:
@@ -309,6 +454,9 @@ class OpenLRCTUI(App[None]):
         self.open_route("doctor")
 
     def action_new_workflow(self) -> None:
+        if self._finished_workflow_is_current():
+            self.close_finished_workflow("new-workflow")
+            return
         self.open_route("new-workflow")
 
     def action_help(self) -> None:
@@ -333,14 +481,28 @@ class OpenLRCTUI(App[None]):
 
     def action_goto_home(self) -> None:
         self._goto_pending = False
+        if self._finished_workflow_is_current():
+            self.close_finished_workflow()
+            return
+        if self._settings_open() and self.settings_dirty:
+            self._request_settings_leave(self._pop_to_home)
+            return
+        self._pop_to_home()
+
+    def _pop_to_home(self) -> list[AwaitComplete]:
         stack = list(self.screen_stack)
         home_index = next((index for index, screen in enumerate(stack) if screen.id == "home"), len(stack) - 1)
-        for _ in range(len(stack) - home_index - 1):
-            self.pop_screen()
+        return [self.pop_screen() for _ in range(len(stack) - home_index - 1)]
 
     def action_goto_jobs(self) -> None:
         self._goto_pending = False
+        if self._finished_workflow_is_current():
+            self.close_finished_workflow("jobs")
+            return
         self.push_screen(JobsScreen())
+
+    def _finished_workflow_is_current(self) -> bool:
+        return isinstance(self.screen, RunningWorkflowScreen) and self.screen.result is not None
 
     def _clear_goto_prefix(self) -> None:
         self._goto_pending = False
@@ -373,11 +535,7 @@ class OpenLRCTUI(App[None]):
     def _choose_files_native(self) -> None:
         json_only = bool(self._draft and self._draft.workflow == "translate")
         try:
-            paths = choose_files_native(
-                self.last_picker_directory,
-                json_only=json_only,
-                language=self.ui_language,
-            )
+            paths = choose_files_native(self.last_picker_directory, json_only=json_only, language=self.ui_language)
         except Exception as exc:
             self.call_from_thread(self._native_picker_finished, [], str(exc))
         else:
@@ -396,14 +554,18 @@ class OpenLRCTUI(App[None]):
             return
         self.operation_state = "starting"
         self.active_operation_kind = "workflow"
+        self._active_cancellation_token = CancellationToken()
         self.last_job_record = None
-        self.running_workflow_screen = RunningWorkflowScreen()
+        self.workflow_output = []
+        self.running_workflow_screen = RunningWorkflowScreen(self._draft)
         self.push_screen(self.running_workflow_screen)
         draft = WorkflowDraft.from_recipe(self._draft.to_recipe())
-        self._run_workflow(draft, resumed_from)
+        self._run_workflow(draft, resumed_from, self._active_cancellation_token)
 
     @work(thread=True, group="workflow", exclusive=True)
-    def _run_workflow(self, draft: WorkflowDraft, resumed_from: str | None) -> None:
+    def _run_workflow(
+        self, draft: WorkflowDraft, resumed_from: str | None, cancellation_token: CancellationToken
+    ) -> None:
         try:
             result = self.job_controller.run(
                 draft,
@@ -411,6 +573,7 @@ class OpenLRCTUI(App[None]):
                 self.credentials,
                 on_event=lambda event: self.call_from_thread(self._workflow_event, event),
                 resumed_from=resumed_from,
+                cancellation_token=cancellation_token,
             )
         except Exception as exc:
             self.call_from_thread(self._operation_start_failed, str(exc))
@@ -428,7 +591,10 @@ class OpenLRCTUI(App[None]):
         self.last_job_record = self.find_job(result.job_id)
         self.operation_state = "idle"
         self.active_operation_kind = None
+        self._active_cancellation_token = None
         if self._draft is not None:
+            # Keep the consumed Draft only while its result screen is mounted;
+            # leaving the result removes the entire configuration stack.
             self._draft_baseline = self._draft.to_recipe()
         if self.running_workflow_screen is not None and self.running_workflow_screen.is_mounted:
             self.running_workflow_screen.finish(result)
@@ -440,17 +606,20 @@ class OpenLRCTUI(App[None]):
             return
         self.operation_state = "starting"
         self.active_operation_kind = "setup"
+        self._active_cancellation_token = CancellationToken()
         self.setup_stage = "Starting setup"
         self.setup_logs = []
         self.setup_running_screen = SetupRunningScreen(request)
         self.push_screen(self.setup_running_screen)
-        self._run_setup(request)
+        self._run_setup(request, self._active_cancellation_token)
 
     @work(thread=True, group="setup", exclusive=True)
-    def _run_setup(self, request: SetupRequest) -> None:
+    def _run_setup(self, request: SetupRequest, cancellation_token: CancellationToken) -> None:
         try:
             result = self.setup_controller.run(
-                request, on_event=lambda event: self.call_from_thread(self._setup_event, event)
+                request,
+                on_event=lambda event: self.call_from_thread(self._setup_event, event),
+                cancellation_token=cancellation_token,
             )
         except Exception as exc:
             self.call_from_thread(self._operation_start_failed, str(exc))
@@ -473,6 +642,7 @@ class OpenLRCTUI(App[None]):
     def _setup_finished(self, result: SetupResult) -> None:
         self.operation_state = "idle"
         self.active_operation_kind = None
+        self._active_cancellation_token = None
         self.clear_resource_cache()
         if self.setup_running_screen is not None and self.setup_running_screen.is_mounted:
             self.setup_running_screen.finish(result)
@@ -481,27 +651,24 @@ class OpenLRCTUI(App[None]):
     def cancel_active_operation(self) -> None:
         if self.operation_state == "idle" or self.operation_state == "cancelling":
             return
+        token = self._active_cancellation_token
+        if token is None:
+            self.notify("The active operation has no cancellation token.", severity="error")
+            return
         self.operation_state = "cancelling"
         if self.active_operation_kind == "workflow":
-            token = self.job_controller.prepare_cancel()
-            if token is None:
-                return
-            self._cancel_token(token)
-        elif self.active_operation_kind == "setup":
-            self._cancel_setup()
+            self.job_controller.prepare_cancel()
+        self._cancel_token(token)
 
     @work(thread=True, group="cancellation", exclusive=True)
-    def _cancel_token(self, token) -> None:
+    def _cancel_token(self, token: CancellationToken) -> None:
         token.cancel()
-
-    @work(thread=True, group="cancellation", exclusive=True)
-    def _cancel_setup(self) -> None:
-        self.setup_controller.cancel()
 
     def _operation_start_failed(self, message: str) -> None:
         operation_kind = self.active_operation_kind
         self.operation_state = "idle"
         self.active_operation_kind = None
+        self._active_cancellation_token = None
         if operation_kind == "workflow" and self.running_workflow_screen is not None:
             if self.running_workflow_screen.is_mounted:
                 self.running_workflow_screen.fail(message)

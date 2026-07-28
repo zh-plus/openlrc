@@ -8,11 +8,10 @@ from pathlib import Path
 from textual.app import ComposeResult
 from textual.binding import Binding
 
-from openlrc.application import JobRecord, JobRecordStatus, WorkflowDraft
+from openlrc.application import JobRecord, JobRecordStatus
 from openlrc.tui.modals import ConfirmModal, DetailModal
 from openlrc.tui.navigation import ActionItem, ActionList, action_group
 from openlrc.tui.screens.base import OpenLRCScreen
-from openlrc.tui.screens.workflow import ConfirmWorkflowScreen
 from openlrc.tui.widgets import PageFooter, PageHeader
 
 
@@ -168,10 +167,7 @@ class JobDetailScreen(OpenLRCScreen):
         record = self.record
         if record is None or not self.app.job_controller.can_resume(record):
             return
-        draft = WorkflowDraft.from_recipe(record.recipe)
-        draft.paths = list(record.input_paths)
-        self.app.begin_workflow(draft)
-        self.app.push_screen(ConfirmWorkflowScreen(resumed_from=record.job_id))
+        self.app.resume_workflow(record)
 
     def action_delete_job(self) -> None:
         record = self.record

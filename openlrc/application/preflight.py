@@ -11,6 +11,7 @@ from pathlib import Path
 from openlrc.application.credentials import CredentialStore
 from openlrc.application.drafts import WorkflowDraft, normalize_input_paths
 from openlrc.application.settings import AppSettings
+from openlrc.config import ContextAssistance
 from openlrc.defaults import PREPROCESSED_DIR, PREPROCESSED_SUFFIX, TRANSCRIBED_SUFFIX
 from openlrc.llama_resources import resolve_llama_model_path, resolve_llama_server
 from openlrc.whisper_resources import resolve_vad_model_path, resolve_whisper_cli, resolve_whisper_model_path
@@ -94,6 +95,7 @@ def preflight(draft: WorkflowDraft, settings: AppSettings, credentials: Credenti
             "translation": (
                 "None" if draft.workflow == "transcribe" else f"{draft.translation_backend.title()} / {draft.mode}"
             ),
+            **_context_summary(request),
             "strategy": strategy,
             "target": draft.target_language if draft.workflow != "transcribe" else "source language",
             "cleanup": "owned temporary files only" if draft.clear_temp else "keep temporary files",
@@ -132,10 +134,29 @@ def _check_resources(draft: WorkflowDraft, request, settings: AppSettings, repor
         "translation",
         report,
     )
-    if draft.context_provider == "local" and draft.context_model:
+    translation = getattr(request, "translation", None)
+    context_llm = translation.config.context_llm if translation is not None else None
+    if context_llm is not None and context_llm.local_llm is not None:
         _resolve_resource(
-            lambda: resolve_llama_model_path(draft.context_model), "Context model", "context_model", report
+            lambda: resolve_llama_model_path(context_llm.local_llm.model_path), "Context model", "context_model", report
         )
+
+
+def _context_summary(request) -> dict[str, str]:
+    translation = getattr(request, "translation", None)
+    if translation is None:
+        return {}
+    config = translation.config
+    mode = getattr(config.hy_mt2_mode, "value", config.hy_mt2_mode)
+    if config._translator_engine != "lean" or mode == "fast":
+        return {}
+    if ContextAssistance(config.context_assistance) is ContextAssistance.OFF:
+        return {"context_model": "Off · Manual Brief"}
+    if config.context_llm is None:
+        return {"context_model": "Auto · Manual Brief complete"}
+    if config.context_llm.local_llm is not None:
+        return {"context_model": f"Auto · Local {config.context_llm.local_llm.model_path}"}
+    return {"context_model": f"Auto · {config.context_llm.chatbot.name}"}
 
 
 def _resolve_resource(resolver, label: str, field_name: str, report: PreflightReport) -> None:

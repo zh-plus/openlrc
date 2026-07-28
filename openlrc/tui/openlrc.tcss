@@ -359,6 +359,30 @@ HomeCard:disabled .action-label, HomeCard:disabled .action-detail {
     text-style: bold;
 }
 
+#workflow-runtime-frame {
+    height: 7;
+    min-height: 7;
+    max-height: 7;
+    margin: 0 2;
+    border: solid $border;
+    background: $panel;
+}
+
+#workflow-runtime-title {
+    height: 1;
+    padding: 0 1;
+    color: $accent;
+    text-style: bold;
+}
+
+#workflow-runtime-output {
+    height: 1fr;
+    padding: 0 1;
+    color: $text-muted;
+    background: $panel;
+    scrollbar-size: 1 1;
+}
+
 ModalScreen {
     align: center middle;
     background: #000000 55%;
@@ -430,14 +454,54 @@ ModalScreen {
     height: 3;
 }
 
-.paths-dialog {
-    height: 78%;
+.editor-dialog {
+    height: 88%;
+    min-height: 18;
+    max-height: 28;
+    overflow-y: hidden;
 }
 
-.paths-dialog TextArea {
+.editor-dialog TextArea {
     height: 1fr;
+    min-height: 5;
     border: solid $border;
     background: $background;
+}
+
+.editor-dialog TextArea.input-invalid {
+    border: solid $error;
+}
+
+.modal-editor-help {
+    height: auto;
+    max-height: 3;
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+.modal-editor-hint {
+    height: 1;
+    color: $text-muted;
+    margin-top: 1;
+}
+
+.modal-validation-error {
+    display: none;
+    height: auto;
+    max-height: 3;
+    color: $error;
+    padding: 0 1;
+}
+
+.modal-validation-error.visible {
+    display: block;
+}
+
+.editor-dialog .modal-action-list {
+    height: 4;
+    min-height: 4;
+    max-height: 4;
+    margin-top: 0;
 }
 
 .modal-action-list {

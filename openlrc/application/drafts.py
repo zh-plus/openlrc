@@ -8,8 +8,18 @@ from typing import Any, cast
 
 from openlrc.application.credentials import CredentialStore
 from openlrc.application.settings import AppSettings
-from openlrc.config import ContextLLMConfig, EditConfig, GlossaryOptions, SubtitleOptimizationMode, TranscriptionConfig
-from openlrc.context import TranslationBriefInput
+from openlrc.config import (
+    ContextAssistance,
+    ContextLLMConfig,
+    EditConfig,
+    GlossaryOptions,
+    HyMT2Mode,
+    SubtitleOptimizationMode,
+    TranscriptionConfig,
+    context_model_required,
+)
+from openlrc.context import CharacterBrief, TranslationBriefInput
+from openlrc.llama_resources import QWEN35_9B_PROFILE
 from openlrc.models import ModelConfig, ModelProvider
 from openlrc.workflow import (
     RunRequest,
@@ -28,6 +38,20 @@ PROVIDER_MAP = {
     "litellm": ModelProvider.LITELLM,
     "third_party": ModelProvider.THIRD_PARTY,
 }
+
+
+def parse_brief_characters(value: str) -> list[CharacterBrief]:
+    """Parse TUI character mappings without requiring a complete Workflow Draft."""
+    characters: list[CharacterBrief] = []
+    for line_number, raw_line in enumerate(value.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        source, separator, target = line.partition("=")
+        if not separator or not source.strip() or not target.strip():
+            raise ValueError(f"Brief character line {line_number} must use 'Source Name = Target Name'.")
+        characters.append(CharacterBrief(source_name=source.strip(), target_name=target.strip()))
+    return characters
 
 
 @dataclass(slots=True)
@@ -60,6 +84,7 @@ class WorkflowDraft:
     context_model: str = ""
     context_base_url: str = ""
     context_fee_limit: float = 0.8
+    context_assistance: str = ContextAssistance.AUTO.value
     glossary_path: str = ""
     glossary_strict: bool = True
     force_glossary: bool = False
@@ -88,6 +113,8 @@ class WorkflowDraft:
             local_profile=settings.local_models.hymt2_profile,
             qwen_model=settings.local_models.qwen_model,
             hymt2_model=settings.local_models.hymt2_model,
+            context_provider="local",
+            context_model=settings.local_models.qwen_model or QWEN35_9B_PROFILE,
             glossary_strict=settings.workflow.glossary_strict,
             force_glossary=settings.workflow.force_glossary,
             edit_rounds=settings.workflow.edit_rounds,
@@ -103,6 +130,9 @@ class WorkflowDraft:
         recipe = asdict(self)
         if self.workflow == WorkflowKind.TRANSCRIBE.value:
             for key in _TRANSLATION_RECIPE_FIELDS:
+                recipe.pop(key, None)
+        elif self.context_assistance == ContextAssistance.OFF.value:
+            for key in ("context_provider", "context_model", "context_base_url", "context_fee_limit"):
                 recipe.pop(key, None)
         return recipe
 
@@ -251,13 +281,14 @@ class WorkflowDraft:
                 glossary_options=glossary_options,
                 edit_config=edit_config,
             )
-        brief = self._brief()
-        context_llm = self._context_model(mode, brief, settings, credentials)
+        brief = self._brief(mode)
+        context_llm = self._context_model(mode, brief, edit_config, settings, credentials)
         return WorkflowTranslationFactory.hymt2(
             mode=mode,
             profile=self.local_profile or local.hymt2_profile,
             model=self.hymt2_model or local.hymt2_model or None,
             context_llm=context_llm,
+            context_assistance=self.context_assistance,
             translation_brief=brief,
             idle_timeout=local.idle_timeout,
             port=local.port,
@@ -299,36 +330,54 @@ class WorkflowDraft:
             proxy=profile.proxy.strip() or None,
         )
 
-    def _brief(self) -> TranslationBriefInput | None:
-        if not any((self.brief_summary, self.brief_characters, self.brief_tone_style)):
+    def _brief(self, mode: TranslationMode | None = None) -> TranslationBriefInput | None:
+        if mode is TranslationMode.FAST:
             return None
-        characters = None
+        assistance = ContextAssistance(self.context_assistance)
+        summary = self.brief_summary.strip()
+        if assistance is ContextAssistance.OFF and not summary:
+            raise ValueError("Context assistance off requires a Brief summary.")
+        if assistance is ContextAssistance.AUTO and not any((summary, self.brief_characters, self.brief_tone_style)):
+            return None
+        characters = [] if assistance is ContextAssistance.OFF else None
         if self.brief_characters.strip():
-            characters = []
-            for line_number, raw_line in enumerate(self.brief_characters.splitlines(), start=1):
-                line = raw_line.strip()
-                if not line:
-                    continue
-                source, separator, target = line.partition("=")
-                if not separator or not source.strip() or not target.strip():
-                    raise ValueError(f"Brief character line {line_number} must use 'Source Name = Target Name'.")
-                characters.append({"source_name": source.strip(), "target_name": target.strip()})
+            characters = parse_brief_characters(self.brief_characters)
+        tone_style = self.brief_tone_style.strip()
         return TranslationBriefInput(
-            summary=self.brief_summary or None, characters=characters, tone_style=self.brief_tone_style or None
+            summary=summary or None,
+            characters=characters,
+            tone_style=tone_style if assistance is ContextAssistance.OFF else (tone_style or None),
+        )
+
+    def requires_context_model(self) -> bool:
+        """Return the effective Context requirement for the current Hy-MT2 Draft."""
+        mode = TranslationMode(self.mode)
+        edit_config = EditConfig(
+            enabled=False,
+            max_rounds=(self.edit_rounds if mode in {TranslationMode.NORMAL_PLUS, TranslationMode.PRO} else 0),
+            semantic_review=(self.edit_rounds > 0 and mode in {TranslationMode.NORMAL_PLUS, TranslationMode.PRO}),
+            restore_enabled=self.enable_restore,
+        )
+        return context_model_required(
+            mode=HyMT2Mode(mode.value),
+            translation_brief=self._brief(mode),
+            edit_config=edit_config,
+            context_assistance=self.context_assistance,
         )
 
     def _context_model(
         self,
         mode: TranslationMode,
         brief: TranslationBriefInput | None,
+        edit_config: EditConfig,
         settings: AppSettings,
         credentials: CredentialStore,
     ) -> ContextLLMConfig | None:
-        complete = bool(brief is not None and brief.is_complete)
-        required = bool(
-            mode is TranslationMode.PRO
-            or (mode is not TranslationMode.FAST and not complete)
-            or (mode is TranslationMode.NORMAL_PLUS and self.edit_rounds > 0)
+        required = context_model_required(
+            mode=HyMT2Mode(mode.value),
+            translation_brief=brief,
+            edit_config=edit_config,
+            context_assistance=self.context_assistance,
         )
         if not required:
             return None
@@ -370,6 +419,7 @@ _TRANSLATION_RECIPE_FIELDS = {
     "context_model",
     "context_base_url",
     "context_fee_limit",
+    "context_assistance",
     "glossary_path",
     "glossary_strict",
     "force_glossary",

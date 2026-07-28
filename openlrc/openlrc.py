@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from openlrc.workflow import ExecutionContext, RunExecutionStrategy
 
 from openlrc.config import (
+    ContextAssistance,
     ContextLLMConfig,
     EditConfig,
     GlossaryOptions,
@@ -33,6 +34,7 @@ from openlrc.config import (
     SubtitleOptimizationMode,
     TranscriptionConfig,
     TranslationConfig,
+    context_model_required,
     normalize_hymt2_mode,
 )
 from openlrc.defaults import (
@@ -131,6 +133,7 @@ class LRCer:
 
         self.translation_brief_input = normalize_translation_brief_input(self._translation_config.translation_brief)
         self.context_llm = self._translation_config.context_llm
+        self.context_assistance = ContextAssistance(self._translation_config.context_assistance)
         self.edit_config = deepcopy(self._translation_config.edit_config)
         if self.hy_mt2_mode in {HyMT2Mode.NORMAL_PLUS, HyMT2Mode.PRO}:
             self.edit_config.enabled = True
@@ -201,6 +204,7 @@ class LRCer:
         transcription: TranscriptionConfig | None = None,
         mode: HyMT2Mode | str = HyMT2Mode.FAST,
         context_llm: ContextLLMConfig | None = None,
+        context_assistance: ContextAssistance | str = ContextAssistance.AUTO,
         subtitle_optimization: SubtitleOptimizationMode | str = SubtitleOptimizationMode.AGGRESSIVE,
         glossary: dict | str | Path | GlossaryCatalog | None = None,
         glossary_options: GlossaryOptions | None = None,
@@ -217,6 +221,7 @@ class LRCer:
                 port=port,
                 mode=mode,
                 context_llm=context_llm,
+                context_assistance=context_assistance,
                 glossary=glossary,
                 glossary_options=glossary_options,
                 edit_config=edit_config,
@@ -1186,12 +1191,7 @@ class LRCer:
         elif edit_action is EditAction.RETRANSLATE:
             if self.prompt_profile != HY_MT2_PROMPT_PROFILE or not self._local_llm_enabled():
                 raise ValueError("retranslate requires an explicitly configured local Hy-MT2 model.")
-            needs_context = bool(
-                self.hy_mt2_mode is HyMT2Mode.PRO
-                or self.translation_brief_input is None
-                or not self.translation_brief_input.is_complete
-            )
-            if needs_context and self.context_llm is None:
+            if self._translation_context_model_required() and self.context_llm is None:
                 raise ValueError(f"Hy-MT2 {self.hy_mt2_mode.value} retranslate requires a context model.")
             if self.hy_mt2_mode is HyMT2Mode.PRO and (brief is None or timeline is None):
                 brief, timeline, plans, _ = self._prepare_hymt2_pro_context(
@@ -1264,12 +1264,7 @@ class LRCer:
             if edit_action is EditAction.RETRANSLATE:
                 if self.prompt_profile != HY_MT2_PROMPT_PROFILE or not self._local_llm_enabled():
                     raise ValueError("retranslate requires an explicitly configured local Hy-MT2 model.")
-                needs_context = bool(
-                    self.hy_mt2_mode is HyMT2Mode.PRO
-                    or self.translation_brief_input is None
-                    or not self.translation_brief_input.is_complete
-                )
-                if needs_context and self.context_llm is None:
+                if self._translation_context_model_required() and self.context_llm is None:
                     raise ValueError(f"Hy-MT2 {self.hy_mt2_mode.value} retranslate requires a context model.")
             return finalize_session(session)
 
@@ -1649,14 +1644,11 @@ class LRCer:
         }
 
     def _translation_context_model_required(self) -> bool:
-        if self.hy_mt2_mode is HyMT2Mode.PRO:
-            return True
-        if self.translation_brief_input is None or not self.translation_brief_input.is_complete:
-            return self.hy_mt2_mode is not HyMT2Mode.FAST
-        return bool(
-            self.hy_mt2_mode is HyMT2Mode.NORMAL_PLUS
-            and self.edit_config.semantic_review
-            and self.edit_config.max_rounds > 0
+        return context_model_required(
+            mode=self.hy_mt2_mode,
+            translation_brief=self.translation_brief_input,
+            edit_config=self.edit_config,
+            context_assistance=self.context_assistance,
         )
 
     def _prepare_hymt2_brief(self, texts: list[str], *, src_lang: str, target_lang: str, info, compare_path: Path):

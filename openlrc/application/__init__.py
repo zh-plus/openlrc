@@ -1,7 +1,7 @@
 """Reusable application services shared by interactive OpenLRC frontends."""
 
 from openlrc.application.credentials import CredentialSource, CredentialStore, ResolvedCredential
-from openlrc.application.drafts import WorkflowDraft, normalize_input_paths
+from openlrc.application.drafts import WorkflowDraft, normalize_input_paths, parse_brief_characters
 from openlrc.application.glossaries import GlossaryApplicationService, GlossaryInspection
 from openlrc.application.history import JobItemState, JobRecord, JobRecordStatus, JobRepository
 from openlrc.application.jobs import JobController
@@ -65,6 +65,7 @@ __all__ = (
     "WorkflowDraft",
     "build_provider_model",
     "normalize_input_paths",
+    "parse_brief_characters",
     "preflight",
     "test_provider_connection",
 )

@@ -8,9 +8,10 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.widgets import Static
+from textual.widgets import RichLog, Static
 
-from openlrc.application import PreflightReport, WorkflowDraft, normalize_input_paths
+from openlrc.application import PreflightReport, WorkflowDraft, normalize_input_paths, parse_brief_characters
+from openlrc.config import ContextAssistance
 from openlrc.llama_resources import HY_MT2_7B_PROFILE, HY_MT2_30B_A3B_PROFILE
 from openlrc.tui.i18n import tr
 from openlrc.tui.modals import ChoiceModal, ConfirmModal, DetailModal, MultilineTextModal, PathsModal, TextInputModal
@@ -38,6 +39,12 @@ def engine_label(draft: WorkflowDraft) -> str:
     if draft.translation_backend == "local":
         return "Hy-MT2 · " + draft.mode.replace("-", " ").title()
     return "None"
+
+
+class RuntimeOutputLog(RichLog):
+    """Read-only auto-scrolling output that stays out of the keyboard focus chain."""
+
+    can_focus = False
 
 
 class WorkflowTypeScreen(OpenLRCScreen):
@@ -155,10 +162,23 @@ class HyMT2ModeScreen(OpenLRCScreen):
         self.call_after_refresh(self.focus_default_action_list)
 
     def on_action_list_activated(self, event: ActionList.Activated) -> None:
-        self.app.draft.mode = event.action_id
+        draft = self.app.draft
+        if (
+            event.action_id == TranslationMode.NORMAL_PLUS.value
+            and draft.context_assistance == ContextAssistance.OFF.value
+            and draft.edit_rounds > 0
+        ):
+            self.app.notify(
+                "Enable Context assistance Auto before using Normal Plus semantic review.", severity="error"
+            )
+            return
+        draft.mode = event.action_id
+        if event.action_id == TranslationMode.PRO.value and draft.context_assistance == ContextAssistance.OFF.value:
+            draft.context_assistance = ContextAssistance.AUTO.value
+            self.app.notify("Context assistance changed to Auto because Pro requires it.")
         if event.action_id == TranslationMode.FAST.value:
-            self.app.draft.context_provider = ""
-            self.app.draft.context_model = ""
+            draft.context_provider = ""
+            draft.context_model = ""
         self.app.push_screen(WorkflowOptionsScreen())
 
 
@@ -175,9 +195,7 @@ class WorkflowOptionsScreen(OpenLRCScreen):
         ]
         advanced_items: list[ActionItem] = []
         if draft.workflow in {WorkflowKind.TRANSCRIBE.value, WorkflowKind.RUN.value}:
-            basic_items.append(
-                ActionItem("source-language", "Source language", draft.source_language or "Auto detect")
-            )
+            basic_items.append(ActionItem("source-language", "Source language", draft.source_language or "Auto detect"))
             advanced_items.extend(
                 [
                     ActionItem("whisper-model", "Whisper model", draft.whisper_model),
@@ -225,7 +243,32 @@ class WorkflowOptionsScreen(OpenLRCScreen):
                         ActionItem("hymt2-model", "Hy-MT2 model", draft.hymt2_model or "Profile default"),
                     ]
                 )
-                if _needs_context(draft):
+                if draft.mode != TranslationMode.FAST.value:
+                    if draft.mode == TranslationMode.PRO.value:
+                        assistance_detail = "Required by Pro"
+                        assistance_disabled = True
+                    elif draft.mode == TranslationMode.NORMAL_PLUS.value and draft.edit_rounds > 0:
+                        assistance_detail = "Required by semantic review"
+                        assistance_disabled = True
+                    else:
+                        assistance_detail = (
+                            "Auto" if draft.context_assistance == ContextAssistance.AUTO.value else "Off"
+                        )
+                        assistance_disabled = False
+                    advanced_items.append(
+                        ActionItem(
+                            "context-assistance", "Context assistance", assistance_detail, disabled=assistance_disabled
+                        )
+                    )
+                requires_context_model = False
+                if draft.context_assistance == ContextAssistance.AUTO.value:
+                    try:
+                        requires_context_model = draft.requires_context_model()
+                    except ValueError:
+                        # Invalid legacy/user text remains editable instead of
+                        # crashing the asynchronous Textual recompose.
+                        requires_context_model = True
+                if requires_context_model:
                     advanced_items.extend(
                         [
                             ActionItem("context-provider", "Context provider", draft.context_provider or "Not set"),
@@ -237,17 +280,25 @@ class WorkflowOptionsScreen(OpenLRCScreen):
                         ]
                     )
                 if draft.mode != TranslationMode.FAST.value:
+                    off = draft.context_assistance == ContextAssistance.OFF.value
                     advanced_items.extend(
                         [
-                            ActionItem("brief-summary", "Brief summary", draft.brief_summary or "Not set"),
+                            ActionItem(
+                                "brief-summary",
+                                "Brief summary",
+                                _inline_text(draft.brief_summary) or ("Required" if off else "Not set"),
+                            ),
                             ActionItem(
                                 "brief-characters",
                                 "Brief characters",
-                                f"{len(draft.brief_characters.splitlines())} mappings"
-                                if draft.brief_characters.strip()
-                                else "Not set",
+                                _brief_characters_detail(draft.brief_characters, off=off),
                             ),
-                            ActionItem("brief-tone", "Brief tone & style", draft.brief_tone_style or "Not set"),
+                            ActionItem(
+                                "brief-tone",
+                                "Brief tone & style",
+                                _inline_text(draft.brief_tone_style)
+                                or ("No additional guidance" if off else "Not set"),
+                            ),
                         ]
                     )
                 if draft.mode in {TranslationMode.NORMAL_PLUS.value, TranslationMode.PRO.value}:
@@ -275,10 +326,7 @@ class WorkflowOptionsScreen(OpenLRCScreen):
             ]
         )
         continue_item = ActionItem(
-            "continue",
-            "Continue to Preflight",
-            "Validate the real request and resource plan",
-            classes="action-primary",
+            "continue", "Continue to Preflight", "Validate the real request and resource plan", classes="action-primary"
         )
         items = [
             *action_group("Basic settings", *basic_items),
@@ -332,6 +380,15 @@ class WorkflowOptionsScreen(OpenLRCScreen):
                 ChoiceModal("Context Provider", choices, current=draft.context_provider),
                 self._context_provider_selected,
             )
+        elif action == "context-assistance":
+            choices = [
+                (ContextAssistance.AUTO.value, "Auto", "Use a Context model when required"),
+                (ContextAssistance.OFF.value, "Off", "Use only the complete manual Brief"),
+            ]
+            self.app.push_screen(
+                ChoiceModal("Context Assistance", choices, current=draft.context_assistance),
+                self._context_assistance_selected,
+            )
         elif action == "local-profile":
             choices = [
                 (HY_MT2_7B_PROFILE, "Hy-MT2 7B", "Recommended local model"),
@@ -349,12 +406,20 @@ class WorkflowOptionsScreen(OpenLRCScreen):
                 ChoiceModal("Subtitle Optimization", choices, current=draft.subtitle_optimization),
                 self._optimization_selected,
             )
+        elif action in _MULTILINE_TEXT_FIELDS:
+            attribute, title, help_text, placeholder = _MULTILINE_TEXT_FIELDS[action]
+            self.app.push_screen(
+                MultilineTextModal(title, str(getattr(draft, attribute)), help_text=help_text, placeholder=placeholder),
+                self._setter(attribute),
+            )
         elif action == "brief-characters":
             self.app.push_screen(
                 MultilineTextModal(
                     "Brief Characters",
                     draft.brief_characters,
-                    help_text="One mapping per line: Source Name = Target Name",
+                    help_text="Enter one mapping per line. Empty lines are ignored.",
+                    placeholder="John = 强尼\nMary = 玛丽",
+                    validator=parse_brief_characters,
                 ),
                 self._setter("brief_characters"),
             )
@@ -399,6 +464,16 @@ class WorkflowOptionsScreen(OpenLRCScreen):
                 if attribute == "edit_rounds" and not 0 <= parsed <= 3:
                     self.app.notify("Semantic rounds must be between 0 and 3.", severity="error")
                     return
+                if (
+                    attribute == "edit_rounds"
+                    and parsed > 0
+                    and self.app.draft.mode == TranslationMode.NORMAL_PLUS.value
+                    and self.app.draft.context_assistance == ContextAssistance.OFF.value
+                ):
+                    self.app.notify(
+                        "Enable Context assistance Auto before adding semantic review rounds.", severity="error"
+                    )
+                    return
             setattr(self.app.draft, attribute, parsed)
             self._recompose()
 
@@ -437,6 +512,22 @@ class WorkflowOptionsScreen(OpenLRCScreen):
             self.app.draft.context_model = self.app.settings.local_models.qwen_model
         else:
             self.app.draft.context_model = self.app.settings.providers[provider].model
+        self._recompose()
+
+    def _context_assistance_selected(self, assistance: str | None) -> None:
+        if assistance is None:
+            return
+        draft = self.app.draft
+        if assistance == ContextAssistance.OFF.value:
+            if draft.mode == TranslationMode.PRO.value:
+                self.app.notify("Pro requires Context assistance Auto.", severity="error")
+                return
+            if draft.mode == TranslationMode.NORMAL_PLUS.value and draft.edit_rounds > 0:
+                self.app.notify(
+                    "Set semantic review rounds to 0 before turning Context assistance Off.", severity="error"
+                )
+                return
+        draft.context_assistance = assistance
         self._recompose()
 
     def _local_profile_selected(self, profile: str | None) -> None:
@@ -506,12 +597,7 @@ class InputFilesScreen(OpenLRCScreen):
             *action_group("Selected files", *path_items),
             *action_group(
                 "Actions",
-                ActionItem(
-                    "continue",
-                    "Continue",
-                    f"{len(self.app.draft.paths)} selected",
-                    classes="action-primary",
-                ),
+                ActionItem("continue", "Continue", f"{len(self.app.draft.paths)} selected", classes="action-primary"),
             ),
         ]
         yield PageHeader("Input Files", f"{len(self.app.draft.paths)} selected")
@@ -646,16 +732,19 @@ class ConfirmWorkflowScreen(OpenLRCScreen):
 
 class RunningWorkflowScreen(OpenLRCScreen):
     BINDINGS = [
-        *OpenLRCScreen.BINDINGS,
+        Binding("escape", "back", "Back", show=False, priority=True),
+        Binding("question_mark", "help", "Help", show=False),
         Binding("l", "logs", "Logs", show=False),
         Binding("o", "outputs", "Outputs", show=False),
         Binding("c", "cancel", "Cancel", show=False),
     ]
 
-    def __init__(self) -> None:
+    def __init__(self, draft: WorkflowDraft) -> None:
         super().__init__()
         self.result: WorkflowResult | None = None
         self.start_error: str | None = None
+        self.workflow_title = workflow_label(draft)
+        self.engine_title = engine_label(draft)
 
     def compose(self) -> ComposeResult:
         record = self.app.job_controller.active_record
@@ -682,24 +771,55 @@ class RunningWorkflowScreen(OpenLRCScreen):
             items.append(ActionItem("cancel", "Cancel", "Stop future work and clean up owned processes"))
         else:
             items.extend(
-                [
-                    ActionItem("jobs", "Open Jobs & Recovery", "View persisted details"),
-                    ActionItem("new", "New Work"),
-                ]
+                [ActionItem("jobs", "Open Jobs & Recovery", "View persisted details"), ActionItem("new", "New Work")]
             )
-        yield PageHeader(
-            f"{status.replace('_', ' ').title()} · {workflow_label(self.app.draft)}", engine_label(self.app.draft)
-        )
+        yield PageHeader(f"{status.replace('_', ' ').title()} · {self.workflow_title}", self.engine_title)
         with Vertical(id="running-body"):
             yield Static(
                 self.start_error or f"{bar} {progress:5.1f}%  {stage or 'working'}", id="running-summary", markup=False
             )
             yield ActionList(*items, id="running-actions", classes="page-list")
-        yield PageFooter("[L] Logs   [O] Outputs   [C] Cancel   [ESC] Leave running")
+            with Vertical(id="workflow-runtime-frame"):
+                yield Static(tr("RUNTIME OUTPUT"), id="workflow-runtime-title", markup=False)
+                yield RuntimeOutputLog(
+                    max_lines=500, min_width=1, wrap=True, highlight=False, markup=False, id="workflow-runtime-output"
+                )
+        footer = (
+            "[L] Logs   [O] Outputs   [ESC] Home"
+            if self.result is not None
+            else "[L] Logs   [O] Outputs   [C] Cancel   [ESC] Leave running"
+        )
+        yield PageFooter(footer)
 
     def on_mount(self) -> None:
         self.call_after_refresh(self.query_one(ActionList).focus)
+        self.call_after_refresh(self._restore_runtime_output)
         self.set_interval(0.25, self.refresh_from_record)
+
+    def action_back(self) -> None:
+        if self.result is not None:
+            self.app.close_finished_workflow()
+        else:
+            super().action_back()
+
+    def append_runtime_output(self, line: str) -> None:
+        if not self.query("#workflow-runtime-output"):
+            return
+        output = self.query_one("#workflow-runtime-output", RichLog)
+        if len(self.app.workflow_output) == 1:
+            output.clear()
+        output.write(line)
+
+    def _restore_runtime_output(self) -> None:
+        if not self.query("#workflow-runtime-output"):
+            return
+        output = self.query_one("#workflow-runtime-output", RichLog)
+        output.clear()
+        if self.app.workflow_output:
+            for line in self.app.workflow_output:
+                output.write(line)
+        else:
+            output.write(tr("Waiting for runtime output..."))
 
     def refresh_from_record(self) -> None:
         if self.result is not None or self.start_error is not None:
@@ -721,11 +841,24 @@ class RunningWorkflowScreen(OpenLRCScreen):
 
     def finish(self, result: WorkflowResult) -> None:
         self.result = result
-        self.refresh(recompose=True)
+        self._recompose_terminal_view()
 
     def fail(self, message: str) -> None:
         self.start_error = message
+        self._recompose_terminal_view()
+
+    def _recompose_terminal_view(self) -> None:
         self.refresh(recompose=True)
+        self.call_after_refresh(self._after_terminal_recompose)
+
+    def _after_terminal_recompose(self) -> None:
+        # Recompose unmounts the original ActionList after the first refresh
+        # callback. Defer once more so focus and bindings belong to the new tree.
+        self.call_later(self._restore_terminal_view)
+
+    def _restore_terminal_view(self) -> None:
+        self._restore_runtime_output()
+        self.focus_action()
 
     def on_action_list_activated(self, event: ActionList.Activated) -> None:
         if event.action_id == "logs":
@@ -745,9 +878,15 @@ class RunningWorkflowScreen(OpenLRCScreen):
         elif event.action_id == "cancel":
             self.action_cancel()
         elif event.action_id == "jobs":
-            self.app.open_route("jobs")
+            if self.result is not None:
+                self.app.close_finished_workflow("jobs")
+            else:
+                self.app.open_route("jobs")
         elif event.action_id == "new":
-            self.app.open_route("new-workflow")
+            if self.result is not None:
+                self.app.close_finished_workflow("new-workflow")
+            else:
+                self.app.open_route("new-workflow")
 
     def action_logs(self) -> None:
         record = self.app.job_controller.active_record or self.app.last_job_record
@@ -809,18 +948,23 @@ def _preflight_text(report: PreflightReport) -> Text:
     return text
 
 
-def _needs_context(draft: WorkflowDraft) -> bool:
-    if draft.mode == TranslationMode.PRO.value:
-        return True
-    complete_brief = bool(draft.brief_summary.strip() and draft.brief_tone_style.strip())
-    return draft.mode != TranslationMode.FAST.value and (
-        not complete_brief or (draft.mode == TranslationMode.NORMAL_PLUS.value and draft.edit_rounds > 0)
-    )
-
-
 def _progress_bar(percent: float, width: int = 20) -> str:
     complete = min(width, max(0, round(percent / 100 * width)))
     return "[" + "#" * complete + "-" * (width - complete) + "]"
+
+
+def _inline_text(value: str) -> str:
+    return " ".join(part.strip() for part in value.splitlines() if part.strip())
+
+
+def _brief_characters_detail(value: str, *, off: bool) -> str:
+    if not value.strip():
+        return "None · explicit" if off else "Not set"
+    try:
+        count = len(parse_brief_characters(value))
+    except ValueError:
+        return "Invalid · edit to fix"
+    return f"{count} mappings"
 
 
 _TEXT_FIELDS = {
@@ -838,9 +982,22 @@ _TEXT_FIELDS = {
     "context-model": ("context_model", "Context model"),
     "context-base-url": ("context_base_url", "Context base URL"),
     "context-fee-limit": ("context_fee_limit", "Context fee limit"),
-    "brief-summary": ("brief_summary", "Translation Brief summary"),
-    "brief-tone": ("brief_tone_style", "Translation Brief tone and style"),
     "edit-rounds": ("edit_rounds", "Semantic review rounds"),
+}
+
+_MULTILINE_TEXT_FIELDS = {
+    "brief-summary": (
+        "brief_summary",
+        "Translation Brief summary",
+        "Describe the story, setting, and context. Multiple lines are supported.",
+        "Story summary and important context",
+    ),
+    "brief-tone": (
+        "brief_tone_style",
+        "Translation Brief tone and style",
+        "Add optional tone, register, or style guidance. Multiple lines are supported.",
+        "Tone, register, and style guidance",
+    ),
 }
 
 _TOGGLE_FIELDS = {

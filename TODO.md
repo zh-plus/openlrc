@@ -1,13 +1,13 @@
 # OpenLRC Mac To Do List
 
-Last verified: 2026-07-27
+Last verified: 2026-07-29
 
-本文档记录 OpenLRC Mac 在 0.4.0 基线上的已完成能力、当前风险和后续优先级。
+本文档记录 OpenLRC Mac 在 0.4.1 基线上的已完成能力、当前风险和后续优先级。
 它不是发布承诺。项目仍以 macOS 本地字幕工作流为核心，优先保证转写稳定性、
 翻译一致性和可恢复性。产品最终提供 CLI、TUI、GUI 三种访问模式：CLI 与 TUI
 优先获得新功能，GUI 在交互和服务稳定后跟进。
 
-## 当前基线：0.4.0
+## 当前基线：0.4.1
 
 ### 核心流水线
 
@@ -70,7 +70,7 @@ Last verified: 2026-07-27
 
 ### CLI、发行与文档
 
-- [x] 发行身份为 `openlrc-mac`，当前版本 0.4.0，同时保留 `import openlrc`。
+- [x] 发行身份为 `openlrc-mac`，当前版本 0.4.1，同时保留 `import openlrc`。
 - [x] 提供等价的 `openlrc` / `openlrc-mac` console scripts。
 - [x] CLI 覆盖 `doctor`、`models status`、`setup`、`transcribe`、`translate`、
       `run`、`glossary` 和 `edit`。

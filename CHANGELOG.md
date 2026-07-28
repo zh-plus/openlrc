@@ -1,5 +1,66 @@
 # Changelog
 
+## OpenLRC Mac 0.4.1
+
+Focused TUI reliability release covering cancellation, transactional navigation,
+safe Draft recovery, manual Context assistance, and robust Brief/runtime output
+interaction.
+
+### Added
+
+- Added the public `ContextAssistance` policy with `auto` and `off` values across
+  Python configuration, Hy-MT2 factories, Workflow recipes, CLI
+  `--context-assistance`, and TUI configuration. `off` runs Normal, or Normal
+  Plus with zero semantic-review rounds, from a complete manual Translation
+  Brief without constructing a Context model.
+
+### Fixed
+
+- Captured OpenLRC runtime logging inside a fixed lower `RUNTIME OUTPUT`
+  frame while the TUI is mounted, instead of letting the terminal stream
+  overwrite Textual's display. The original terminal handler is restored when
+  the TUI exits.
+- Made terminal Workflow results a true end of the configuration flow. Esc,
+  Home, Jobs, and New Work now remove the completed Workflow screen stack and
+  discard its consumed Draft instead of exposing the previous settings pages.
+- Defaulted new Hy-MT2 Drafts that require Context assistance to the configured
+  local Qwen model, with the built-in `qwen3.5-9b` profile as fallback. Resumed
+  legacy recipes with missing Context fields receive the same current default.
+- Reworked Translation Brief entry around a multiline editor with visible
+  keyboard guidance and a pinned Apply/Cancel area that remains inside the
+  dialog at 80x24. Invalid Character mappings now stay in the editor with an
+  inline error and leave the Draft unchanged instead of crashing during screen
+  recomposition.
+- Closed the TUI Starting-stage cancellation window by creating the shared
+  cancellation token before scheduling Workflow or Setup workers. A confirmed
+  cancellation now reaches the operation even before controller registration,
+  skips unstarted work, cleans owned resources, and produces one Cancelled
+  terminal result.
+- Made dirty Settings navigation transactional across root Esc, Home, and Quit.
+  Save failure now retains the working copy and current page; only a successful
+  Save or explicit Discard runs the requested navigation.
+- Protected an existing dirty Workflow Draft when resuming a history record.
+  Resume now asks whether to discard the current Draft before creating the new
+  job and preserves it when the user keeps or cancels.
+- Centralized the Hy-MT2 Context requirement rule across configuration,
+  Workflow, application, CLI, and `LRCer`. Auto still fills an absent or partial
+  Brief, while Off requires a summary and normalizes omitted characters and
+  tone/style to explicit empty values; Pro and semantic-review Normal Plus
+  reject Off.
+- Excluded repository-local UV and virtual-environment caches from Git and
+  source distributions so release archives cannot accidentally contain build
+  cache contents.
+
+### Validation
+
+- Release validation passes with `578 passed, 25 skipped, 21 warnings`; Ruff
+  lint, modified-file format checks, production `openlrc/` Pyright
+  (`0 errors, 0 warnings`), and `git diff --check` pass.
+- `openlrc --version` reports 0.4.1. `uv build --offline` produces the 0.4.1
+  sdist and wheel; package inspection confirms clean source contents, version
+  metadata, the TUI stylesheet, application/workflow modules, and the
+  `openlrc`, `openlrc-mac`, and `openlrc-tui` entrypoints.
+
 ## OpenLRC Mac 0.4.0
 
 Shared Workflow/application services and Textual TUI v2 release, with hardened

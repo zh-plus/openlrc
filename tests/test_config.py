@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import get_args, get_type_hints
 
 from openlrc.config import (
+    ContextAssistance,
     ContextLLMConfig,
     EditConfig,
     HyMT2Mode,
@@ -123,6 +124,50 @@ class TestLocalLLMConfig(unittest.TestCase):
 
         self.assertIsNone(config.context_llm)
         self.assertIs(config.translation_brief, manual)
+
+    def test_context_assistance_off_accepts_complete_manual_brief_without_context_model(self):
+        manual = TranslationBriefInput(summary="A complete story summary.", characters=[], tone_style="")
+
+        config = TranslationConfig.local_hy_mt2_7b(
+            mode="normal", context_assistance=ContextAssistance.OFF, translation_brief=manual
+        )
+
+        self.assertIs(config.context_assistance, ContextAssistance.OFF)
+        self.assertIsNone(config.context_llm)
+
+    def test_context_assistance_off_rejects_incomplete_brief(self):
+        with self.assertRaisesRegex(ValueError, "complete manual Translation Brief"):
+            TranslationConfig.local_hy_mt2_7b(
+                mode="normal",
+                context_assistance="off",
+                translation_brief=TranslationBriefInput(summary="A fixed summary."),
+            )
+
+    def test_context_assistance_off_rejects_required_and_explicit_context(self):
+        complete = TranslationBriefInput(summary="Story", characters=[], tone_style="")
+        context = ContextLLMConfig.online(provider=ModelProvider.OPENAI, model="context")
+
+        with self.assertRaisesRegex(ValueError, "cannot be off in Hy-MT2 pro"):
+            TranslationConfig.local_hy_mt2_7b(mode="pro", context_assistance="off", translation_brief=complete)
+        with self.assertRaisesRegex(ValueError, "Normal Plus semantic review"):
+            TranslationConfig.local_hy_mt2_7b(mode="normal-plus", context_assistance="off", translation_brief=complete)
+        with self.assertRaisesRegex(ValueError, "conflicts with an explicit context_llm"):
+            TranslationConfig.local_hy_mt2_7b(
+                mode="normal", context_assistance="off", translation_brief=complete, context_llm=context
+            )
+
+    def test_context_assistance_off_allows_zero_round_normal_plus(self):
+        complete = TranslationBriefInput(summary="Story", characters=[], tone_style="")
+
+        config = TranslationConfig.local_hy_mt2_7b(
+            mode="normal-plus",
+            context_assistance="off",
+            translation_brief=complete,
+            edit_config=EditConfig(max_rounds=0, semantic_review=False),
+        )
+
+        self.assertIsNone(config.context_llm)
+        self.assertIs(config.context_assistance, ContextAssistance.OFF)
 
     def test_partial_manual_brief_still_requires_context_model(self):
         with self.assertRaisesRegex(ValueError, "requires an explicit context_llm"):

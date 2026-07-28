@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections import Counter
 from pathlib import Path
 
 import pytest
 from rich.cells import cell_len
 from rich.text import Text
-from textual.widgets import Button, Input, Static, TextArea
+from textual.widgets import Button, Input, RichLog, Static, TextArea
 
 from openlrc.application import (
     CredentialSource,
@@ -19,15 +20,25 @@ from openlrc.application import (
     ResolvedCredential,
     ResourceStatus,
     SettingsStore,
+    SetupController,
+    SetupStatus,
+    WhisperSetupRequest,
+    WorkflowDraft,
     preflight,
 )
+from openlrc.config import ContextAssistance
+from openlrc.logger import handler as openlrc_terminal_handler
+from openlrc.logger import logger as openlrc_logger
 from openlrc.tui import OpenLRCTUI
-from openlrc.tui.modals import ChoiceModal, TextInputModal
+from openlrc.tui.i18n import tr
+from openlrc.tui.modals import ChoiceModal, ConfirmModal, MultilineTextModal, TextInputModal
 from openlrc.tui.navigation import ActionGroupHeading, ActionGroupSpacer, ActionItem, ActionList
-from openlrc.tui.screens.jobs import JobsScreen
+from openlrc.tui.screens.jobs import JobDetailScreen, JobsScreen
+from openlrc.tui.screens.models import SetupRunningScreen
 from openlrc.tui.screens.settings import ProviderDetailScreen
 from openlrc.tui.screens.workflow import (
     ConfirmWorkflowScreen,
+    HyMT2ModeScreen,
     RunningWorkflowScreen,
     WorkflowOptionsScreen,
     WorkflowTypeScreen,
@@ -35,7 +46,7 @@ from openlrc.tui.screens.workflow import (
 from openlrc.tui.widgets.home_card import HomeCard
 from openlrc.tui.widgets.logo import WIDE_LOGO, LogoWidget, render_logo
 from openlrc.tui.widgets.status import WorkflowSteps
-from openlrc.workflow import WorkflowResult, WorkflowStatus
+from openlrc.workflow import CancellationToken, WorkflowResult, WorkflowStatus
 
 
 class StaticResources:
@@ -309,6 +320,13 @@ def test_appearance_theme_language_focus_persistence_and_discard(tmp_path: Path)
     asyncio.run(scenario())
 
 
+def test_brief_character_validation_error_is_localized() -> None:
+    assert (
+        tr("Brief character line 2 must use 'Source Name = Target Name'.", language="zh-cn")
+        == "人物映射第 2 行必须使用“源名称 = 目标名称”。"
+    )
+
+
 def test_disabling_logo_animation_renders_a_fresh_static_blue_logo(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -462,6 +480,62 @@ def test_settings_save_is_neutral_when_clean_and_accented_only_when_dirty(tmp_pa
     asyncio.run(scenario())
 
 
+def test_settings_leave_guard_blocks_failed_save_and_wraps_home_and_quit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario() -> None:
+        app = _app(tmp_path)
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("end", "enter")
+            await pilot.pause()
+            app.working_settings.general.reduce_motion = not app.settings.general.reduce_motion
+            working_copy = app.working_settings.to_dict()
+            original_save = app.settings_store.save
+
+            def fail_save(_settings) -> None:
+                raise OSError("disk full")
+
+            monkeypatch.setattr(app.settings_store, "save", fail_save)
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, ChoiceModal)
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.screen.id == "settings-root"
+            assert app.settings_dirty
+            assert app.working_settings.to_dict() == working_copy
+
+            monkeypatch.setattr(app.settings_store, "save", original_save)
+            await pilot.press("g", "h")
+            await pilot.pause()
+            assert isinstance(app.screen, ChoiceModal)
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.screen.id == "home"
+            assert not app.settings_dirty
+
+            await pilot.press("end", "enter")
+            await pilot.pause()
+            app.working_settings.general.reduce_motion = not app.settings.general.reduce_motion
+            await pilot.press("q")
+            await pilot.pause()
+            assert isinstance(app.screen, ChoiceModal)
+            await pilot.press("end", "enter")
+            await pilot.pause()
+            assert app.screen.id == "settings-root"
+            assert app.settings_dirty
+
+            await pilot.press("q")
+            await pilot.pause()
+            await pilot.press("down", "enter")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+            assert not app.settings_dirty
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("theme", ["openlrc-dark", "textual-dark"])
 def test_disabled_settings_actions_keep_the_group_frame_continuous(tmp_path: Path, theme: str) -> None:
     async def scenario() -> None:
@@ -603,6 +677,70 @@ def test_workflow_options_refresh_input_count_after_nested_editor(tmp_path: Path
     asyncio.run(scenario())
 
 
+def test_context_assistance_tui_hides_context_fields_and_enforces_required_modes(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        app = _app(tmp_path)
+        draft = WorkflowDraft(
+            task="translate-existing",
+            workflow="translate",
+            translation_backend="local",
+            mode="normal",
+            context_assistance="off",
+            context_provider="local",
+            context_model="preserved-context.gguf",
+            brief_summary="Known story.",
+        )
+        async with app.run_test(size=(100, 36)) as pilot:
+            app.begin_workflow(draft)
+            app.push_screen(WorkflowOptionsScreen())
+            await pilot.pause()
+            rows = {item.action_id: item for item in app.screen.query(ActionItem)}
+            assert rows["context-assistance"].detail_text == "Off"
+            assert "context-provider" not in rows
+            assert "context-model" not in rows
+            assert rows["brief-characters"].detail_text == "None · explicit"
+            assert rows["brief-tone"].detail_text == "No additional guidance"
+
+            options = app.screen
+            assert isinstance(options, WorkflowOptionsScreen)
+            options._context_assistance_selected(ContextAssistance.AUTO.value)
+            await pilot.pause()
+            assert app.draft.context_provider == "local"
+            assert app.draft.context_model == "preserved-context.gguf"
+            rows = {item.action_id: item for item in app.screen.query(ActionItem)}
+            assert "context-provider" in rows
+            assert "context-model" in rows
+
+            options._context_assistance_selected(ContextAssistance.OFF.value)
+            app.draft.mode = "normal-plus"
+            app.draft.edit_rounds = 0
+            options._recompose()
+            await pilot.pause()
+            options._setter("edit_rounds")("1")
+            assert app.draft.edit_rounds == 0
+
+            app.draft.mode = "normal"
+            app.draft.edit_rounds = 1
+            app.push_screen(HyMT2ModeScreen())
+            await pilot.pause()
+            await pilot.press("down", "down", "enter")
+            await pilot.pause()
+            assert isinstance(app.screen, HyMT2ModeScreen)
+            assert app.draft.mode == "normal"
+            assert app.draft.context_assistance == ContextAssistance.OFF.value
+
+            await pilot.press("end", "enter")
+            await pilot.pause()
+            assert isinstance(app.screen, WorkflowOptionsScreen)
+            assert app.draft.mode == "pro"
+            assert app.draft.context_assistance == ContextAssistance.AUTO.value
+            rows = {item.action_id: item for item in app.screen.query(ActionItem)}
+            assert rows["context-assistance"].disabled
+            assert rows["context-assistance"].detail_text == "Required by Pro"
+
+    asyncio.run(scenario())
+
+
 def test_blocked_preflight_skips_disabled_start_and_focuses_back(tmp_path: Path) -> None:
     async def scenario() -> None:
         app = _app(tmp_path)
@@ -668,6 +806,91 @@ def test_clean_draft_is_discarded_but_edited_draft_prompts(tmp_path: Path) -> No
     asyncio.run(scenario())
 
 
+def test_resume_preserves_dirty_draft_until_explicit_discard_and_replaces_clean_draft(tmp_path: Path) -> None:
+    history_input = tmp_path / "history.mp4"
+    current_input = tmp_path / "current.mp4"
+    history_input.touch()
+    current_input.touch()
+    history = WorkflowDraft(
+        task="transcribe-json", workflow="transcribe", paths=[str(history_input)], whisper_model="history-model.bin"
+    )
+    record = JobRecord(
+        job_id="resume-source",
+        workflow="transcribe",
+        name=history_input.name,
+        status=JobRecordStatus.CANCELLED,
+        input_paths=[str(history_input)],
+        recipe=history.to_recipe(),
+    )
+    JobRepository(tmp_path / "jobs.json").save([record])
+
+    async def dirty_scenario() -> None:
+        app = _app(tmp_path, ready_preflight=True)
+        current = WorkflowDraft(
+            task="transcribe-json", workflow="transcribe", paths=[str(current_input)], whisper_model="current-model.bin"
+        )
+        app.begin_workflow(current)
+        app.establish_draft_baseline()
+        app.draft.source_language = "ja"
+        before_recipe = app.draft.to_recipe()
+        before_baseline = dict(app._draft_baseline or {})
+
+        async with app.run_test(size=(100, 30)) as pilot:
+            app.push_screen(JobDetailScreen(record.job_id))
+            await pilot.pause()
+            detail = app.screen
+            assert isinstance(detail, JobDetailScreen)
+            detail.action_resume_job()
+            await pilot.pause()
+            assert isinstance(app.screen, ChoiceModal)
+            assert app.draft.to_recipe() == before_recipe
+            assert app._draft_baseline == before_baseline
+
+            await pilot.press("down", "enter")
+            await pilot.pause()
+            assert isinstance(app.screen, JobDetailScreen)
+            assert app.draft.to_recipe() == before_recipe
+            assert app._draft_baseline == before_baseline
+
+            detail = app.screen
+            assert isinstance(detail, JobDetailScreen)
+            detail.action_resume_job()
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmWorkflowScreen)
+            assert app.screen.resumed_from == record.job_id
+            assert app.draft.paths == [str(history_input)]
+            assert app.draft.whisper_model == "history-model.bin"
+            assert app._draft_baseline is None
+
+    async def clean_scenario() -> None:
+        app = _app(tmp_path, ready_preflight=True)
+        app.begin_workflow(
+            WorkflowDraft(
+                task="transcribe-json",
+                workflow="transcribe",
+                paths=[str(current_input)],
+                whisper_model="current-model.bin",
+            )
+        )
+        app.establish_draft_baseline()
+
+        async with app.run_test(size=(100, 30)) as pilot:
+            app.push_screen(JobDetailScreen(record.job_id))
+            await pilot.pause()
+            detail = app.screen
+            assert isinstance(detail, JobDetailScreen)
+            detail.action_resume_job()
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmWorkflowScreen)
+            assert app.screen.resumed_from == record.job_id
+            assert app.draft.paths == [str(history_input)]
+
+    asyncio.run(dirty_scenario())
+    asyncio.run(clean_scenario())
+
+
 def test_settings_text_modal_is_visible_and_keyboard_operable_at_80x24(tmp_path: Path) -> None:
     async def scenario() -> None:
         app = _app(tmp_path)
@@ -715,6 +938,101 @@ def test_settings_text_modal_is_visible_and_keyboard_operable_at_80x24(tmp_path:
             assert isinstance(app.screen, TextInputModal)
             assert app.screen.query_one(Input).password
             await pilot.press("escape")
+
+    asyncio.run(scenario())
+
+
+def test_brief_multiline_editor_keeps_actions_visible_and_rejects_invalid_characters(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        app = _app(tmp_path)
+        draft = WorkflowDraft(
+            task="translate-existing",
+            workflow="translate",
+            translation_backend="local",
+            mode="normal",
+            context_provider="local",
+            context_model="qwen.gguf",
+            brief_summary="Existing summary",
+            brief_characters="111111",
+        )
+        async with app.run_test(size=(80, 24)) as pilot:
+            app.begin_workflow(draft)
+            app.push_screen(WorkflowOptionsScreen())
+            await pilot.pause()
+            rows = {item.action_id: item for item in app.screen.query(ActionItem)}
+            assert rows["brief-characters"].detail_text == "Invalid · edit to fix"
+
+            options = app.screen
+            assert isinstance(options, WorkflowOptionsScreen)
+            options.focus_action("brief-summary")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert isinstance(app.screen, MultilineTextModal)
+            summary_editor = app.screen.query_one(TextArea)
+            actions = app.screen.query_one(ActionList)
+            dialog = app.screen.query_one(".editor-dialog")
+            assert summary_editor.has_focus
+            assert summary_editor.region.height >= 5
+            assert actions.region.y + actions.region.height <= dialog.region.y + dialog.region.height
+            assert dialog.region.y + dialog.region.height <= app.size.height
+            assert "Ctrl+Enter Apply" in str(app.screen.query_one(".modal-editor-hint", Static).content)
+
+            summary_editor.text = "Discard this edit."
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, WorkflowOptionsScreen)
+            assert app.draft.brief_summary == "Existing summary"
+
+            app.screen.focus_action("brief-summary")
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, MultilineTextModal)
+            summary_editor = app.screen.query_one(TextArea)
+            actions = app.screen.query_one(ActionList)
+            summary_editor.text = "First line.\nSecond line."
+            await pilot.press("tab")
+            assert actions.has_focus
+            await pilot.press("shift+tab")
+            assert summary_editor.has_focus
+            await pilot.press("ctrl+enter")
+            await pilot.pause()
+
+            assert isinstance(app.screen, WorkflowOptionsScreen)
+            assert app.draft.brief_summary == "First line.\nSecond line."
+            rows = {item.action_id: item for item in app.screen.query(ActionItem)}
+            assert rows["brief-summary"].detail_text == "First line. Second line."
+
+            app.screen.focus_action("brief-characters")
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, MultilineTextModal)
+            characters_editor = app.screen.query_one(TextArea)
+            assert characters_editor.text == "111111"
+
+            await pilot.press("ctrl+enter")
+            await pilot.pause()
+            assert isinstance(app.screen, MultilineTextModal)
+            error = app.screen.query_one(".modal-validation-error", Static)
+            assert error.has_class("visible")
+            assert "Brief character line 1" in str(error.content)
+            assert characters_editor.has_class("input-invalid")
+            assert characters_editor.has_focus
+            assert app.draft.brief_characters == "111111"
+            dialog = app.screen.query_one(".editor-dialog")
+            actions = app.screen.query_one(ActionList)
+            assert actions.region.y + actions.region.height <= dialog.region.y + dialog.region.height
+
+            characters_editor.text = "John = 强尼"
+            await pilot.pause()
+            assert not error.has_class("visible")
+            assert not characters_editor.has_class("input-invalid")
+
+            characters_editor.text = "John = 强尼\nMary = 玛丽"
+            await pilot.press("ctrl+enter")
+            await pilot.pause()
+            assert isinstance(app.screen, WorkflowOptionsScreen)
+            assert app.draft.brief_characters == "John = 强尼\nMary = 玛丽"
 
     asyncio.run(scenario())
 
@@ -794,9 +1112,201 @@ def test_workflow_starts_once_and_reaches_persisted_result(tmp_path: Path) -> No
                 await pilot.pause(0.05)
 
             assert isinstance(app.screen, RunningWorkflowScreen)
+            assert app.screen.start_error is None, app.screen.start_error
             assert app.screen.result is not None
             assert app.screen.result.status is WorkflowStatus.SUCCEEDED
             assert len(app.job_controller.records) == 1
             assert app.operation_state == "idle"
+
+    asyncio.run(scenario())
+
+
+def test_workflow_runtime_logs_stay_in_frame_and_completed_escape_returns_home(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    media = tmp_path / "episode.mp4"
+    media.touch()
+
+    class LoggingExecutor:
+        def execute(self, _request, context):
+            context.workflow_started()
+            openlrc_logger.info("captured workflow runtime output")
+            context.workflow_completed(WorkflowStatus.SUCCEEDED, 0.01)
+            context.close()
+            return WorkflowResult(
+                job_id=context.job_id, workflow=context.workflow, status=WorkflowStatus.SUCCEEDED, elapsed_seconds=0.01
+            )
+
+    app = OpenLRCTUI(
+        settings_store=SettingsStore(tmp_path / "settings.json"),
+        credentials=StaticCredentials(),
+        job_controller=JobController(JobRepository(tmp_path / "jobs.json"), executor=LoggingExecutor()),
+        resources=StaticResources(),
+        fixed_logo_frame=0,
+    )
+
+    async def scenario() -> None:
+        draft = WorkflowDraft(workflow="transcribe", paths=[str(media)])
+        async with app.run_test(size=(80, 24)) as pilot:
+            assert openlrc_terminal_handler not in openlrc_logger.handlers
+            app.begin_workflow(draft)
+            app.push_screen(WorkflowOptionsScreen())
+            await pilot.pause()
+            app.start_workflow()
+
+            for _ in range(200):
+                screen = app.running_workflow_screen
+                if screen is not None and screen.result is not None:
+                    break
+                await pilot.pause(0.01)
+            await pilot.pause()
+
+            assert isinstance(app.screen, RunningWorkflowScreen)
+            assert app.screen.result is not None
+            assert app.workflow_output == ["INFO captured workflow runtime output"]
+            output = app.screen.query_one("#workflow-runtime-output", RichLog)
+            assert "captured workflow runtime output" in "\n".join(line.text for line in output.lines)
+            actions = app.screen.query_one("#running-actions", ActionList)
+            frame = app.screen.query_one("#workflow-runtime-frame")
+            footer = app.screen.query_one("PageFooter")
+            assert actions.region.bottom <= frame.region.y
+            assert frame.region.bottom <= footer.region.y
+
+            escape_binding = app.active_bindings["escape"]
+            assert escape_binding.node is app.screen
+            assert escape_binding.binding.action == "back"
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.screen.id == "home"
+            assert app._draft is None
+            assert not any(isinstance(screen, WorkflowOptionsScreen) for screen in app.screen_stack)
+
+    asyncio.run(scenario())
+    assert openlrc_terminal_handler in openlrc_logger.handlers
+    assert "captured workflow runtime output" not in capsys.readouterr().err
+
+
+def test_tui_starting_workflow_cancel_reaches_controller_before_registration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media = tmp_path / "episode.mp4"
+    media.touch()
+    entered = threading.Event()
+    release = threading.Event()
+    captured_tokens: list[CancellationToken] = []
+
+    class DelayedJobController(JobController):
+        def run(self, draft, settings, credentials, *, on_event=None, resumed_from=None, cancellation_token=None):
+            assert cancellation_token is not None
+            captured_tokens.append(cancellation_token)
+            entered.set()
+            release.wait(timeout=5)
+            return super().run(
+                draft,
+                settings,
+                credentials,
+                on_event=on_event,
+                resumed_from=resumed_from,
+                cancellation_token=cancellation_token,
+            )
+
+    def unexpected_lrcer(*_args, **_kwargs):
+        raise AssertionError("LRCer must not be created for a pre-cancelled Workflow")
+
+    monkeypatch.setattr("openlrc.workflow.executor.LRCer", unexpected_lrcer)
+    controller = DelayedJobController(JobRepository(tmp_path / "jobs.json"))
+    app = OpenLRCTUI(
+        settings_store=SettingsStore(tmp_path / "settings.json"),
+        credentials=StaticCredentials(),
+        job_controller=controller,
+        resources=StaticResources(),
+        fixed_logo_frame=0,
+    )
+
+    async def scenario() -> None:
+        async with app.run_test(size=(100, 30)) as pilot:
+            app.begin_workflow(WorkflowDraft(workflow="transcribe", paths=[str(media)]))
+            app.start_workflow()
+            for _ in range(100):
+                if entered.is_set():
+                    break
+                await pilot.pause(0.01)
+            assert entered.is_set()
+            assert app.operation_state == "starting"
+
+            app.cancel_active_operation()
+            for _ in range(100):
+                if captured_tokens[0].is_cancelled:
+                    break
+                await pilot.pause(0.01)
+            assert captured_tokens[0].is_cancelled
+            release.set()
+
+            for _ in range(100):
+                if app.running_workflow_screen is not None and app.running_workflow_screen.result is not None:
+                    break
+                await pilot.pause(0.01)
+            assert isinstance(app.screen, RunningWorkflowScreen)
+            assert app.screen.result is not None
+            assert app.screen.result.status is WorkflowStatus.CANCELLED
+            assert controller.records[0].status is JobRecordStatus.CANCELLED
+            assert app.operation_state == "idle"
+            assert app._active_cancellation_token is None
+
+    asyncio.run(scenario())
+
+
+def test_tui_starting_setup_cancel_skips_setup_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    captured_tokens: list[CancellationToken] = []
+
+    class DelayedSetupController(SetupController):
+        def run(self, request, *, on_event=None, cancellation_token=None):
+            assert cancellation_token is not None
+            captured_tokens.append(cancellation_token)
+            entered.set()
+            release.wait(timeout=5)
+            return super().run(request, on_event=on_event, cancellation_token=cancellation_token)
+
+    def unexpected_setup(**_kwargs):
+        raise AssertionError("setup service must not run for a pre-cancelled Setup")
+
+    monkeypatch.setattr("openlrc.application.setup.setup_whisper_cpp", unexpected_setup)
+    app = OpenLRCTUI(
+        settings_store=SettingsStore(tmp_path / "settings.json"),
+        credentials=StaticCredentials(),
+        setup_controller=DelayedSetupController(),
+        resources=StaticResources(),
+        fixed_logo_frame=0,
+    )
+
+    async def scenario() -> None:
+        async with app.run_test(size=(100, 30)) as pilot:
+            app.start_setup(WhisperSetupRequest())
+            for _ in range(100):
+                if entered.is_set():
+                    break
+                await pilot.pause(0.01)
+            assert entered.is_set()
+            assert app.operation_state == "starting"
+
+            app.cancel_active_operation()
+            for _ in range(100):
+                if captured_tokens[0].is_cancelled:
+                    break
+                await pilot.pause(0.01)
+            assert captured_tokens[0].is_cancelled
+            release.set()
+
+            for _ in range(100):
+                if app.setup_running_screen is not None and app.setup_running_screen.result is not None:
+                    break
+                await pilot.pause(0.01)
+            assert isinstance(app.screen, SetupRunningScreen)
+            assert app.screen.result is not None
+            assert app.screen.result.status is SetupStatus.CANCELLED
+            assert app.operation_state == "idle"
+            assert app._active_cancellation_token is None
 
     asyncio.run(scenario())

@@ -103,6 +103,13 @@ class HyMT2Mode(str, Enum):
         return self
 
 
+class ContextAssistance(str, Enum):
+    """Whether Hy-MT2 may use a context model to complete a Translation Brief."""
+
+    AUTO = "auto"
+    OFF = "off"
+
+
 def normalize_hymt2_mode(mode: HyMT2Mode | str) -> HyMT2Mode:
     """Return the canonical product mode for public and checkpoint use."""
     selected = HyMT2Mode(mode)
@@ -144,6 +151,45 @@ class EditConfig:
     def __post_init__(self) -> None:
         if isinstance(self.max_rounds, bool) or not 0 <= self.max_rounds <= 3:
             raise ValueError("EditConfig.max_rounds must be between 0 and 3.")
+
+
+def context_model_required(
+    *,
+    mode: HyMT2Mode | str,
+    translation_brief: TranslationBriefInput | dict | None,
+    edit_config: EditConfig,
+    context_assistance: ContextAssistance | str = ContextAssistance.AUTO,
+) -> bool:
+    """Resolve the single Hy-MT2 Context requirement used by every frontend."""
+    selected_mode = normalize_hymt2_mode(mode)
+    assistance = ContextAssistance(context_assistance)
+    brief_input = normalize_translation_brief_input(translation_brief)
+
+    if selected_mode is HyMT2Mode.FAST:
+        return False
+
+    if selected_mode is HyMT2Mode.PRO:
+        if assistance is ContextAssistance.OFF:
+            raise ValueError("Context assistance cannot be off in Hy-MT2 pro mode.")
+        return True
+
+    semantic_review_requires_context = bool(
+        selected_mode is HyMT2Mode.NORMAL_PLUS and edit_config.semantic_review and edit_config.max_rounds > 0
+    )
+    if semantic_review_requires_context:
+        if assistance is ContextAssistance.OFF:
+            raise ValueError("Context assistance cannot be off while Normal Plus semantic review is enabled.")
+        return True
+
+    if assistance is ContextAssistance.OFF:
+        if brief_input is None or not brief_input.is_complete:
+            raise ValueError(
+                "Context assistance off requires a complete manual Translation Brief "
+                "(summary, characters, and tone/style)."
+            )
+        return False
+
+    return brief_input is None or not brief_input.is_complete
 
 
 @dataclass
@@ -271,7 +317,13 @@ class TranslationConfig:
     local_llm: LocalLLMConfig | None = None
     hy_mt2_mode: HyMT2Mode = HyMT2Mode.FAST
     context_llm: ContextLLMConfig | None = None
+    context_assistance: ContextAssistance = ContextAssistance.AUTO
     _translator_engine: str = field(default="classic", init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self.context_assistance = ContextAssistance(self.context_assistance)
+        if self.context_assistance is ContextAssistance.OFF and self.context_llm is not None:
+            raise ValueError("Context assistance off conflicts with an explicit context_llm configuration.")
 
     @classmethod
     def local_qwen35_9b(
@@ -334,6 +386,7 @@ class TranslationConfig:
         extra_args: list[str] | None = None,
         mode: HyMT2Mode | str = HyMT2Mode.FAST,
         context_llm: ContextLLMConfig | None = None,
+        context_assistance: ContextAssistance | str = ContextAssistance.AUTO,
         glossary: dict | str | Path | GlossaryCatalog | None = None,
         glossary_options: GlossaryOptions | None = None,
         edit_config: EditConfig | None = None,
@@ -353,6 +406,7 @@ class TranslationConfig:
             extra_args=extra_args,
             mode=mode,
             context_llm=context_llm,
+            context_assistance=context_assistance,
             glossary=glossary,
             glossary_options=glossary_options,
             edit_config=edit_config,
@@ -375,6 +429,7 @@ class TranslationConfig:
         extra_args: list[str] | None = None,
         mode: HyMT2Mode | str = HyMT2Mode.FAST,
         context_llm: ContextLLMConfig | None = None,
+        context_assistance: ContextAssistance | str = ContextAssistance.AUTO,
         glossary: dict | str | Path | GlossaryCatalog | None = None,
         glossary_options: GlossaryOptions | None = None,
         edit_config: EditConfig | None = None,
@@ -387,23 +442,16 @@ class TranslationConfig:
         """
         profile = get_local_llm_profile(size)
         mode = normalize_hymt2_mode(mode)
+        assistance = ContextAssistance(context_assistance)
         brief_input = normalize_translation_brief_input(translation_brief)
         if mode is HyMT2Mode.FAST and brief_input is not None:
             raise ValueError("Hy-MT2 fast mode does not use a Translation Brief.")
         resolved_edit_config = edit_config or EditConfig(enabled=mode in {HyMT2Mode.NORMAL_PLUS, HyMT2Mode.PRO})
-        needs_context = bool(
-            mode is not HyMT2Mode.FAST
-            and (
-                mode is HyMT2Mode.PRO
-                or brief_input is None
-                or not brief_input.is_complete
-                or (
-                    mode is HyMT2Mode.NORMAL_PLUS
-                    and resolved_edit_config.semantic_review
-                    and resolved_edit_config.max_rounds > 0
-                )
-            )
+        needs_context = context_model_required(
+            mode=mode, translation_brief=brief_input, edit_config=resolved_edit_config, context_assistance=assistance
         )
+        if assistance is ContextAssistance.OFF and context_llm is not None:
+            raise ValueError("Context assistance off conflicts with an explicit context_llm configuration.")
         if needs_context and context_llm is None:
             raise ValueError(f"Hy-MT2 {mode.value!r} mode requires an explicit context_llm configuration.")
         if profile.name == HY_MT2_30B_A3B_PROFILE and not model:
@@ -434,6 +482,7 @@ class TranslationConfig:
             local_llm=local_llm,
             hy_mt2_mode=mode,
             context_llm=context_llm,
+            context_assistance=assistance,
             glossary=glossary,
             glossary_options=glossary_options or GlossaryOptions(),
             edit_config=resolved_edit_config,

@@ -77,9 +77,17 @@ class JobController:
         *,
         on_event: EventCallback | None = None,
         resumed_from: str | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> WorkflowResult:
         with self.operation_guard.acquire("workflow", "subtitle workflow"):
-            return self._run_owned(draft, settings, credentials, on_event=on_event, resumed_from=resumed_from)
+            return self._run_owned(
+                draft,
+                settings,
+                credentials,
+                on_event=on_event,
+                resumed_from=resumed_from,
+                cancellation_token=cancellation_token,
+            )
 
     def _run_owned(
         self,
@@ -89,13 +97,14 @@ class JobController:
         *,
         on_event: EventCallback | None,
         resumed_from: str | None,
+        cancellation_token: CancellationToken | None,
     ) -> WorkflowResult:
         with self._lock:
             if self._active_context is not None:
                 raise RuntimeError("Another OpenLRC job is already running.")
         request = draft.build_request(settings, credentials)
         kind = WorkflowKind(draft.workflow)
-        token = CancellationToken()
+        token = cancellation_token or CancellationToken()
         context = ExecutionContext(kind, cancellation_token=token)
         record = JobRecord(
             job_id=context.job_id,

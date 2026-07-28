@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 from typer.testing import CliRunner
 
 from openlrc.cli.main import CheckResult, app
-from openlrc.config import SubtitleOptimizationMode
+from openlrc.config import ContextAssistance, SubtitleOptimizationMode
 from openlrc.editing import EditAction, EditIssue, EditResult, EditSeverity
 from openlrc.setup.llama_cpp import LlamaSetupResult
 from openlrc.setup.whisper_cpp import WhisperSetupResult
@@ -66,7 +66,7 @@ class TestCLI(unittest.TestCase):
 
         version_result = self.runner.invoke(app, ["--version"])
         self.assertEqual(version_result.exit_code, 0)
-        self.assertIn("OpenLRC Mac 0.4.0", version_result.output)
+        self.assertIn("OpenLRC Mac 0.4.1", version_result.output)
         self.assertIn("openlrc-mac", version_result.output)
         self.assertIn("OpenLRC 1.7.0a1", version_result.output)
 
@@ -275,6 +275,60 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(brief.characters[0].source_name, "John")
         self.assertEqual(brief.characters[0].target_name, "强尼")
         self.assertEqual(brief.tone_style, "Natural, restrained dialogue.")
+
+    def test_translate_context_assistance_off_normalizes_empty_manual_brief_sections(self):
+        result = self.runner.invoke(
+            app,
+            [
+                "translate",
+                "sample.json",
+                "--translation",
+                "local",
+                "--llama-model",
+                "hy-mt2-7b",
+                "--hy-mt2-mode",
+                "normal",
+                "--context-assistance",
+                "off",
+                "--brief-summary",
+                "A courtroom drama.",
+            ],
+        )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        config = self.workflow_requests[-1].translation.config
+        self.assertIs(config.context_assistance, ContextAssistance.OFF)
+        self.assertIsNone(config.context_llm)
+        self.assertEqual(config.translation_brief.characters, [])
+        self.assertEqual(config.translation_brief.tone_style, "")
+
+    def test_context_assistance_off_uses_shared_cli_restrictions(self):
+        base = [
+            "translate",
+            "sample.json",
+            "--translation",
+            "local",
+            "--llama-model",
+            "hy-mt2-7b",
+            "--context-assistance",
+            "off",
+            "--brief-summary",
+            "Known story.",
+        ]
+        cases = [
+            ([*base, "--hy-mt2-mode", "pro"], "Context assistance cannot be off"),
+            ([*base, "--hy-mt2-mode", "normal-plus"], "Normal Plus semantic review"),
+            (
+                [*base, "--hy-mt2-mode", "normal", "--context-provider", "local", "--context-model", "qwen3.5-9b"],
+                "combined with Context provider/model",
+            ),
+        ]
+
+        for arguments, message in cases:
+            with self.subTest(message=message):
+                result = self.runner.invoke(app, arguments)
+                self.assertNotEqual(result.exit_code, 0)
+                self.assertIn(message, result.output)
 
     def test_translate_loads_brief_characters_from_utf8_json_file(self):
         lrcer = MagicMock()
@@ -544,6 +598,62 @@ class TestCLI(unittest.TestCase):
         self.assertFalse(config.edit_config.semantic_review)
         self.assertEqual(config.translation_brief.characters, [])
 
+    def test_edit_retranslate_supports_context_assistance_off(self):
+        lrcer = MagicMock()
+        lrcer.edit.return_value = MagicMock(changed_ids=[], unresolved_issues=[], report_path=Path("report.json"))
+        lrcer_cls = MagicMock(return_value=lrcer)
+        with patch("openlrc.cli.main._lrcer_cls", return_value=lrcer_cls):
+            result = self.runner.invoke(
+                app,
+                [
+                    "edit",
+                    "--source",
+                    "source.json",
+                    "--target",
+                    "target.json",
+                    "--action",
+                    "retranslate",
+                    "--ids",
+                    "1",
+                    "--llama-model",
+                    "hy-mt2-7b",
+                    "--hy-mt2-mode",
+                    "normal",
+                    "--context-assistance",
+                    "off",
+                    "--brief-summary",
+                    "Known story.",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        config = lrcer_cls.call_args.kwargs["translation"]
+        self.assertIs(config.context_assistance, ContextAssistance.OFF)
+        self.assertIsNone(config.context_llm)
+        self.assertEqual(config.translation_brief.characters, [])
+        self.assertEqual(config.translation_brief.tone_style, "")
+
+    def test_edit_non_retranslate_actions_reject_context_assistance_off(self):
+        result = self.runner.invoke(
+            app,
+            [
+                "edit",
+                "--source",
+                "source.json",
+                "--target",
+                "target.json",
+                "--action",
+                "review",
+                "--ids",
+                "1",
+                "--context-assistance",
+                "off",
+            ],
+        )
+
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("--context-assistance off is only", result.output)
+
     def test_run_keep_temp_disables_cleanup(self):
         lrcer = MagicMock()
         lrcer.run.return_value = [Path("output.lrc")]
@@ -677,6 +787,32 @@ class TestCLI(unittest.TestCase):
         config = self.workflow_requests[-1].translation.config
         self.assertIsNone(config.context_llm)
         self.assertEqual(config.translation_brief.summary, "Known film.")
+
+    def test_run_context_assistance_off_uses_manual_brief_without_context_model(self):
+        result = self.runner.invoke(
+            app,
+            [
+                "run",
+                "input.wav",
+                "--translation",
+                "local",
+                "--llama-model",
+                "hy-mt2-7b",
+                "--hy-mt2-mode",
+                "normal",
+                "--context-assistance",
+                "off",
+                "--brief-summary",
+                "Known film.",
+            ],
+        )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        config = self.workflow_requests[-1].translation.config
+        self.assertIs(config.context_assistance, ContextAssistance.OFF)
+        self.assertIsNone(config.context_llm)
+        self.assertEqual(config.translation_brief.characters, [])
+        self.assertEqual(config.translation_brief.tone_style, "")
 
     def test_run_hy_mt2_pro_builds_staged_context_config(self):
         lrcer = MagicMock()

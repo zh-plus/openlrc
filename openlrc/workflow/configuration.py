@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openlrc.config import ContextLLMConfig, EditConfig, GlossaryOptions, HyMT2Mode, TranslationConfig
+from openlrc.config import (
+    ContextAssistance,
+    ContextLLMConfig,
+    EditConfig,
+    GlossaryOptions,
+    HyMT2Mode,
+    TranslationConfig,
+)
 from openlrc.context import TranslationBriefInput
 from openlrc.llama_resources import (
     DEFAULT_LLAMA_CONTEXT_SIZE,
@@ -84,6 +91,7 @@ class WorkflowTranslationFactory:
         profile: str = HY_MT2_7B_PROFILE,
         model: str | None = None,
         context_llm: ContextLLMConfig | None = None,
+        context_assistance: ContextAssistance | str = ContextAssistance.AUTO,
         translation_brief: TranslationBriefInput | None = None,
         idle_timeout: int = DEFAULT_LLAMA_IDLE_TIMEOUT,
         port: int = DEFAULT_LLAMA_PORT,
@@ -117,6 +125,7 @@ class WorkflowTranslationFactory:
             startup_timeout=startup_timeout,
             mode=mode_map[mode],
             context_llm=context_llm,
+            context_assistance=context_assistance,
             glossary=glossary,
             glossary_options=glossary_options,
             edit_config=edit_config,
