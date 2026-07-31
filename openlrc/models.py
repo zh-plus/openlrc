@@ -1,22 +1,11 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
-import sys
 from dataclasses import dataclass
-from enum import Enum
-
-if sys.version_info >= (3, 11):
-    from enum import StrEnum as _StrEnum
-else:
-
-    class _StrEnum(str, Enum):
-        """Backport of StrEnum for Python 3.10."""
-
-        def __str__(self) -> str:
-            return self.value
+from enum import StrEnum
 
 
-class ModelProvider(_StrEnum):
+class ModelProvider(StrEnum):
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
     GOOGLE = "google"

@@ -11,14 +11,14 @@ import re
 import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class GlossaryOrigin(str, Enum):
+class GlossaryOrigin(StrEnum):
     """Supported glossary sources ordered from highest to lowest priority."""
 
     TASK = "task"

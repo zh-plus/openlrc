@@ -53,7 +53,8 @@ Still in progress:
 ## Requirements
 
 - macOS, tested on Apple Silicon.
-- Python `>=3.10,<3.13`.
+- Python `>=3.11,<3.15`; the repository default is Python 3.13.14 through
+  `.python-version`.
 - [uv](https://github.com/astral-sh/uv).
 - [ffmpeg](https://ffmpeg.org/download.html) on `PATH`.
 - CMake and Xcode Command Line Tools for building `whisper.cpp` and `llama.cpp`.
@@ -65,6 +66,11 @@ git clone --recurse-submodules <repo-url>
 cd openlrc_mac
 uv sync
 ```
+
+`uv sync` creates the project environment without changing the `python3`
+selected by your shell. Development and CI use the `dev` dependency group;
+LiteLLM support is installed explicitly with `uv sync --group dev --extra
+litellm`.
 
 Set up local transcription:
 

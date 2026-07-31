@@ -91,6 +91,35 @@ def test_settings_language_is_backward_compatible_and_invalid_values_fall_back()
     assert invalid.general.language == "en"
 
 
+def test_legacy_ascii_status_is_ignored_and_removed_on_save(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        '{"schema_version": 1, "general": {"theme": "openlrc-dark", "ascii_status": "on"}}', encoding="utf-8"
+    )
+    store = SettingsStore(path)
+
+    settings = store.load()
+    store.save(settings)
+
+    assert not hasattr(settings.general, "ascii_status")
+    assert "ascii_status" not in path.read_text(encoding="utf-8")
+
+
+def test_removed_noise_fields_are_ignored_and_not_serialized() -> None:
+    settings = AppSettings.from_dict(
+        {"schema_version": 1, "transcription": {"noise_suppress": True, "skip_preprocess": True}}
+    )
+    draft = WorkflowDraft.from_recipe(
+        {"workflow": "transcribe", "paths": ["input.wav"], "noise_suppress": True, "skip_preprocess": True}
+    )
+
+    assert not hasattr(settings.transcription, "noise_suppress")
+    assert "noise_suppress" not in settings.to_dict()["transcription"]
+    assert not hasattr(draft, "noise_suppress")
+    assert "noise_suppress" not in draft.to_recipe()
+    assert draft.skip_preprocess is True
+
+
 def test_corrupt_settings_are_backed_up_and_defaults_loaded(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{broken", encoding="utf-8")
@@ -324,6 +353,134 @@ def test_transcribe_recipe_omits_translation_fields_and_ignores_their_values(tmp
     assert "brief_characters" not in recipe
 
 
+def test_recipe_keeps_only_fields_active_for_the_current_pipeline() -> None:
+    source_subtitle = WorkflowDraft(
+        task="source-subtitle",
+        workflow="run",
+        translation_backend="none",
+        target_language="stale-target",
+        provider="stale-provider",
+        qwen_model="stale-qwen",
+        clear_checkpoint=False,
+    )
+    translated = WorkflowDraft(
+        workflow="translate",
+        translation_backend="online",
+        mode="standard",
+        retry_model="hidden-without-provider",
+        reviewer_model="hidden-without-provider",
+        qwen_model="hidden-qwen",
+        clear_temp=False,
+    )
+    local_qwen = WorkflowDraft(
+        workflow="translate", translation_backend="local-qwen", mode="standard", qwen_model="qwen.gguf"
+    )
+    fast = WorkflowDraft(
+        workflow="translate",
+        translation_backend="local",
+        mode="fast",
+        brief_summary="hidden",
+        context_provider="local",
+        context_model="hidden-context.gguf",
+        edit_rounds=3,
+    )
+    manual_normal = WorkflowDraft(
+        workflow="translate",
+        translation_backend="local",
+        mode="normal",
+        context_provider="local",
+        context_model="hidden-complete-context.gguf",
+        brief_summary="Story",
+        brief_characters="Alice = 爱丽丝",
+        brief_tone_style="Natural",
+    )
+    partial_normal = WorkflowDraft(
+        workflow="translate",
+        translation_backend="local",
+        mode="normal",
+        context_provider="local",
+        context_model="qwen.gguf",
+        context_base_url="hidden-local-url",
+        context_fee_limit=9.0,
+        brief_summary="Partial",
+    )
+    normal_plus = WorkflowDraft(
+        workflow="translate",
+        translation_backend="local",
+        mode="normal-plus",
+        context_provider="local",
+        context_model="qwen.gguf",
+        edit_rounds=2,
+        enable_restore=True,
+    )
+    pro = WorkflowDraft(
+        workflow="translate",
+        translation_backend="local",
+        mode="pro",
+        context_provider="local",
+        context_model="qwen.gguf",
+        edit_rounds=3,
+        enable_restore=True,
+    )
+
+    source_recipe = source_subtitle.to_recipe()
+    assert source_recipe["translation_backend"] == "none"
+    assert "target_language" not in source_recipe
+    assert "mode" not in source_recipe
+    assert "clear_checkpoint" not in source_recipe
+    assert "provider" not in source_recipe
+
+    online_recipe = translated.to_recipe()
+    assert "source_language" not in online_recipe
+    assert "clear_temp" not in online_recipe
+    assert "qwen_model" not in online_recipe
+    assert "retry_model" not in online_recipe
+    assert "reviewer_model" not in online_recipe
+
+    assert local_qwen.to_recipe()["qwen_model"] == "qwen.gguf"
+    assert "provider" not in local_qwen.to_recipe()
+
+    fast_recipe = fast.to_recipe()
+    assert "brief_summary" not in fast_recipe
+    assert "context_provider" not in fast_recipe
+    assert "edit_rounds" not in fast_recipe
+
+    manual_recipe = manual_normal.to_recipe()
+    assert manual_recipe["brief_summary"] == "Story"
+    assert "context_provider" not in manual_recipe
+    assert "context_model" not in manual_recipe
+
+    partial_recipe = partial_normal.to_recipe()
+    assert partial_recipe["context_model"] == "qwen.gguf"
+    assert "context_base_url" not in partial_recipe
+    assert "context_fee_limit" not in partial_recipe
+
+    review_recipe = normal_plus.to_recipe()
+    assert review_recipe["edit_rounds"] == 2
+    assert review_recipe["enable_restore"] is True
+    pro_recipe = pro.to_recipe()
+    assert pro_recipe["edit_rounds"] == 3
+    assert pro_recipe["context_model"] == "qwen.gguf"
+
+
+def test_old_recipe_discards_hidden_stale_fields_when_resumed() -> None:
+    resumed = WorkflowDraft.from_recipe(
+        {
+            "task": "source-subtitle",
+            "workflow": "run",
+            "translation_backend": "none",
+            "provider": "stale-provider",
+            "primary_model": "stale-model",
+            "target_language": "stale-target",
+        }
+    )
+
+    assert resumed.provider == "openai"
+    assert resumed.primary_model == ""
+    assert resumed.target_language == "zh-cn"
+    assert "provider" not in resumed.to_recipe()
+
+
 def test_brief_characters_use_simple_source_target_lines(tmp_path: Path) -> None:
     transcription = tmp_path / "episode.json"
     transcription.write_text('{"language":"en","segments":[]}', encoding="utf-8")
@@ -483,6 +640,31 @@ def test_preflight_requires_explicit_confirmation_for_existing_output(
     assert any("Existing output will be replaced" in issue.message for issue in report.warnings)
 
 
+def test_source_subtitle_preflight_summarizes_the_effective_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media = tmp_path / "episode.wav"
+    media.touch()
+    monkeypatch.setattr("openlrc.media_utils.get_file_type", lambda _path: "audio")
+    monkeypatch.setattr("openlrc.workflow.planning.get_file_type", lambda _path: "audio")
+    preflight_module = importlib.import_module("openlrc.application.preflight")
+    monkeypatch.setattr(preflight_module, "_check_resources", lambda *_args: None)
+    draft = WorkflowDraft(
+        task="source-subtitle",
+        workflow="run",
+        paths=[str(media)],
+        translation_backend="none",
+        mode="fast",
+        target_language="ja",
+    )
+
+    report = preflight(draft, AppSettings(), StaticCredentials())
+
+    assert report.summary["translation"] == "None"
+    assert report.summary["strategy"] == "transcribe-only"
+    assert report.summary["target"] == "source language"
+
+
 def test_history_preserves_same_basename_inputs_from_different_directories(tmp_path: Path) -> None:
     first = tmp_path / "one" / "episode.mp4"
     second = tmp_path / "two" / "episode.mp4"
@@ -496,6 +678,30 @@ def test_history_preserves_same_basename_inputs_from_different_directories(tmp_p
     recipe = WorkflowDraft.from_recipe(draft.to_recipe())
 
     assert recipe.paths == [str(first), str(second)]
+
+
+def test_history_load_keeps_interrupted_records_when_recovery_save_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = JobRepository(tmp_path / "jobs.json")
+    repository.save(
+        [
+            JobRecord(
+                job_id="running",
+                workflow="run",
+                name="episode.mp4",
+                status=JobRecordStatus.RUNNING,
+                input_paths=["/tmp/episode.mp4"],
+                recipe={},
+            )
+        ]
+    )
+    monkeypatch.setattr(repository, "save", lambda _records: (_ for _ in ()).throw(OSError("read only")))
+
+    loaded = repository.load()
+
+    assert loaded[0].status is JobRecordStatus.INTERRUPTED
+    assert repository.last_warning == ("Recovered interrupted jobs in memory, but job history was not saved: read only")
 
 
 def test_job_controller_enforces_one_active_job_and_cancels_with_workflow_token(tmp_path: Path) -> None:

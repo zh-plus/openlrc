@@ -3,7 +3,7 @@
 
 import warnings
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 from openlrc.context import TranslationBriefInput, normalize_translation_brief_input
@@ -40,14 +40,12 @@ class TranscriptionConfig:
         vad_model: Path to the Silero VAD model for whisper.cpp.
             Empty string disables native VAD. Default: ``ggml-silero-v6.2.0.bin``
         asr_options: Parameters for whisper.cpp CLI transcription.
-        preprocess_options: Options for audio preprocessing.
     """
 
     whisper_model: str = DEFAULT_MODEL_NAME
     cli_path: str = ""
     vad_model: str = DEFAULT_VAD_MODEL_NAME
     asr_options: dict | None = None
-    preprocess_options: dict | None = None
 
 
 @dataclass
@@ -83,7 +81,7 @@ class LocalLLMConfig:
     extra_args: list[str] | None = None
 
 
-class HyMT2Mode(str, Enum):
+class HyMT2Mode(StrEnum):
     """Execution modes for the Hy-MT2 translation pipeline."""
 
     FAST = "fast"
@@ -103,7 +101,7 @@ class HyMT2Mode(str, Enum):
         return self
 
 
-class ContextAssistance(str, Enum):
+class ContextAssistance(StrEnum):
     """Whether Hy-MT2 may use a context model to complete a Translation Brief."""
 
     AUTO = "auto"
@@ -122,7 +120,7 @@ def normalize_hymt2_mode(mode: HyMT2Mode | str) -> HyMT2Mode:
     return selected.canonical
 
 
-class SubtitleOptimizationMode(str, Enum):
+class SubtitleOptimizationMode(StrEnum):
     """Subtitle cleanup profiles applied around translation."""
 
     AGGRESSIVE = "aggressive"

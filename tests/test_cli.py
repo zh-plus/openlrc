@@ -66,7 +66,7 @@ class TestCLI(unittest.TestCase):
 
         version_result = self.runner.invoke(app, ["--version"])
         self.assertEqual(version_result.exit_code, 0)
-        self.assertIn("OpenLRC Mac 0.4.1", version_result.output)
+        self.assertIn("OpenLRC Mac 0.4.2", version_result.output)
         self.assertIn("openlrc-mac", version_result.output)
         self.assertIn("OpenLRC 1.7.0a1", version_result.output)
 
@@ -974,6 +974,40 @@ class TestCLI(unittest.TestCase):
         self.assertIsInstance(self.workflow_requests[-1], TranscribeRequest)
         self.assertEqual(self.workflow_requests[-1].src_lang, "en")
         self.assertIn("input_transcribed.json", result.output)
+
+    def test_transcribe_exposes_explicit_whisper_cpu_compatibility_flags(self):
+        result = self.runner.invoke(app, ["transcribe", "input.wav", "--no-whisper-gpu", "--no-whisper-flash-attn"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        options = self.workflow_requests[-1].transcription.asr_options
+        self.assertEqual(options, {"use_gpu": False, "flash_attn": False})
+
+    def test_run_forwards_whisper_acceleration_defaults_and_overrides(self):
+        default_result = self.runner.invoke(app, ["run", "input.wav"])
+        default_options = self.workflow_requests[-1].transcription.asr_options
+        cpu_result = self.runner.invoke(app, ["run", "input.wav", "--no-whisper-gpu", "--no-whisper-flash-attn"])
+        cpu_options = self.workflow_requests[-1].transcription.asr_options
+
+        self.assertEqual(default_result.exit_code, 0, default_result.output)
+        self.assertEqual(default_options, {"use_gpu": True, "flash_attn": True})
+        self.assertEqual(cpu_result.exit_code, 0, cpu_result.output)
+        self.assertEqual(cpu_options, {"use_gpu": False, "flash_attn": False})
+
+    def test_transcribe_help_documents_whisper_acceleration_flags(self):
+        result = self.runner.invoke(app, ["transcribe", "--help"], terminal_width=160)
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("--whisper-gpu", result.output)
+        self.assertIn("--no-whisper-gpu", result.output)
+        self.assertIn("--whisper-flash-attn", result.output)
+        self.assertIn("--no-whisper-flash", result.output)
+        self.assertNotIn("--noise-suppress", result.output)
+
+    def test_removed_noise_suppress_option_is_rejected(self):
+        for command in ("transcribe", "run"):
+            result = self.runner.invoke(app, [command, "input.wav", "--noise-suppress"])
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("No such option", result.output)
 
 
 if __name__ == "__main__":

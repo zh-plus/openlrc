@@ -3,6 +3,70 @@
 这个文件只记录 OpenLRC Mac fork 自己的变更。英文版见
 [CHANGELOG.md](CHANGELOG.md) 中的 OpenLRC Mac 条目；两个文件需要同步更新。
 
+## OpenLRC Mac 0.4.2
+
+本版本以旧模块和旧依赖清理为主线，同时把默认开发环境升级为 Python 3.13，
+并建立 Python 3.11-3.14 的完整 CI 支持。
+
+### 新增
+
+- 围绕 macOS/Apple Silicon 产品范围重建 required test/quality workflow，覆盖
+  Python 3.11-3.14、uv、pytest、Ruff、Pyright 和包构建；真实 provider 检查拆到
+  独立手动 workflow，不进入 required CI。
+- `transcribe` 与 `run` 新增显式 Whisper GPU 和 flash-attention 正反开关；
+  Doctor 新增不运行推理的 whisper.cpp 版本与 Metal build capability 状态。
+- 新增去除本机路径的 v1.9.1 whisper.cpp 真实 JSON fixture、setup/输入契约回归，
+  以及 opt-in CPU/VAD、视频/ffmpeg 和 Metal smoke。
+
+### 变更
+
+- 包支持范围改为 Python `>=3.11,<3.15`，仓库开发环境固定 Python 3.13.14；
+  Python 3.13 同时作为 quality、包构建和手动 Live API 默认版本。
+- 更新 tiktoken、Lingua 与 LiteLLM 约束以支持 Python 3.14；直接使用 Python
+  3.11 标准库 `StrEnum` 与 `datetime.UTC`，删除 Python 3.10 兼容写法。
+- 预处理简化为视频音轨提取和 ffmpeg 响度标准化。`LRCer` 与 Workflow 请求的可选
+  参数改为 keyword-only，删除旧位置参数后不会发生静默错位。
+
+### 删除
+
+- 删除 DeepFilterNet、DeepFilterLib、Torch、Torchaudio、CUDA PyTorch package
+  source 和 `full` extra。
+- 删除 faster-whisper 遗留且产品代码未使用的 ONNX Runtime。
+- 从 `LRCer`、`TranscriptionConfig`、Workflow request、Settings、recipe、CLI 和
+  TUI 删除 Noise Suppression。旧 `--noise-suppress` 会报告 unknown option，旧
+  Python 参数会直接产生 `TypeError`。
+
+### 修复
+
+- whisper-cli 非零退出、无输出、损坏 JSON 和不可恢复 schema 统一转换为有界且带
+  上下文的转写错误；segment 缺少 offsets 时回退 timestamps，token 缺少时间时
+  使用所属 segment 范围。
+- Settings、Workflow 参数、Input Files、运行结果、Home、Doctor、Models 和 Setup
+  动态重组时会按 stable action 恢复选中行与键盘焦点；Job Detail 的 `d` 现在优先打开
+  Delete，不再被全局 Doctor 快捷键截获。
+- Preflight 按构造后的真实 Workflow request 生成翻译摘要；Source Subtitle 会显示为
+  transcribe-only，不再错误展示翻译模式和目标语言。
+- 启动和 Workflow 终态的历史持久化失败会作为非致命 warning 告知用户，同时保留成功
+  的内存结果；Interrupted 恢复状态回写失败时也不会阻断 TUI 启动。
+- 无效 Default Glossary 的 Inspect 会被禁用；compose 后文件变化等竞态只显示错误通知，
+  不再让异常逃出 Textual event handler。
+- Workflow recipe 只保留当前 work type、backend、Hy-MT2 mode 和 Context 规则实际启用
+  的字段。旧 recipe 仍可加载，但隐藏的陈旧设置不会再次进入 dirty/history/Resume。
+- Terminal picker 中获得焦点的按钮支持 Space，路径输入中的空格不受影响；删除未被渲染
+  使用的 ASCII Status 设置，并为 Textual 私有语言 context 增加惰性英文 fallback。
+
+### 验证
+
+- Python 3.13.14 完整 pytest 为 `635 passed, 25 skipped, 22 warnings`；
+  预处理、Workflow、application、CLI、TUI、lazy-import 与包 metadata
+  聚焦回归为 `193 passed`。
+- 使用已安装 v1.9.1 binary 的 opt-in CPU 音频/VAD与视频/ffmpeg 真实 smoke 通过；
+  结果为 `2 passed`，Metal 用例未选中。20 个 TUI SVG baseline 及隔离的
+  80×24 Home -> Doctor -> Home -> Quit PTY 导航 smoke 也通过。
+- Ruff lint/format、Pyright、YAML 解析、CLI version、Doctor/strict、包构建和
+  wheel metadata/入口隔离安装、`git diff --check` 均在本地通过。首次远端 CI
+  全绿和非受限 Apple Silicon Metal smoke 仍待完成。
+
 ## OpenLRC Mac 0.4.1
 
 本版本集中修复 TUI 可靠性：关闭 Starting 取消窗口，保护 Settings/Draft 导航事务，

@@ -7,7 +7,7 @@ import threading
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import TypeAlias
 
@@ -18,13 +18,13 @@ from openlrc.setup.whisper_cpp import DEFAULT_MODEL, DEFAULT_VAD_MODEL, WhisperS
 from openlrc.workflow import CancellationToken, OwnedProcessRegistry, WorkflowCancelled, redact_sensitive_text
 
 
-class SetupKind(str, Enum):
+class SetupKind(StrEnum):
     WHISPER = "whisper"
     LLAMA = "llama"
     ALL = "all"
 
 
-class SetupStatus(str, Enum):
+class SetupStatus(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"

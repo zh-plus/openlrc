@@ -92,14 +92,7 @@ class ActionList(ListView):
                 if child.has_class("action-group-last"):
                     child.add_class("action-list-terminal")
                 break
-        super().__init__(
-            *children,
-            initial_index=initial_index,
-            name=name,
-            id=id,
-            classes=classes,
-            disabled=disabled,
-        )
+        super().__init__(*children, initial_index=initial_index, name=name, id=id, classes=classes, disabled=disabled)
 
     class Activated(Message):
         def __init__(self, action_id: str, item: ActionItem) -> None:

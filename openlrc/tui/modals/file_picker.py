@@ -28,12 +28,7 @@ def native_picker_availability() -> tuple[bool, str]:
     return True, ""
 
 
-def choose_files_native(
-    initial_directory: Path,
-    *,
-    json_only: bool = False,
-    language: str | None = None,
-) -> list[str]:
+def choose_files_native(initial_directory: Path, *, json_only: bool = False, language: str | None = None) -> list[str]:
     """Open the macOS picker without a shell and return absolute paths."""
     available, reason = native_picker_availability()
     if not available:
@@ -41,10 +36,7 @@ def choose_files_native(
     start = initial_directory.expanduser().resolve(strict=False)
     if not start.is_dir():
         start = Path.home()
-    prompt = tr(
-        "Choose transcription JSON files" if json_only else "Choose audio or video files",
-        language=language,
-    )
+    prompt = tr("Choose transcription JSON files" if json_only else "Choose audio or video files", language=language)
     script = """
 on run argv
     set startFolder to POSIX file (item 1 of argv) as alias
@@ -74,6 +66,13 @@ class VisibleDirectoryTree(DirectoryTree):
         return [path for path in paths if not path.name.startswith(".")]
 
 
+class _PickerButton(Button):
+    BINDINGS = [
+        Binding("enter", "press", "Press button", show=False),
+        Binding("space", "press", "Press button", show=False),
+    ]
+
+
 class TerminalFilePickerModal(ModalScreen[list[str]]):
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
 
@@ -87,13 +86,13 @@ class TerminalFilePickerModal(ModalScreen[list[str]]):
             yield Static(tr("Browse in Terminal"), classes="modal-title", markup=False)
             with Horizontal(classes="file-picker-location-row"):
                 yield Input(value=str(self.initial_directory.resolve()), id="file-picker-location")
-                yield Button(tr("Go"), id="file-picker-go")
-                yield Button(tr("Up"), id="file-picker-up")
+                yield _PickerButton(tr("Go"), id="file-picker-go")
+                yield _PickerButton(tr("Up"), id="file-picker-up")
             yield VisibleDirectoryTree(self.initial_directory, id="file-tree")
             yield Static(tr("No files selected"), id="file-picker-selected", classes="muted")
             with Horizontal(classes="modal-actions"):
-                yield Button(tr("Cancel"), id="file-picker-cancel")
-                yield Button(tr("Use Selected"), id="file-picker-done", variant="primary")
+                yield _PickerButton(tr("Cancel"), id="file-picker-cancel")
+                yield _PickerButton(tr("Use Selected"), id="file-picker-done", variant="primary")
 
     def on_directory_tree_directory_selected(self, event: DirectoryTree.DirectorySelected) -> None:
         self.query_one("#file-picker-location", Input).value = str(event.path.resolve())

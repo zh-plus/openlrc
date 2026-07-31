@@ -63,7 +63,6 @@ class WorkflowDraft:
     target_language: str = "zh-cn"
     whisper_model: str = ""
     vad_model: str = ""
-    noise_suppress: bool = False
     skip_preprocess: bool = False
     whisper_use_gpu: bool = True
     whisper_flash_attn: bool = True
@@ -106,7 +105,6 @@ class WorkflowDraft:
             target_language=settings.workflow.target_language,
             whisper_model=settings.local_models.whisper_model,
             vad_model=settings.local_models.vad_model,
-            noise_suppress=settings.transcription.noise_suppress,
             skip_preprocess=settings.transcription.skip_preprocess,
             whisper_use_gpu=settings.transcription.use_gpu,
             whisper_flash_attn=settings.transcription.flash_attn,
@@ -128,13 +126,8 @@ class WorkflowDraft:
 
     def to_recipe(self) -> dict[str, object]:
         recipe = asdict(self)
-        if self.workflow == WorkflowKind.TRANSCRIBE.value:
-            for key in _TRANSLATION_RECIPE_FIELDS:
-                recipe.pop(key, None)
-        elif self.context_assistance == ContextAssistance.OFF.value:
-            for key in ("context_provider", "context_model", "context_base_url", "context_fee_limit"):
-                recipe.pop(key, None)
-        return recipe
+        active_fields = self._active_recipe_fields()
+        return {key: value for key, value in recipe.items() if key in active_fields}
 
     @classmethod
     def from_recipe(cls, payload: dict[str, object]) -> WorkflowDraft:
@@ -143,7 +136,55 @@ class WorkflowDraft:
             payload["hymt2_model"] = payload.pop("local_model")
         allowed = cls.__dataclass_fields__
         values = {key: value for key, value in payload.items() if key in allowed}
-        return cls(**cast(Any, values))
+        draft = cls(**cast(Any, values))
+        return cls(**cast(Any, draft.to_recipe()))
+
+    def _active_recipe_fields(self) -> set[str]:
+        """Return only fields that can affect the current request."""
+
+        kind = WorkflowKind(self.workflow)
+        fields = set(_BASE_RECIPE_FIELDS)
+        if kind in {WorkflowKind.TRANSCRIBE, WorkflowKind.RUN}:
+            fields.update(_TRANSCRIPTION_RECIPE_FIELDS)
+        if kind is WorkflowKind.TRANSCRIBE:
+            return fields
+        if kind is WorkflowKind.RUN and self.translation_backend == "none":
+            fields.add("translation_backend")
+            return fields
+
+        fields.update(_TRANSLATION_RECIPE_FIELDS)
+        if self.translation_backend == "online":
+            fields.update(_ONLINE_RECIPE_FIELDS)
+            if not self.retry_provider:
+                fields.discard("retry_model")
+            if not self.reviewer_provider:
+                fields.discard("reviewer_model")
+        elif self.translation_backend == "local-qwen":
+            fields.update(_LOCAL_QWEN_RECIPE_FIELDS)
+        elif self.translation_backend == "local":
+            fields.update(_HYMT2_RECIPE_FIELDS)
+            try:
+                mode = TranslationMode(self.mode)
+            except ValueError:
+                fields.update(_HYMT2_CONTEXT_RECIPE_FIELDS)
+                fields.update(_HYMT2_BRIEF_RECIPE_FIELDS)
+                fields.update(_HYMT2_REVIEW_RECIPE_FIELDS)
+                return fields
+            if mode is not TranslationMode.FAST:
+                fields.update(_HYMT2_BRIEF_RECIPE_FIELDS)
+                fields.add("context_assistance")
+                if mode in {TranslationMode.NORMAL_PLUS, TranslationMode.PRO}:
+                    fields.update(_HYMT2_REVIEW_RECIPE_FIELDS)
+                if self.context_assistance != ContextAssistance.OFF.value:
+                    try:
+                        context_required = self.requires_context_model()
+                    except ValueError:
+                        context_required = True
+                    if context_required:
+                        fields.update({"context_provider", "context_model"})
+                        if self.context_provider != "local":
+                            fields.update({"context_base_url", "context_fee_limit"})
+        return fields
 
     def validate(self, settings: AppSettings, credentials: CredentialStore) -> None:
         self.build_request(settings, credentials)
@@ -169,7 +210,6 @@ class WorkflowDraft:
                 paths,
                 transcription=transcription,
                 src_lang=source_language,
-                noise_suppress=self.noise_suppress,
                 skip_preprocess=self.skip_preprocess,
                 subtitle_output=self.task != "transcribe-json",
                 subtitle_optimization=optimization,
@@ -183,7 +223,6 @@ class WorkflowDraft:
                 translation=None,
                 src_lang=source_language,
                 target_lang=self.target_language,
-                noise_suppress=self.noise_suppress,
                 subtitle_optimization=optimization,
                 clear_temp=self.clear_temp,
                 clear_checkpoint=self.clear_checkpoint,
@@ -210,7 +249,6 @@ class WorkflowDraft:
             translation=translation,
             src_lang=source_language,
             target_lang=self.target_language,
-            noise_suppress=self.noise_suppress,
             bilingual_sub=self.bilingual_subtitle,
             subtitle_optimization=optimization,
             clear_temp=self.clear_temp,
@@ -400,10 +438,30 @@ class WorkflowDraft:
         return ContextLLMConfig(chatbot=model, fee_limit=self.context_fee_limit)
 
 
+_BASE_RECIPE_FIELDS = {"task", "workflow", "paths", "subtitle_optimization"}
+
+_TRANSCRIPTION_RECIPE_FIELDS = {
+    "source_language",
+    "whisper_model",
+    "vad_model",
+    "skip_preprocess",
+    "whisper_use_gpu",
+    "whisper_flash_attn",
+    "clear_temp",
+}
+
 _TRANSLATION_RECIPE_FIELDS = {
     "target_language",
     "translation_backend",
     "mode",
+    "glossary_path",
+    "glossary_strict",
+    "force_glossary",
+    "bilingual_subtitle",
+    "clear_checkpoint",
+}
+
+_ONLINE_RECIPE_FIELDS = {
     "provider",
     "primary_model",
     "retry_provider",
@@ -412,25 +470,23 @@ _TRANSLATION_RECIPE_FIELDS = {
     "reviewer_model",
     "fee_limit",
     "consumer_thread",
-    "local_profile",
-    "qwen_model",
-    "hymt2_model",
+}
+
+_LOCAL_QWEN_RECIPE_FIELDS = {"qwen_model"}
+
+_HYMT2_RECIPE_FIELDS = {"local_profile", "hymt2_model"}
+
+_HYMT2_CONTEXT_RECIPE_FIELDS = {
     "context_provider",
     "context_model",
     "context_base_url",
     "context_fee_limit",
     "context_assistance",
-    "glossary_path",
-    "glossary_strict",
-    "force_glossary",
-    "brief_summary",
-    "brief_characters",
-    "brief_tone_style",
-    "edit_rounds",
-    "enable_restore",
-    "bilingual_subtitle",
-    "clear_checkpoint",
 }
+
+_HYMT2_BRIEF_RECIPE_FIELDS = {"brief_summary", "brief_characters", "brief_tone_style"}
+
+_HYMT2_REVIEW_RECIPE_FIELDS = {"edit_rounds", "enable_restore"}
 
 
 def normalize_input_paths(raw_paths, workflow: str | WorkflowKind) -> tuple[list[str], list[str]]:

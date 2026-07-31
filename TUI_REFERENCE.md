@@ -97,9 +97,14 @@ Context provider/model 也按这一当前默认值补齐。
 转写配置提供 `Whisper GPU` 与 `Whisper flash attention` 开关。二者默认开启；当本机
 whisper.cpp、Metal 或特定模型组合不兼容时，可以在单个 Workflow 中关闭，也可以在
 Settings 的 Transcription 默认值中统一关闭。
+0.4.2 的预处理只执行视频音轨提取与 ffmpeg 响度标准化；Workflow Draft、recipe 和
+Transcription Settings 不再提供旧 DeepFilterNet 降噪开关。旧 settings/recipe 中的
+未知降噪字段会在读取时忽略，且不会再次保存。
 
 文件输入支持 macOS native picker、内置 Terminal Browser 和粘贴多行路径。启动前必须
 经过共享 Preflight；Blocked 不能启动，Warning 需要确认，Ready 才直接进入 Running。
+Terminal Browser 中获得焦点的 Go、Up、Cancel、Use Selected 按钮可用 Enter 或 Space；
+路径输入框中的 Space 仍输入空格。
 请求摘要和检查结果是不可聚焦的只读文本，只有 `Start` 和 `Back` 可选择；内容超过可见
 区域时使用 `Page Up` / `Page Down` 翻阅，action 焦点不会移动。TUI 不自行推测输出路径
 或复制 CLI 参数拼装。
@@ -130,6 +135,8 @@ Workflow 运行期间，OpenLRC logger 输出会进入页面下方固定的 `RUN
 不会直接写入 terminal 并覆盖 Textual 画面；原 terminal handler 在退出 TUI 后恢复。
 任务进入终态后，Esc / `g h` 直接返回 Home，Jobs / New Work 则进入对应页面；这些
 路径都会先移除本次 Workflow 的整个配置栈并丢弃已消费 Draft。
+若任务结果已成功但 history 写盘失败，结果仍保持 Succeeded，并显示一次 warning；
+启动时恢复 Interrupted 状态的回写失败也不会阻止内存中的 Jobs 加载。
 
 Jobs 历史不保存 API key。详情页提供：
 
@@ -149,6 +156,11 @@ Models 使用 typed resource status，不解析 CLI stdout。Setup Whisper、Lla
 typed setup event/result/cancel contract 运行，下载、编译或覆盖前显示确认，Setup 与字幕
 Workflow 不能并行占用可变资源。
 
+Doctor 与 CLI 共用 `ResourceStatusService`。除资源路径外，它会显示
+`whisper-cli --version` 结果和 vendored CMake build 的 Metal 配置；外部/App Bundle
+二进制显示 build capability unknown。Doctor 不执行推理，Metal 行始终明确标注
+runtime not probed，并提供关闭 Whisper GPU/flash attention 的 CPU 诊断命令。
+
 Settings 是 working copy：子页修改只保存在内存，必须选择 `Save changes` 才原子写入
 `settings.json`。离开 dirty Settings 时可 Save、Discard 或 Stay。API key 写入 macOS
 Keychain，不进入 settings 或 job recipe；environment credential 只读取、不删除。
@@ -159,19 +171,21 @@ Settings 根页面的 Esc、`g h` 和 Quit 共用同一个离开保护；子页 
 working copy 变脏后 Save 才恢复 amber 强调和键盘焦点。disabled 只改变文字和交互
 状态，Save、spacer 与同组其他行始终使用相同主题结构边框，外框不会中途断色。
 
-Default Glossary 在 Settings 中 validate/inspect；生成结果是否违反术语约束在对应 Job
-详情中检查。Home 不设置独立 Glossary Tools 卡片。
+Default Glossary 在 Settings 中 validate/inspect；路径为空或当前验证失败时 Inspect
+禁用，文件在页面显示后被删除/修改只会产生错误通知。生成结果是否违反术语约束在对应
+Job 详情中检查。Home 不设置独立 Glossary Tools 卡片。
 
 ## 外观与兼容性
 
 Appearance 提供 `OpenLRC Dark`、Textual 内置 `Textual Dark`、English、简体中文、
-Logo animation、Reduced motion 和 ASCII-only 状态符号。Theme 与 Language 选择后
-立即预览；只有 Settings 根页面的 `Save changes` 会持久化，`Discard changes` 会同时
-恢复已保存的画面和 working copy。旧设置文件没有 language 时继续使用 English。
+Logo animation 和 Reduced motion。Theme 与 Language 选择后立即预览；只有 Settings
+根页面的 `Save changes` 会持久化，`Discard changes` 会同时恢复已保存的画面和
+working copy。旧设置文件没有 language 时继续使用 English；旧 `ascii_status` 字段
+会被忽略，并在下一次保存时移除。
 
-Theme、Logo animation、Reduced motion 和 ASCII 切换不会销毁当前列表；Language
-必须刷新全部文案，但会通过 stable action ID 在新列表挂载后恢复 Language 行焦点。
-因此用 Enter 应用主题或语言后，可以立刻继续使用方向键，不需要鼠标重新聚焦。
+动态页面刷新和设置变更统一通过 stable action ID 在新列表挂载后恢复同一行与实际
+键盘焦点；原 action 消失或 disabled 时才回退首个可用项。因此用 Enter 应用主题或
+语言后，可以立刻继续使用方向键，不需要鼠标重新聚焦。
 
 简体中文覆盖 Home、New Work、Preflight、Running、Jobs、Models、Doctor、Settings、
 Modal、帮助、通知和 TUI 动态计数。路径、模型 ID、Provider 名称、后端日志与原始异常

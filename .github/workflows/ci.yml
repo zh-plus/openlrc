@@ -1,59 +1,124 @@
-# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
-
 name: CI
 
 on:
   push:
-    branches: [ "master", "dev" ]
+    branches: [master]
   pull_request:
-    branches: [ "master" ]
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OPENLRC_TEST_LIVE_API: "0"
+  OPENLRC_TEST_STRESS: "0"
+  OPENLRC_TEST_REAL_WHISPER: "0"
+  OPENLRC_TEST_REAL_WHISPER_METAL: "0"
+  OPENLRC_LOG_LEVEL: DEBUG
 
 jobs:
-  ci:
+  tests:
+    name: Tests / Python ${{ matrix.python-version }}
+    runs-on: macos-latest
+    env:
+      TIKTOKEN_CACHE_DIR: ${{ runner.temp }}/openlrc-tiktoken-cache
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ "3.10", "3.11", "3.12" ]
-        os: [ windows-latest, ubuntu-latest ]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
 
-    defaults:
-      run:
-        shell: bash
-
-    runs-on: ${{ matrix.os }}
-    env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      OPENLRC_TEST_LLM_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      OPENLRC_TEST_LIVE_API: "1"
-      OPENLRC_LOG_LEVEL: "DEBUG"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - name: Install the latest version of uv and set the python version
-        uses: astral-sh/setup-uv@v6
+      - name: Require Apple Silicon
+        run: |
+          test "$(uname -m)" = "arm64" || {
+            echo "::error::Expected an arm64 GitHub-hosted macOS runner."
+            exit 1
+          }
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v8.1.0
         with:
           python-version: ${{ matrix.python-version }}
           activate-environment: true
-      #      - name: Install dependencies
-      #        run: |
-      #          poetry lock --no-update
-      #          poetry install
-      #          poetry run pip uninstall -y faster-whisper
-      #          poetry run pip install "faster-whisper @ https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz"
-      #      - name: Install extra dependencies
-      #        run: |
-      #          poetry run pip install --force-reinstall torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
-      #          poetry run pip install -U typing-extensions
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            .python-version
 
       - name: Install ffmpeg
-        uses: FedericoCarboni/setup-ffmpeg@v2
-        id: setup-ffmpeg
-
-      - name: Test with unittest
-        working-directory: ./tests
         run: |
-          uv run --extra full --extra litellm python -m unittest discover -s . -p 'test_*.py'
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            brew install ffmpeg
+          fi
+
+      - name: Install dependencies
+        run: uv sync --python ${{ matrix.python-version }} --group dev --extra litellm
+
+      - name: Prime tokenizer data
+        run: uv run python -c 'import tiktoken; tiktoken.get_encoding("cl100k_base")'
+
+      - name: Run tests
+        run: uv run python -m pytest -q
+
+  quality:
+    name: Quality and build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Require Apple Silicon
+        run: |
+          test "$(uname -m)" = "arm64" || {
+            echo "::error::Expected an arm64 GitHub-hosted macOS runner."
+            exit 1
+          }
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          python-version: "3.13"
+          activate-environment: true
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            .python-version
+
+      - name: Install dependencies
+        run: uv sync --python 3.13 --group dev --extra litellm
+
+      - name: Ruff lint
+        run: uv run ruff check openlrc/ tests/ scripts/
+
+      - name: Ruff format
+        run: uv run ruff format --check openlrc/ tests/ scripts/
+
+      - name: Pyright
+        run: uv run pyright
+
+      - name: CLI version
+        run: uv run openlrc --version
+
+      - name: Build package
+        run: uv build
+
+      - name: Check wheel metadata
+        run: uv run python scripts/check_wheel_metadata.py dist/openlrc_mac-0.4.2-py3-none-any.whl
+
+      - name: Check patch whitespace
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if test -n "$BASE_SHA" && ! printf '%s' "$BASE_SHA" | grep -Eq '^0+$'; then
+            git diff --check "$BASE_SHA"..HEAD
+          else
+            git show --check --format= HEAD
+          fi

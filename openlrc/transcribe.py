@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import math
 import unicodedata
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -15,6 +17,7 @@ from pysbd.languages import LANGUAGE_CODES
 from tqdm import tqdm
 
 from openlrc.defaults import default_whisper_cpp_options
+from openlrc.exceptions import TranscribeException
 from openlrc.logger import logger
 from openlrc.media_utils import get_audio_duration
 from openlrc.utils import Timer, format_timestamp
@@ -72,6 +75,42 @@ def _parse_timestamp_str(ts: str) -> float:
         return float(ts)
 
 
+def _time_range(item: Mapping[str, object], *, label: str, allow_missing: bool = False) -> tuple[float, float] | None:
+    """Read a whisper.cpp time range, preferring integer-millisecond offsets."""
+    offsets = item.get("offsets")
+    if isinstance(offsets, Mapping):
+        start_value = offsets.get("from")
+        end_value = offsets.get("to")
+        if (
+            isinstance(start_value, (int, float))
+            and not isinstance(start_value, bool)
+            and isinstance(end_value, (int, float))
+            and not isinstance(end_value, bool)
+        ):
+            start = float(start_value) / 1000.0
+            end = float(end_value) / 1000.0
+            if math.isfinite(start) and math.isfinite(end) and end >= start:
+                return start, end
+
+    timestamps = item.get("timestamps")
+    if isinstance(timestamps, Mapping):
+        start_value = timestamps.get("from")
+        end_value = timestamps.get("to")
+        if isinstance(start_value, str) and isinstance(end_value, str):
+            try:
+                start = _parse_timestamp_str(start_value)
+                end = _parse_timestamp_str(end_value)
+            except (TypeError, ValueError):
+                pass
+            else:
+                if math.isfinite(start) and math.isfinite(end) and end >= start:
+                    return start, end
+
+    if allow_missing:
+        return None
+    raise TranscribeException(f"whisper-cli JSON {label} has no valid offsets or timestamps.")
+
+
 def map_cli_json_to_segments(cli_json: dict) -> list[Segment]:
     """将 whisper-cli -ojf 输出的 JSON 转换为 Segment 列表。
 
@@ -107,18 +146,37 @@ def map_cli_json_to_segments(cli_json: dict) -> list[Segment]:
     Returns:
         Segment 列表，每个 Segment 包含带 Word 级时间戳的 words 列表。
     """
-    segments: list[Segment] = []
+    transcription = cli_json.get("transcription", [])
+    if not isinstance(transcription, list):
+        raise TranscribeException("whisper-cli JSON field 'transcription' must be an array.")
 
-    for i, seg in enumerate(cli_json.get("transcription", [])):
+    segments: list[Segment] = []
+    for i, seg in enumerate(transcription):
+        if not isinstance(seg, Mapping):
+            raise TranscribeException(f"whisper-cli JSON segment {i} must be an object.")
+
         # --- Segment 级时间 ---
-        seg_start = seg["offsets"]["from"] / 1000.0
-        seg_end = seg["offsets"]["to"] / 1000.0
-        seg_text = seg.get("text", "").strip()
+        segment_range = _time_range(seg, label=f"segment {i}")
+        assert segment_range is not None
+        seg_start, seg_end = segment_range
+        seg_text_value = seg.get("text", "")
+        if not isinstance(seg_text_value, str):
+            raise TranscribeException(f"whisper-cli JSON segment {i} field 'text' must be a string.")
+        seg_text = seg_text_value.strip()
 
         # --- Token/Word 级时间 ---
+        tokens = seg.get("tokens", [])
+        if not isinstance(tokens, list):
+            raise TranscribeException(f"whisper-cli JSON segment {i} field 'tokens' must be an array.")
         words: list[Word] = []
-        for tok in seg.get("tokens", []):
+        for token_index, tok in enumerate(tokens):
+            if not isinstance(tok, Mapping):
+                raise TranscribeException(f"whisper-cli JSON segment {i} token {token_index} must be an object.")
             tok_text = tok.get("text", "")
+            if not isinstance(tok_text, str):
+                raise TranscribeException(
+                    f"whisper-cli JSON segment {i} token {token_index} field 'text' must be a string."
+                )
 
             # 跳过特殊 token（如 [SOT], [EOT], [_BEG_] 等）
             if tok_text.startswith("[") and tok_text.endswith("]"):
@@ -127,20 +185,21 @@ def map_cli_json_to_segments(cli_json: dict) -> list[Segment]:
             if not tok_text.strip():
                 continue
 
-            # 优先用 offsets（精确整数毫秒），回退用 timestamps（字符串）
-            if "offsets" in tok:
-                w_start = tok["offsets"]["from"] / 1000.0
-                w_end = tok["offsets"]["to"] / 1000.0
-            elif "timestamps" in tok:
-                w_start = _parse_timestamp_str(tok["timestamps"]["from"])
-                w_end = _parse_timestamp_str(tok["timestamps"]["to"])
-            else:
+            # 优先用 offsets（精确整数毫秒），再回退 timestamps 和 segment 时间。
+            token_range = _time_range(tok, label=f"segment {i} token {token_index}", allow_missing=True)
+            if token_range is None:
                 # 无时间戳的 token，使用 segment 级时间作为 fallback
                 w_start = seg_start
                 w_end = seg_end
+            else:
+                w_start, w_end = token_range
 
             probability = tok.get("p", 0.0)
-            words.append(Word(start=w_start, end=w_end, word=tok_text, probability=probability))
+            if not isinstance(probability, (int, float)) or isinstance(probability, bool):
+                raise TranscribeException(
+                    f"whisper-cli JSON segment {i} token {token_index} field 'p' must be numeric."
+                )
+            words.append(Word(start=w_start, end=w_end, word=tok_text, probability=float(probability)))
 
         # 过滤空 words 的 segment
         # sentence_split() 中有 assert segment.words is not None
@@ -262,7 +321,12 @@ class Transcriber:
         # 语言检测结果
         # whisper-cli JSON: result.language 为短代码如 "en"
         # (cli.cpp L723: whisper_lang_str(whisper_full_lang_id(ctx)))
-        detected_lang = language or cli_json.get("result", {}).get("language", "en")
+        result_info = cli_json.get("result", {})
+        if not isinstance(result_info, Mapping):
+            raise TranscribeException("whisper-cli JSON field 'result' must be an object.")
+        detected_lang = language or result_info.get("language", "en")
+        if not isinstance(detected_lang, str) or not detected_lang:
+            raise TranscribeException("whisper-cli JSON detected language must be a non-empty string.")
 
         # 估算 VAD 后时长（累加所有 segment 的有效时长）
         duration_after_vad = sum(s.end - s.start for s in segments)

@@ -48,12 +48,7 @@ class HomeScreen(OpenLRCScreen):
 
     def on_screen_resume(self) -> None:
         self.app.discard_clean_draft()
-        self.refresh(recompose=True)
-        self.call_after_refresh(self._resume_after_recompose)
-
-    def _resume_after_recompose(self) -> None:
-        self.refresh_status()
-        self.focus_default_action_list()
+        self.recompose_preserving_action(after_recompose=self.refresh_status)
 
     def on_action_list_activated(self, event: ActionList.Activated) -> None:
         self.app.open_route(event.action_id)

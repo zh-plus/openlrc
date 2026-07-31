@@ -55,7 +55,7 @@ uv run openlrc --version
 当前输出类似：
 
 ```text
-OpenLRC Mac 0.4.1 (distribution: openlrc-mac; upstream base: OpenLRC 1.7.0a1)
+OpenLRC Mac 0.4.2 (distribution: openlrc-mac; upstream base: OpenLRC 1.7.0a1)
 ```
 
 ### `openlrc doctor`
@@ -73,6 +73,8 @@ uv run openlrc doctor --strict
 - `cmake`
 - `vendor/whisper.cpp`
 - `whisper-cli`
+- `whisper-cli` 版本
+- vendored build 的 Metal 编译能力
 - 默认 Whisper 模型
 - 默认 VAD 模型
 - `vendor/llama.cpp`
@@ -80,7 +82,10 @@ uv run openlrc doctor --strict
 - `llama-cli`
 - 默认 Qwen GGUF 模型
 
-默认模式只展示状态。`--strict` 会在有缺失项时返回非零退出码，适合 CI 或脚本检查。
+Doctor 不运行模型推理。Metal 行只区分 vendored build 的编译配置、非 vendor
+二进制的未知状态和“运行时未探测”；Metal 未编译仍可使用 CPU，因此不会单独导致
+`--strict` 失败。默认模式只展示状态；`--strict` 会在真正缺失依赖或资源时返回
+非零退出码，适合本地验收或脚本检查。
 
 ### `openlrc models status`
 
@@ -210,7 +215,7 @@ uv run openlrc transcribe input.mp4 --src-lang en
 uv run openlrc transcribe input.mp4 input2.wav --src-lang en
 uv run openlrc transcribe input.mp4 --whisper-model small
 uv run openlrc transcribe input.mp4 --vad-model ""
-uv run openlrc transcribe input.mp4 --noise-suppress
+uv run openlrc transcribe input.mp4 --no-whisper-gpu --no-whisper-flash-attn
 uv run openlrc transcribe input.mp4 --skip-preprocess
 ```
 
@@ -220,8 +225,15 @@ uv run openlrc transcribe input.mp4 --skip-preprocess
 - `--src-lang`: 源语言代码；不传则由底层流程自动处理。
 - `--whisper-model`: Whisper 模型名、文件名或路径，默认 `base`。
 - `--vad-model`: VAD 模型名、文件名或路径；传空字符串可禁用 VAD。
-- `--noise-suppress`: 转写前启用降噪。
+- `--whisper-gpu/--no-whisper-gpu`: 默认启用 GPU；关闭后显式传递 whisper.cpp
+  CPU 参数。
+- `--whisper-flash-attn/--no-whisper-flash-attn`: 默认启用 flash attention；
+  遇到 Metal 或特定模型兼容问题时可独立关闭。
 - `--skip-preprocess`: 使用已经存在的预处理音频文件。
+
+预处理当前只保留 ffmpeg 响度标准化和视频音轨提取。0.4.2 已移除旧
+DeepFilterNet 降噪链路及 `--noise-suppress`；传入该旧选项会由 Typer 明确报告
+unknown option。
 
 适合场景：
 
@@ -356,7 +368,9 @@ uv run openlrc run input.mp4 --src-lang en --target-lang zh-cn --translation onl
 - `--target-lang`: 目标语言，默认 `zh-cn`。
 - `--whisper-model`: Whisper 模型名、文件名或路径。
 - `--vad-model`: VAD 模型名、文件名或路径；传空字符串可禁用 VAD。
-- `--noise-suppress`: 转写前启用降噪。
+- `--whisper-gpu/--no-whisper-gpu`: 默认启用 GPU，可为单次 Run 显式切到 CPU。
+- `--whisper-flash-attn/--no-whisper-flash-attn`: 默认启用 flash attention，可为
+  单次 Run 关闭。
 - `--bilingual-sub`: 翻译时生成双语字幕。
 - `--subtitle-optimization aggressive|relaxed`: 字幕优化模式。`aggressive`
   保留既有合并、重复压缩、截断、`<unk>`/空行清理和最终时间扩展；`relaxed`
@@ -375,6 +389,9 @@ uv run openlrc run input.mp4 --src-lang en --target-lang zh-cn --translation onl
   和 `--enable-restore` 与 `translate` 命令一致。
 - `--brief-summary`、`--brief-characters` 和 `--brief-tone-style` 与
   `translate` 命令一致；Fast、非 Hy-MT2 以及未启用翻译时拒绝这些参数。
+
+GPU 或 flash attention 失败时 CLI 不会静默改用 CPU。这样可以保留真实的 Metal
+故障；需要兼容路径时应显式传入两个 `--no-whisper-*` 选项。
 
 ### `openlrc glossary`
 

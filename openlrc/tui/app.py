@@ -105,7 +105,7 @@ class OpenLRCTUI(App[None]):
     TITLE = "OpenLRC Mac"
     BINDINGS = [
         Binding("q", "quit_requested", "Quit", show=False, priority=True),
-        Binding("d", "doctor", "Doctor", show=False, priority=True),
+        Binding("d", "doctor", "Doctor", show=False),
         Binding("n", "new_workflow", "New Work", show=False, priority=True),
         Binding("question_mark", "help", "Help", show=False, priority=True),
         Binding("ctrl+c", "interrupt", "Cancel / Quit", show=False, priority=True),
@@ -193,6 +193,10 @@ class OpenLRCTUI(App[None]):
         self._install_log_capture()
         self.apply_visual_settings(self.settings.general)
         self.push_screen(HomeScreen())
+        history_warning = self.job_controller.repository.last_warning
+        if history_warning:
+            self.job_controller.repository.last_warning = None
+            self.notify(history_warning, severity="warning", timeout=10)
 
     def on_unmount(self) -> None:
         self._uninstall_log_capture()
@@ -598,6 +602,10 @@ class OpenLRCTUI(App[None]):
             self._draft_baseline = self._draft.to_recipe()
         if self.running_workflow_screen is not None and self.running_workflow_screen.is_mounted:
             self.running_workflow_screen.finish(result)
+        persistence_warning = self.job_controller.persistence_warning
+        if persistence_warning:
+            self.job_controller.persistence_warning = None
+            self.notify(persistence_warning, severity="warning", timeout=10)
         self._operation_complete()
 
     def start_setup(self, request: SetupRequest) -> None:

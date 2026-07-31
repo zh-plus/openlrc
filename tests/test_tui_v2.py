@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 import threading
 from collections import Counter
 from pathlib import Path
@@ -21,6 +22,7 @@ from openlrc.application import (
     ResourceStatus,
     SettingsStore,
     SetupController,
+    SetupResult,
     SetupStatus,
     WhisperSetupRequest,
     WorkflowDraft,
@@ -30,15 +32,18 @@ from openlrc.config import ContextAssistance
 from openlrc.logger import handler as openlrc_terminal_handler
 from openlrc.logger import logger as openlrc_logger
 from openlrc.tui import OpenLRCTUI
-from openlrc.tui.i18n import tr
+from openlrc.tui.i18n import current_language, tr
 from openlrc.tui.modals import ChoiceModal, ConfirmModal, MultilineTextModal, TextInputModal
+from openlrc.tui.modals.file_picker import TerminalFilePickerModal
 from openlrc.tui.navigation import ActionGroupHeading, ActionGroupSpacer, ActionItem, ActionList
+from openlrc.tui.screens.doctor import DoctorScreen
 from openlrc.tui.screens.jobs import JobDetailScreen, JobsScreen
-from openlrc.tui.screens.models import SetupRunningScreen
-from openlrc.tui.screens.settings import ProviderDetailScreen
+from openlrc.tui.screens.models import ModelStatusScreen, SetupRunningScreen
+from openlrc.tui.screens.settings import DefaultGlossaryScreen, ProviderDetailScreen, TranscriptionSettingsScreen
 from openlrc.tui.screens.workflow import (
     ConfirmWorkflowScreen,
     HyMT2ModeScreen,
+    InputFilesScreen,
     RunningWorkflowScreen,
     WorkflowOptionsScreen,
     WorkflowTypeScreen,
@@ -46,7 +51,7 @@ from openlrc.tui.screens.workflow import (
 from openlrc.tui.widgets.home_card import HomeCard
 from openlrc.tui.widgets.logo import WIDE_LOGO, LogoWidget, render_logo
 from openlrc.tui.widgets.status import WorkflowSteps
-from openlrc.workflow import CancellationToken, WorkflowResult, WorkflowStatus
+from openlrc.workflow import CancellationToken, WorkflowKind, WorkflowResult, WorkflowStatus
 
 
 class StaticResources:
@@ -281,7 +286,6 @@ def test_appearance_theme_language_focus_persistence_and_discard(tmp_path: Path)
                 "语言",
                 "Logo 动效",
                 "减少动效",
-                "仅使用 ASCII 状态符号",
             ]
             await pilot.press("down")
             appearance = app.screen.query_one(ActionList)
@@ -325,6 +329,126 @@ def test_brief_character_validation_error_is_localized() -> None:
         tr("Brief character line 2 must use 'Source Name = Target Name'.", language="zh-cn")
         == "人物映射第 2 行必须使用“源名称 = 目标名称”。"
     )
+
+
+def test_i18n_falls_back_when_textual_private_context_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    real_import = builtins.__import__
+
+    def blocked_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "textual._context":
+            raise ImportError("private module moved")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", blocked_import)
+
+    assert current_language() == "en"
+
+
+def test_action_lists_preserve_focus_across_recompose_and_terminal_results(tmp_path: Path) -> None:
+    first_input = tmp_path / "first.mp4"
+    second_input = tmp_path / "second.mp4"
+    first_input.touch()
+    second_input.touch()
+
+    async def scenario() -> None:
+        app = _app(tmp_path)
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            home = app.screen
+            home.focus_action("jobs")
+            home.on_screen_resume()
+            await pilot.pause()
+            home_actions = home.query_one(ActionList)
+            assert app.focused is home_actions
+            assert home_actions.selected_action() == "jobs"
+
+            app.push_screen(DoctorScreen())
+            await pilot.pause()
+            app.screen.focus_action("refresh")
+            await pilot.press("enter")
+            await pilot.pause()
+            doctor_actions = app.screen.query_one(ActionList)
+            assert app.focused is doctor_actions
+            assert doctor_actions.selected_action() == "refresh"
+
+            app.pop_screen()
+            await pilot.pause()
+            app.push_screen(ModelStatusScreen())
+            await pilot.pause()
+            app.screen.focus_action("refresh")
+            await pilot.press("enter")
+            await pilot.pause()
+            model_actions = app.screen.query_one(ActionList)
+            assert app.focused is model_actions
+            assert model_actions.selected_action() == "refresh"
+
+            app.pop_screen()
+            await pilot.pause()
+            app.push_screen(TranscriptionSettingsScreen())
+            await pilot.pause()
+            app.screen.focus_action("gpu")
+            await pilot.press("space")
+            await pilot.pause()
+            settings_actions = app.screen.query_one(ActionList)
+            assert app.focused is settings_actions
+            assert settings_actions.selected_action() == "gpu"
+
+            app.begin_workflow(WorkflowDraft(task="transcribe-json", workflow="transcribe"))
+            app.push_screen(WorkflowOptionsScreen())
+            await pilot.pause()
+            app.screen.focus_action("clear-temp")
+            await pilot.press("space")
+            await pilot.pause()
+            workflow_actions = app.screen.query_one(ActionList)
+            assert app.focused is workflow_actions
+            assert workflow_actions.selected_action() == "clear-temp"
+
+            app.draft.paths = [str(first_input), str(second_input)]
+            input_files = InputFilesScreen()
+            app.push_screen(input_files)
+            await pilot.pause()
+            input_files.focus_action("path:1")
+            await pilot.press("alt+up")
+            await pilot.pause()
+            input_actions = input_files.query_one(ActionList)
+            assert app.focused is input_actions
+            assert input_actions.selected_action() == "path:1"
+
+            app.workflow_output = ["INFO preserved runtime output"]
+            running = RunningWorkflowScreen(app.draft)
+            app.running_workflow_screen = running
+            app.push_screen(running)
+            await pilot.pause()
+            running.focus_action("logs")
+            running.finish(
+                WorkflowResult(job_id="focus-result", workflow=WorkflowKind.TRANSCRIBE, status=WorkflowStatus.SUCCEEDED)
+            )
+            await pilot.pause()
+            running_actions = running.query_one(ActionList)
+            assert app.focused is running_actions
+            assert running_actions.selected_action() == "logs"
+            assert "preserved runtime output" in "\n".join(
+                line.text for line in running.query_one("#workflow-runtime-output", RichLog).lines
+            )
+
+            app.pop_screen()
+            await pilot.pause()
+            request = WhisperSetupRequest()
+            setup = SetupRunningScreen(request)
+            app.push_screen(setup)
+            await pilot.pause()
+            setup.focus_action("cancel")
+            setup.finish(
+                SetupResult(
+                    operation_id="focus-setup", kind=request.kind, status=SetupStatus.SUCCEEDED, paths=(tmp_path,)
+                )
+            )
+            await pilot.pause()
+            setup_actions = setup.query_one(ActionList)
+            assert app.focused is setup_actions
+            assert setup_actions.selected_action() == "logs"
+
+    asyncio.run(scenario())
 
 
 def test_disabling_logo_animation_renders_a_fresh_static_blue_logo(
@@ -1077,6 +1201,169 @@ def test_text_input_suppresses_single_character_shortcuts(tmp_path: Path) -> Non
             await pilot.press("q", "d", "n", "j", "k")
             assert input_widget.value == "qdnjk"
             assert app.screen.query_one(Input) is input_widget
+
+    asyncio.run(scenario())
+
+
+def test_job_delete_shortcut_overrides_global_doctor_binding(tmp_path: Path) -> None:
+    record = JobRecord(
+        job_id="delete-shortcut",
+        workflow="transcribe",
+        name="episode.mp4",
+        status=JobRecordStatus.SUCCEEDED,
+        input_paths=["/tmp/episode.mp4"],
+        recipe={},
+    )
+    JobRepository(tmp_path / "jobs.json").save([record])
+
+    async def scenario() -> None:
+        app = _app(tmp_path)
+        async with app.run_test(size=(100, 30)) as pilot:
+            app.push_screen(JobDetailScreen(record.job_id))
+            await pilot.pause()
+
+            await pilot.press("d")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+
+            await pilot.press("escape", "escape")
+            await pilot.pause()
+            assert app.screen.id == "home"
+            await pilot.press("d")
+            await pilot.pause()
+            assert isinstance(app.screen, DoctorScreen)
+
+    asyncio.run(scenario())
+
+
+def test_default_glossary_disables_invalid_inspect_and_handles_file_race(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    messages: list[str] = []
+
+    async def scenario() -> None:
+        app = _app(tmp_path)
+        monkeypatch.setattr(app, "notify", lambda message, **_kwargs: messages.append(message))
+        async with app.run_test(size=(100, 30)) as pilot:
+            app.working_settings.workflow.default_glossary = str(tmp_path / "missing.json")
+            app.push_screen(DefaultGlossaryScreen())
+            await pilot.pause()
+            invalid = next(item for item in app.screen.query(ActionItem) if item.action_id == "inspect")
+            assert invalid.disabled
+
+            app.pop_screen()
+            await pilot.pause()
+            glossary = tmp_path / "glossary.json"
+            glossary.write_text(
+                '{"schema_version": 1, "entries": [{"source": "case", "target": "案件"}]}', encoding="utf-8"
+            )
+            app.working_settings.workflow.default_glossary = str(glossary)
+            app.push_screen(DefaultGlossaryScreen())
+            await pilot.pause()
+            inspect_item = next(item for item in app.screen.query(ActionItem) if item.action_id == "inspect")
+            assert not inspect_item.disabled
+
+            app.screen.focus_action("inspect")
+            glossary.unlink()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, DefaultGlossaryScreen)
+            assert messages and "Glossary file not found" in messages[-1]
+
+    asyncio.run(scenario())
+
+
+def test_terminal_picker_buttons_accept_space_without_stealing_input_space(tmp_path: Path) -> None:
+    child = tmp_path / "child"
+    child.mkdir()
+    selected = tmp_path / "episode.mp4"
+    selected.touch()
+    results: list[list[str]] = []
+
+    async def scenario() -> None:
+        app = _app(tmp_path)
+        async with app.run_test(size=(100, 30)) as pilot:
+            picker = TerminalFilePickerModal(tmp_path)
+            app.push_screen(picker, results.append)
+            await pilot.pause()
+
+            location = picker.query_one("#file-picker-location", Input)
+            location.value = ""
+            location.focus()
+            await pilot.press("space")
+            assert location.value == " "
+
+            location.value = str(child)
+            picker.query_one("#file-picker-go", Button).focus()
+            await pilot.press("space")
+            await pilot.pause()
+            assert location.value == str(child.resolve())
+
+            picker.query_one("#file-picker-up", Button).focus()
+            await pilot.press("space")
+            await pilot.pause()
+            assert location.value == str(tmp_path.resolve())
+
+            picker.selected = [str(selected)]
+            picker.query_one("#file-picker-done", Button).focus()
+            await pilot.press("space")
+            await pilot.pause()
+            assert results == [[str(selected)]]
+
+            cancelled = TerminalFilePickerModal(tmp_path)
+            app.push_screen(cancelled, results.append)
+            await pilot.pause()
+            cancelled.query_one("#file-picker-cancel", Button).focus()
+            await pilot.press("space")
+            await pilot.pause()
+            assert results[-1] == []
+
+    asyncio.run(scenario())
+
+
+def test_history_warnings_are_notified_once_at_mount_and_workflow_finish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = JobRepository(tmp_path / "jobs.json")
+    controller = JobController(repository)
+    repository.last_warning = "Recovered history could not be saved"
+    app = OpenLRCTUI(
+        settings_store=SettingsStore(tmp_path / "settings.json"),
+        credentials=StaticCredentials(),
+        job_controller=controller,
+        resources=StaticResources(),
+        fixed_logo_frame=0,
+    )
+    notifications: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        app, "notify", lambda message, *, severity="information", **_kwargs: notifications.append((message, severity))
+    )
+
+    async def scenario() -> None:
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            assert notifications.count(("Recovered history could not be saved", "warning")) == 1
+            assert repository.last_warning is None
+
+            draft = WorkflowDraft(task="transcribe-json", workflow="transcribe")
+            app.begin_workflow(draft)
+            running = RunningWorkflowScreen(draft)
+            app.running_workflow_screen = running
+            app.push_screen(running)
+            await pilot.pause()
+
+            controller.persistence_warning = "History not saved: disk full"
+            app._workflow_finished(
+                WorkflowResult(
+                    job_id="history-warning", workflow=WorkflowKind.TRANSCRIBE, status=WorkflowStatus.SUCCEEDED
+                )
+            )
+            await pilot.pause()
+
+            assert running.result is not None
+            assert running.result.status is WorkflowStatus.SUCCEEDED
+            assert notifications.count(("History not saved: disk full", "warning")) == 1
+            assert controller.persistence_warning is None
 
     asyncio.run(scenario())
 

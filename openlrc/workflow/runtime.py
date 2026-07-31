@@ -9,7 +9,7 @@ import threading
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from openlrc.workflow.types import (
@@ -257,7 +257,7 @@ class ExecutionContext:
             header = EventHeader(
                 job_id=self.job_id,
                 sequence=sequence,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 workflow=self.workflow,
                 item=resolved_item,
                 translation_mode=self.translation_mode,

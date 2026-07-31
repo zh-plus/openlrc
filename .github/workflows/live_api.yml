@@ -1,0 +1,57 @@
+name: Live API
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-api-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  OPENLRC_TEST_LIVE_API: "1"
+  OPENLRC_TEST_STRESS: "0"
+  OPENLRC_LOG_LEVEL: DEBUG
+
+jobs:
+  provider-tests:
+    name: Provider live tests
+    runs-on: ubuntu-latest
+    env:
+      OPENLRC_TEST_LLM_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      TIKTOKEN_CACHE_DIR: ${{ runner.temp }}/openlrc-tiktoken-cache
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Require OpenRouter credential
+        run: |
+          test -n "$OPENLRC_TEST_LLM_API_KEY" || {
+            echo "::error::The OPENROUTER_API_KEY repository secret is required."
+            exit 1
+          }
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          python-version: "3.13"
+          activate-environment: true
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            .python-version
+
+      - name: Install provider dependencies
+        run: uv sync --python 3.13 --group dev --extra litellm
+
+      - name: Prime tokenizer data
+        run: uv run python -c 'import tiktoken; tiktoken.get_encoding("cl100k_base")'
+
+      - name: Run provider live tests
+        run: >-
+          uv run python -m pytest -q
+          tests/test_agents.py
+          tests/test_chatbot.py
+          tests/test_translate.py
+          tests/test_lean_translator.py

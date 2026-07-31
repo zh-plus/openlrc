@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, cast
 
@@ -14,7 +14,7 @@ from openlrc.application.paths import app_support_dir, atomic_write_json, backup
 from openlrc.workflow import redact_sensitive_text
 
 
-class JobRecordStatus(str, Enum):
+class JobRecordStatus(StrEnum):
     RUNNING = "running"
     SUCCEEDED = "succeeded"
     SUCCEEDED_WITH_WARNINGS = "succeeded_with_warnings"
@@ -47,7 +47,7 @@ class JobRecord:
     translation_mode: str | None = None
     current_stage: str | None = None
     progress: float = 0.0
-    started_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    started_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     completed_at: str | None = None
     outputs: list[str] = field(default_factory=list)
     artifacts: list[dict[str, object]] = field(default_factory=list)
@@ -125,10 +125,13 @@ class JobRepository:
             for record in records:
                 if record.status is JobRecordStatus.RUNNING:
                     record.status = JobRecordStatus.INTERRUPTED
-                    record.completed_at = datetime.now(timezone.utc).isoformat()
+                    record.completed_at = datetime.now(UTC).isoformat()
                     changed = True
         if changed:
-            self.save(records)
+            try:
+                self.save(records)
+            except OSError as exc:
+                self.last_warning = f"Recovered interrupted jobs in memory, but job history was not saved: {exc}"
         return records[: self.MAX_RECORDS]
 
     def save(self, records: list[JobRecord]) -> None:

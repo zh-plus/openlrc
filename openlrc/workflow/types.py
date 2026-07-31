@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import KW_ONLY, dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Protocol, TypeAlias
 
 from openlrc.config import SubtitleOptimizationMode, TranscriptionConfig, TranslationConfig
 
 
-class WorkflowKind(str, Enum):
+class WorkflowKind(StrEnum):
     TRANSCRIBE = "transcribe"
     TRANSLATE = "translate"
     RUN = "run"
 
 
-class TranslationMode(str, Enum):
+class TranslationMode(StrEnum):
     """Canonical product modes exposed by the Workflow API."""
 
     STANDARD = "standard"
@@ -27,7 +27,7 @@ class TranslationMode(str, Enum):
     PRO = "pro"
 
 
-class RunExecutionStrategy(str, Enum):
+class RunExecutionStrategy(StrEnum):
     """Resolved scheduling policy for a :class:`RunRequest`."""
 
     TRANSCRIBE_ONLY = "transcribe-only"
@@ -35,14 +35,14 @@ class RunExecutionStrategy(str, Enum):
     MEMORY_SAVER = "memory-saver"
 
 
-class WorkflowStatus(str, Enum):
+class WorkflowStatus(StrEnum):
     SUCCEEDED = "succeeded"
     SUCCEEDED_WITH_WARNINGS = "succeeded_with_warnings"
     FAILED = "failed"
     CANCELLED = "cancelled"
 
 
-class WorkflowStage(str, Enum):
+class WorkflowStage(StrEnum):
     VALIDATE = "validate"
     PREPROCESS = "preprocess"
     TRANSCRIBE = "transcribe"
@@ -58,13 +58,13 @@ class WorkflowStage(str, Enum):
     CLEANUP = "cleanup"
 
 
-class StageOutcome(str, Enum):
+class StageOutcome(StrEnum):
     COMPLETED = "completed"
     SKIPPED = "skipped"
     RESUMED = "resumed"
 
 
-class ErrorCategory(str, Enum):
+class ErrorCategory(StrEnum):
     CONFIGURATION = "configuration"
     INPUT = "input"
     DEPENDENCY = "dependency"
@@ -77,7 +77,7 @@ class ErrorCategory(str, Enum):
     INTERNAL = "internal"
 
 
-class ArtifactKind(str, Enum):
+class ArtifactKind(StrEnum):
     TRANSCRIPTION = "transcription"
     SUBTITLE = "subtitle"
     BILINGUAL_SUBTITLE = "bilingual-subtitle"
@@ -97,9 +97,9 @@ class WorkflowTranslationConfig:
 @dataclass(frozen=True, slots=True)
 class TranscribeRequest:
     paths: tuple[str | Path, ...]
+    _: KW_ONLY
     transcription: TranscriptionConfig = field(default_factory=TranscriptionConfig)
     src_lang: str | None = None
-    noise_suppress: bool = False
     skip_preprocess: bool = False
     subtitle_output: bool = False
     subtitle_optimization: SubtitleOptimizationMode = SubtitleOptimizationMode.AGGRESSIVE
@@ -113,6 +113,7 @@ class TranscribeRequest:
 @dataclass(frozen=True, slots=True)
 class TranslateRequest:
     transcribed_paths: tuple[str | Path, ...]
+    _: KW_ONLY
     translation: WorkflowTranslationConfig
     target_lang: str = "zh-cn"
     bilingual_sub: bool = False
@@ -127,11 +128,11 @@ class TranslateRequest:
 @dataclass(frozen=True, slots=True)
 class RunRequest:
     paths: tuple[str | Path, ...]
+    _: KW_ONLY
     transcription: TranscriptionConfig = field(default_factory=TranscriptionConfig)
     translation: WorkflowTranslationConfig | None = None
     src_lang: str | None = None
     target_lang: str = "zh-cn"
-    noise_suppress: bool = False
     bilingual_sub: bool = False
     subtitle_optimization: SubtitleOptimizationMode = SubtitleOptimizationMode.AGGRESSIVE
     clear_temp: bool = True

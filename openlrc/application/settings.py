@@ -26,7 +26,6 @@ class GeneralSettings:
     language: str = "en"
     logo_animation: bool = True
     reduce_motion: bool = False
-    ascii_status: str = "auto"
 
 
 @dataclass(slots=True)
@@ -67,7 +66,6 @@ class LocalModelSettings:
 @dataclass(slots=True)
 class TranscriptionDefaults:
     source_language: str = ""
-    noise_suppress: bool = False
     skip_preprocess: bool = False
     use_gpu: bool = True
     flash_attn: bool = True

@@ -1,8 +1,6 @@
 #  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
-default_preprocess_options = {"atten_lim_db": 15}
-
 # whisper.cpp CLI transcription options used by Transcriber._build_extra_args().
 default_whisper_cpp_options = {
     "beam_size": 5,
@@ -28,7 +26,6 @@ EDIT_REPORT_SUFFIX = ".edit-report"
 EDIT_SESSION_SUFFIX = ".edit-session"
 NONTRANS_SUFFIX = "_nontrans"
 BILINGUAL_SUFFIX = "_bilingual"
-NOISE_SUPPRESSED_SUFFIX = "_ns"
 LOUDNORM_SUFFIX = "_ln"
 
 # Directory name for preprocessed audio files.

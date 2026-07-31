@@ -89,15 +89,17 @@ def preflight(draft: WorkflowDraft, settings: AppSettings, credentials: Credenti
             strategy = resolve_run_execution_strategy(request).value
         else:
             strategy = "translation-only"
+        translation = getattr(request, "translation", None)
+        translation_enabled = translation is not None
         report.summary = {
             "pipeline": _pipeline_label(draft.workflow),
             "inputs": str(len(paths)),
             "translation": (
-                "None" if draft.workflow == "transcribe" else f"{draft.translation_backend.title()} / {draft.mode}"
+                f"{draft.translation_backend.title()} / {translation.mode.value}" if translation_enabled else "None"
             ),
             **_context_summary(request),
             "strategy": strategy,
-            "target": draft.target_language if draft.workflow != "transcribe" else "source language",
+            "target": draft.target_language if translation_enabled else "source language",
             "cleanup": "owned temporary files only" if draft.clear_temp else "keep temporary files",
             "outputs": ", ".join(sorted({str(path.parent) for plan in plans.values() for path in plan["outputs"]})),
         }

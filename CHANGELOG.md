@@ -1,5 +1,83 @@
 # Changelog
 
+## OpenLRC Mac 0.4.2
+
+Dependency and compatibility cleanup release centered on a Python 3.13 default
+environment, Python 3.11-3.14 CI, and removal of the abandoned denoising stack.
+
+### Added
+
+- Rebuilt the required test and quality workflows around the macOS/Apple
+  Silicon product surface, Python 3.11-3.14, uv, pytest, Ruff, Pyright, and
+  package builds. Live provider checks now live in a separate manual workflow
+  and never run from required CI.
+- Added explicit `--whisper-gpu/--no-whisper-gpu` and
+  `--whisper-flash-attn/--no-whisper-flash-attn` controls to `transcribe` and
+  `run`, plus non-inference Doctor rows for the whisper.cpp version and Metal
+  build capability.
+- Added a sanitized v1.9.1 whisper.cpp JSON fixture, setup/contract regression
+  coverage, and opt-in real CPU/VAD, video/ffmpeg, and Metal smoke tests.
+
+### Changed
+
+- Set the package support range to Python `>=3.11,<3.15`, pinned the repository
+  development environment to Python 3.13.14, and made Python 3.13 the quality,
+  package-build, and manual Live API environment.
+- Updated tiktoken, Lingua, and LiteLLM constraints for Python 3.14 support.
+  Python 3.11+ standard-library `StrEnum` and `datetime.UTC` now replace the
+  former Python 3.10 compatibility patterns.
+- Simplified preprocessing to video audio extraction plus ffmpeg loudness
+  normalization. Optional `LRCer` and Workflow request arguments are now
+  keyword-only so removed positional parameters cannot silently shift.
+
+### Removed
+
+- Removed DeepFilterNet, DeepFilterLib, Torch, Torchaudio, the CUDA PyTorch
+  package source, and the `full` extra.
+- Removed the unused ONNX Runtime dependency left behind by faster-whisper.
+- Removed Noise Suppression from `LRCer`, `TranscriptionConfig`, Workflow
+  requests, settings, recipes, CLI, and TUI. The old `--noise-suppress` option
+  now fails as an unknown option and old Python arguments raise `TypeError`.
+
+### Fixed
+
+- Mapped whisper-cli exit, missing-output, malformed-JSON, and unrecoverable
+  schema failures to bounded, contextual transcription errors. Segment
+  timestamps now recover missing offsets, while tokens without timing inherit
+  their segment range.
+- Preserved the active ActionList row and keyboard focus when dynamic TUI pages
+  recompose, including Settings, Workflow configuration, Input Files, runtime
+  results, Home, Doctor, Models, and Setup. Job Detail's `d` shortcut now opens
+  Delete without being intercepted by the global Doctor shortcut.
+- Built Preflight translation summaries from the effective Workflow request, so
+  source-subtitle runs are shown as transcribe-only instead of displaying a
+  translation mode and target language.
+- Surfaced non-fatal history persistence failures at startup and Workflow
+  completion while preserving successful in-memory results. Interrupted jobs
+  also remain available in memory if their recovery status cannot be written.
+- Disabled inspection of an invalid default glossary and contained filesystem
+  races inside a user-visible error notification.
+- Canonicalized Workflow recipes to include only fields active for the selected
+  work type, backend, Hy-MT2 mode, and Context requirement. Legacy recipes
+  remain loadable but no longer reintroduce hidden stale settings.
+- Added Space activation to focused Terminal picker buttons without changing
+  spaces in path inputs, removed the unused ASCII-status setting, and isolated
+  Textual's private language-context lookup behind an English fallback.
+
+### Validation
+
+- Full pytest on Python 3.13.14: `635 passed, 25 skipped, 22 warnings`;
+  focused preprocessing/Workflow/application/CLI/TUI/lazy-import/package
+  metadata coverage: `193 passed`.
+- Opt-in real CPU Whisper audio/VAD and video/ffmpeg smoke tests passed with the
+  installed v1.9.1 binary (`2 passed`, Metal deselected). All 20 TUI SVG
+  baselines and an isolated 80x24 Home -> Doctor -> Home -> Quit PTY
+  navigation smoke also passed.
+- Ruff lint/format, Pyright, YAML parsing, CLI version, Doctor/strict, package
+  build, wheel metadata/entrypoint installation, and `git diff --check` passed
+  locally. The first remote CI green run and non-sandboxed Apple Silicon Metal
+  smoke remain pending.
+
 ## OpenLRC Mac 0.4.1
 
 Focused TUI reliability release covering cancellation, transactional navigation,

@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable, Iterable
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
 
@@ -24,13 +24,13 @@ def _stable_hash(payload: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-class EditSeverity(str, Enum):
+class EditSeverity(StrEnum):
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
 
 
-class EditIssueStatus(str, Enum):
+class EditIssueStatus(StrEnum):
     DETECTED = "detected"
     PROPOSED = "proposed"
     APPLIED = "applied"
@@ -41,14 +41,14 @@ class EditIssueStatus(str, Enum):
     FAILED = "failed"
 
 
-class EditAction(str, Enum):
+class EditAction(StrEnum):
     VERIFY = "verify"
     REVIEW = "review"
     RETRANSLATE = "retranslate"
     RESTORE = "restore"
 
 
-class EditSessionStatus(str, Enum):
+class EditSessionStatus(StrEnum):
     CHECKING = "checking"
     EDITING = "editing"
     COMPLETE = "complete"
@@ -56,7 +56,7 @@ class EditSessionStatus(str, Enum):
     FAILED = "failed"
 
 
-class EditStopReason(str, Enum):
+class EditStopReason(StrEnum):
     NO_HIGH_RISK = "no-high-risk"
     NO_EFFECTIVE_PATCH = "no-effective-patch"
     UNCHANGED_HASH = "unchanged-hash"
@@ -66,7 +66,7 @@ class EditStopReason(str, Enum):
     VALIDATION_FAILURE = "validation-failure"
 
 
-class EditRoundStatus(str, Enum):
+class EditRoundStatus(StrEnum):
     STARTED = "started"
     FAILED = "failed"
     COMMITTED = "committed"

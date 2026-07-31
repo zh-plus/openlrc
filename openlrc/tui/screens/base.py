@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
 from textual.binding import Binding
@@ -50,17 +51,24 @@ class OpenLRCScreen(Screen):
             action_list.index = target_index
         self.set_focus(action_list)
 
-    def recompose_preserving_action(self, action_id: str | None = None) -> None:
+    def recompose_preserving_action(
+        self, action_id: str | None = None, *, after_recompose: Callable[[], None] | None = None
+    ) -> None:
         if action_id is None:
             action_list = next(iter(self.query(ActionList)), None)
             action_id = action_list.selected_action() if action_list is not None else None
         self.refresh(recompose=True)
-        self.call_after_refresh(self._focus_after_recompose, action_id)
+        self.call_after_refresh(self._focus_after_recompose, action_id, after_recompose)
 
-    def _focus_after_recompose(self, action_id: str | None) -> None:
+    def _focus_after_recompose(self, action_id: str | None, after_recompose: Callable[[], None] | None = None) -> None:
         # Recompose unmounts the old list after the first refresh callback. Defer
         # once more so focus can only land on the newly mounted ActionList.
-        self.call_later(self.focus_action, action_id)
+        self.call_later(self._finish_recompose, action_id, after_recompose)
+
+    def _finish_recompose(self, action_id: str | None, after_recompose: Callable[[], None] | None = None) -> None:
+        self.focus_action(action_id)
+        if after_recompose is not None:
+            after_recompose()
 
     if TYPE_CHECKING:
 

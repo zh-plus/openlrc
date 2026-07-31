@@ -9,6 +9,7 @@ import shutil
 import time
 import traceback
 import uuid
+from collections.abc import Sequence
 from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from dataclasses import asdict
@@ -49,7 +50,6 @@ from openlrc.defaults import (
     RELAXED_OPTIMIZED_SUFFIX,
     TRANSCRIBED_SUFFIX,
     TRANSLATED_SUFFIX,
-    default_preprocess_options,
     default_whisper_cpp_options,
 )
 from openlrc.llama_resources import (
@@ -149,10 +149,6 @@ class LRCer:
 
         # Merge default options with provided options
         self.asr_options = {**default_whisper_cpp_options, **(self._transcription_config.asr_options or {})}
-        self.preprocess_options = {
-            **default_preprocess_options,
-            **(self._transcription_config.preprocess_options or {}),
-        }
 
         # Lazy initialization: Transcriber is created on first access via the property.
         self._transcriber_lock = Lock()
@@ -603,11 +599,7 @@ class LRCer:
             logger.info("Transcription producer finished.")
 
     def transcribe(
-        self,
-        paths: str | Path | list[str | Path],
-        src_lang: str | None = None,
-        noise_suppress: bool = False,
-        skip_preprocess: bool = False,
+        self, paths: str | Path | list[str | Path], *, src_lang: str | None = None, skip_preprocess: bool = False
     ) -> list[Path]:
         """
         Transcribe audio/video files and return paths to the transcribed JSON files.
@@ -619,7 +611,6 @@ class LRCer:
         Args:
             paths (Union[str, Path, List[Union[str, Path]]]): Audio/Video paths.
             src_lang (Optional[str]): Language of the audio, default to auto-detect.
-            noise_suppress (bool): Whether to suppress noise in the audio. Default is False.
             skip_preprocess (bool): Whether to skip the preprocessing step. Default is False.
 
         Returns:
@@ -646,7 +637,7 @@ class LRCer:
                             f"Preprocessed file not found: {p}. Run pre_process() first or set skip_preprocess=False."
                         )
             else:
-                audio_paths = self.pre_process(paths, noise_suppress=noise_suppress)
+                audio_paths = self.pre_process(paths)
 
         logger.info(f"Transcribing {len(audio_paths)} audio files: {pformat(audio_paths)}")
 
@@ -3118,10 +3109,10 @@ class LRCer:
     def run(
         self,
         paths: str | Path | list[str | Path],
+        *,
         src_lang: str | None = None,
         target_lang: str = "zh-cn",
         skip_trans: bool = False,
-        noise_suppress: bool = False,
         bilingual_sub: bool = False,
         clear_temp: bool = True,
         clear_checkpoint: bool | None = None,
@@ -3138,7 +3129,7 @@ class LRCer:
         1. Pre-processing:
            - Convert input paths to Path objects.
            - Extract audio from video files if necessary.
-           - Apply noise suppression if requested.
+           - Normalize audio loudness with ffmpeg.
 
         2. Transcription (Producer):
            - Sequentially process each audio file.
@@ -3161,7 +3152,6 @@ class LRCer:
             src_lang (Optional[str]): Language of the audio, default to auto-detect.
             target_lang (str): Target language for translation, default to Mandarin Chinese ('zh-cn').
             skip_trans (bool): Whether to skip the translation process. Default is False.
-            noise_suppress (bool): Whether to suppress noise in the audio. Default is False.
             bilingual_sub (bool): Whether to generate bilingual subtitles. Default is False.
             clear_temp (bool): Whether to clear temporary files after complete success.
                                Incomplete review checkpoints are retained. Default is True.
@@ -3212,7 +3202,7 @@ class LRCer:
                             f"Preprocessed file not found: {p}. Run pre_process() first or set skip_preprocess=False."
                         )
             else:
-                audio_paths = self.pre_process(input_paths, noise_suppress=noise_suppress)
+                audio_paths = self.pre_process(input_paths)
 
         if skip_trans:
             # Transcribe-only: no translation threads needed
@@ -3395,20 +3385,19 @@ class LRCer:
 
         return result
 
-    def pre_process(self, paths, noise_suppress=False):
+    def pre_process(self, paths: Sequence[str | Path]) -> list[Path]:
         """
         Preprocess input audio/video files.
 
         Args:
             paths (List[Path]): Input file paths
-            noise_suppress (bool): Apply noise suppression if True
 
         Returns:
             List[Path]: Preprocessed audio file paths
         """
-        paths = list(dict.fromkeys(Path(p) for p in paths))
+        resolved_paths = list(dict.fromkeys(Path(p) for p in paths))
 
-        for i, path in enumerate(paths):
+        for i, path in enumerate(resolved_paths):
             self._check_cancelled()
             if not path.is_file():
                 raise FileNotFoundError(f"File not found: {path}")
@@ -3422,15 +3411,13 @@ class LRCer:
                 extract_audio(path, execution_context=self._execution_context)
                 self.from_video.add(path.with_suffix(""))
                 self._register_owned_path(audio_path)
-                paths[i] = audio_path
+                resolved_paths[i] = audio_path
 
         from openlrc.preprocess import Preprocessor
 
-        expected_paths = [get_preprocessed_path(path) for path in paths]
+        expected_paths = [get_preprocessed_path(path) for path in resolved_paths]
         missing_before = {path for path in expected_paths if not path.exists()}
-        processed = Preprocessor(paths, options=self.preprocess_options, execution_context=self._execution_context).run(
-            noise_suppress
-        )
+        processed = Preprocessor(resolved_paths, execution_context=self._execution_context).run()
         for path in processed:
             if path in missing_before and path.exists():
                 self._register_owned_path(path)

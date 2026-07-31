@@ -69,12 +69,7 @@ class SettingsScreen(OpenLRCScreen):
                     disabled=not self.app.settings_dirty,
                     classes="action-primary",
                 ),
-                ActionItem(
-                    "discard",
-                    "Discard changes",
-                    "Restore saved values",
-                    disabled=not self.app.settings_dirty,
-                ),
+                ActionItem("discard", "Discard changes", "Restore saved values", disabled=not self.app.settings_dirty),
             ),
             id="settings-menu",
             classes="page-list",
@@ -157,11 +152,7 @@ class ProviderDetailScreen(OpenLRCScreen):
             *action_group(
                 "Credentials",
                 ActionItem("credential", "Credential", credential_detail),
-                ActionItem(
-                    "remove-credential",
-                    "Remove Keychain credential",
-                    "Environment variables are not modified",
-                ),
+                ActionItem("remove-credential", "Remove Keychain credential", "Environment variables are not modified"),
             ),
             *action_group(
                 "Actions",
@@ -192,8 +183,7 @@ class ProviderDetailScreen(OpenLRCScreen):
             )
         elif event.action_id == "credential":
             self.app.push_screen(
-                TextInputModal("API key", placeholder="Stored in System Keychain", password=True),
-                self._credential_set,
+                TextInputModal("API key", placeholder="Stored in System Keychain", password=True), self._credential_set
             )
         elif event.action_id == "remove-credential":
             self.app.push_screen(
@@ -238,8 +228,7 @@ class ProviderDetailScreen(OpenLRCScreen):
             self._recompose()
 
     def _recompose(self) -> None:
-        self.refresh(recompose=True)
-        self.call_after_refresh(self.focus_default_action_list)
+        self.recompose_preserving_action()
 
 
 class LocalModelsSettingsScreen(OpenLRCScreen):
@@ -270,13 +259,9 @@ class LocalModelsSettingsScreen(OpenLRCScreen):
 
         items = [
             *action_group("Transcription", *rows(("whisper-model", "vad-model", "whisper-cli"))),
+            *action_group("Translation", *rows(("qwen-model", "hymt2-profile", "hymt2-model", "llama-server"))),
             *action_group(
-                "Translation",
-                *rows(("qwen-model", "hymt2-profile", "hymt2-model", "llama-server")),
-            ),
-            *action_group(
-                "Runtime",
-                *rows(("host", "port", "context-size", "gpu-layers", "idle-timeout", "startup-timeout")),
+                "Runtime", *rows(("host", "port", "context-size", "gpu-layers", "idle-timeout", "startup-timeout"))
             ),
         ]
         yield PageHeader("Local Models", "Shared by Workflow and future GUI")
@@ -302,7 +287,7 @@ class LocalModelsSettingsScreen(OpenLRCScreen):
                 self.app.notify("This field requires an integer.", severity="error")
                 return
             setattr(self.app.working_settings.local_models, attribute, parsed)
-            self.refresh(recompose=True)
+            self.recompose_preserving_action()
 
         return resolved
 
@@ -312,15 +297,8 @@ class TranscriptionSettingsScreen(OpenLRCScreen):
         settings = self.app.working_settings.transcription
         yield PageHeader("Transcription Defaults")
         yield ActionList(
-            *action_group(
-                "Basic",
-                ActionItem("source", "Source language", settings.source_language or "Auto detect"),
-            ),
-            *action_group(
-                "Processing",
-                ActionItem("noise", "Noise suppression", _on_off(settings.noise_suppress)),
-                ActionItem("skip", "Skip preprocess", _on_off(settings.skip_preprocess)),
-            ),
+            *action_group("Basic", ActionItem("source", "Source language", settings.source_language or "Auto detect")),
+            *action_group("Processing", ActionItem("skip", "Skip preprocess", _on_off(settings.skip_preprocess))),
             *action_group(
                 "Hardware",
                 ActionItem("gpu", "Whisper GPU", _on_off(settings.use_gpu)),
@@ -338,23 +316,20 @@ class TranscriptionSettingsScreen(OpenLRCScreen):
         settings = self.app.working_settings.transcription
         if event.action_id == "source":
             self.app.push_screen(TextInputModal("Source language", settings.source_language), self._source_set)
-        elif event.action_id == "noise":
-            settings.noise_suppress = not settings.noise_suppress
-            self.refresh(recompose=True)
         elif event.action_id == "skip":
             settings.skip_preprocess = not settings.skip_preprocess
-            self.refresh(recompose=True)
+            self.recompose_preserving_action()
         elif event.action_id == "gpu":
             settings.use_gpu = not settings.use_gpu
-            self.refresh(recompose=True)
+            self.recompose_preserving_action()
         elif event.action_id == "flash":
             settings.flash_attn = not settings.flash_attn
-            self.refresh(recompose=True)
+            self.recompose_preserving_action()
 
     def _source_set(self, value: str | None) -> None:
         if value is not None:
             self.app.working_settings.transcription.source_language = value.strip()
-            self.refresh(recompose=True)
+            self.recompose_preserving_action()
 
 
 class TranslationSettingsScreen(OpenLRCScreen):
@@ -417,17 +392,17 @@ class TranslationSettingsScreen(OpenLRCScreen):
             }
             attribute = attributes[event.action_id]
             setattr(settings, attribute, not getattr(settings, attribute))
-            self.refresh(recompose=True)
+            self.recompose_preserving_action()
 
     def _target_set(self, value: str | None) -> None:
         if value is not None:
             self.app.working_settings.workflow.target_language = value.strip()
-            self.refresh(recompose=True)
+            self.recompose_preserving_action()
 
     def _optimization_set(self, value: str | None) -> None:
         if value is not None:
             self.app.working_settings.workflow.subtitle_optimization = value
-            self.refresh(recompose=True)
+            self.recompose_preserving_action()
 
     def _rounds_set(self, value: str | None) -> None:
         if value is None:
@@ -440,7 +415,7 @@ class TranslationSettingsScreen(OpenLRCScreen):
             self.app.notify("Edit rounds must be between 0 and 3.", severity="error")
             return
         self.app.working_settings.workflow.edit_rounds = rounds
-        self.refresh(recompose=True)
+        self.recompose_preserving_action()
 
 
 class DefaultGlossaryScreen(OpenLRCScreen):
@@ -448,10 +423,12 @@ class DefaultGlossaryScreen(OpenLRCScreen):
         path = self.app.working_settings.workflow.default_glossary
         detail = Path(path).name if path else "Not set"
         inspect_detail = "Select and validate a glossary first"
+        inspect_valid = False
         if path:
             try:
                 inspection = self.app.glossaries.inspect(path)
                 inspect_detail = f"{inspection.entry_count} entries · {len(inspection.conflicts)} conflicts"
+                inspect_valid = True
             except Exception as exc:
                 inspect_detail = f"Invalid · {exc}"
         yield PageHeader("Default Glossary", detail)
@@ -459,7 +436,7 @@ class DefaultGlossaryScreen(OpenLRCScreen):
             *action_group(
                 "Glossary",
                 ActionItem("select", "Select glossary JSON", path or "Not set"),
-                ActionItem("inspect", "Inspect normalized entries", inspect_detail, disabled=not bool(path)),
+                ActionItem("inspect", "Inspect normalized entries", inspect_detail, disabled=not inspect_valid),
             ),
             *action_group(
                 "Actions",
@@ -492,7 +469,7 @@ class DefaultGlossaryScreen(OpenLRCScreen):
             self._inspect()
         elif event.action_id == "clear":
             self.app.working_settings.workflow.default_glossary = ""
-            self.refresh(recompose=True)
+            self.recompose_preserving_action()
 
     def _selected(self, value: str | None) -> None:
         if value is None:
@@ -504,10 +481,14 @@ class DefaultGlossaryScreen(OpenLRCScreen):
             return
         self.app.working_settings.workflow.default_glossary = str(inspection.path)
         self.app.notify(f"Glossary valid · {inspection.entry_count} entries")
-        self.refresh(recompose=True)
+        self.recompose_preserving_action()
 
     def _inspect(self) -> None:
-        inspection = self.app.glossaries.inspect(self.app.working_settings.workflow.default_glossary)
+        try:
+            inspection = self.app.glossaries.inspect(self.app.working_settings.workflow.default_glossary)
+        except Exception as exc:
+            self.app.notify(str(exc), severity="error", timeout=8)
+            return
         lines = [
             f"Name: {inspection.catalog.name or 'Unnamed'}",
             f"Source language: {inspection.catalog.source_language or 'Any'}",
@@ -533,7 +514,6 @@ class AppearanceSettingsScreen(OpenLRCScreen):
                 ActionItem("language", "Language", _language_label(general.language)),
                 ActionItem("animation", "Logo animation", _on_off(general.logo_animation)),
                 ActionItem("motion", "Reduced motion", _on_off(general.reduce_motion)),
-                ActionItem("ascii", "ASCII-only status symbols", general.ascii_status.title()),
             ),
             id="appearance-settings",
             classes="page-list",
@@ -552,20 +532,8 @@ class AppearanceSettingsScreen(OpenLRCScreen):
             ]
             self.app.push_screen(ChoiceModal("Theme", choices, current=general.theme), self._theme_set)
         elif event.action_id == "language":
-            choices = [
-                ("en", "English", "English"),
-                ("zh-cn", "Simplified Chinese", "简体中文"),
-            ]
+            choices = [("en", "English", "English"), ("zh-cn", "Simplified Chinese", "简体中文")]
             self.app.push_screen(ChoiceModal("Language", choices, current=general.language), self._language_set)
-        elif event.action_id == "ascii":
-            choices = [
-                ("auto", "Auto", "Use terminal capability"),
-                ("on", "On", "ASCII only"),
-                ("off", "Off", "Allow Unicode status symbols"),
-            ]
-            self.app.push_screen(
-                ChoiceModal("ASCII-only Status", choices, current=general.ascii_status), self._ascii_set
-            )
         elif event.action_id == "animation":
             general.logo_animation = not general.logo_animation
             self.app.apply_visual_settings(general)
@@ -589,12 +557,6 @@ class AppearanceSettingsScreen(OpenLRCScreen):
             self.recompose_preserving_action("language")
         else:
             self.call_after_refresh(self.focus_action, "language")
-
-    def _ascii_set(self, value: str | None) -> None:
-        if value is not None:
-            self.app.working_settings.general.ascii_status = value
-            self._update_detail("ascii", value.title())
-        self.call_after_refresh(self.focus_action, "ascii")
 
     def _update_detail(self, action_id: str, detail: str) -> None:
         item = next((item for item in self.query(ActionItem) if item.action_id == action_id), None)

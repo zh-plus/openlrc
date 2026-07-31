@@ -39,11 +39,7 @@ class WorkflowSteps(Static):
             if index > 1:
                 text.append("  ───  ", style="#35414d")
             style = (
-                "#f0aa4b bold"
-                if index == self.current_step
-                else "#48c6dc"
-                if index < self.current_step
-                else "#71808d"
+                "#f0aa4b bold" if index == self.current_step else "#48c6dc" if index < self.current_step else "#71808d"
             )
             text.append(f"[{index} {tr(label)}]", style=style)
         return text

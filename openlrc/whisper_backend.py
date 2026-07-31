@@ -24,9 +24,20 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from openlrc.workflow import CancellationToken, OwnedProcessRegistry
 
+from openlrc.exceptions import TranscribeException
 from openlrc.whisper_resources import resolve_vad_model_path, resolve_whisper_cli, resolve_whisper_model_path
 
 logger = logging.getLogger(__name__)
+
+_MAX_DIAGNOSTIC_CHARS = 4096
+
+
+def _diagnostic_tail(text: str) -> str:
+    """Keep subprocess diagnostics useful without copying unbounded output into errors."""
+    cleaned = text.strip()
+    if len(cleaned) <= _MAX_DIAGNOSTIC_CHARS:
+        return cleaned
+    return f"... [truncated]\n{cleaned[-_MAX_DIAGNOSTIC_CHARS:]}"
 
 
 class WhisperCLIBackend:
@@ -69,7 +80,7 @@ class WhisperCLIBackend:
             whisper-cli 输出的 JSON dict。
 
         Raises:
-            RuntimeError: whisper-cli 进程非零退出或无输出。
+            TranscribeException: whisper-cli 失败、无输出或产生无效 JSON。
         """
         # Current whisper.cpp releases do not emit JSON when ``-of -`` is paired
         # with ``--no-prints``. Use an owned temporary output and retain stdout as
@@ -171,15 +182,35 @@ class WhisperCLIBackend:
             cancellation_token.raise_if_cancelled()
         stdout_data = "".join(stdout_chunks)
 
+        stderr_data = "".join(stderr_lines)
         if proc.returncode != 0:
-            error_log = "".join(stderr_lines)
-            raise RuntimeError(f"whisper-cli exited with code {proc.returncode}:\n{error_log}")
+            diagnostic = _diagnostic_tail(stderr_data)
+            detail = f"\nstderr tail:\n{diagnostic}" if diagnostic else "\n(no stderr output)"
+            raise TranscribeException(f"whisper-cli exited with code {proc.returncode}.{detail}")
 
         if output_json.is_file():
-            payload = output_json.read_text(encoding="utf-8")
+            source = "owned JSON output"
+            try:
+                payload = output_json.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as exc:
+                raise TranscribeException(f"whisper-cli {source} could not be read: {exc}") from exc
         elif stdout_data.strip():
+            source = "stdout fallback"
             payload = stdout_data
         else:
-            raise RuntimeError("whisper-cli produced no output. stderr:\n" + "".join(stderr_lines))
+            diagnostic = _diagnostic_tail(stderr_data)
+            detail = f" stderr tail:\n{diagnostic}" if diagnostic else ""
+            raise TranscribeException(f"whisper-cli produced no JSON output.{detail}")
 
-        return json.loads(payload)
+        if stderr_data.strip():
+            logger.debug("whisper-cli stderr tail:\n%s", _diagnostic_tail(stderr_data))
+
+        try:
+            result = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            raise TranscribeException(
+                f"whisper-cli produced invalid JSON from {source} at line {exc.lineno}, column {exc.colno}: {exc.msg}"
+            ) from exc
+        if not isinstance(result, dict):
+            raise TranscribeException(f"whisper-cli JSON from {source} must be an object, got {type(result).__name__}.")
+        return result

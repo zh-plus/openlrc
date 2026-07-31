@@ -912,6 +912,18 @@ class LiteLLMBot(ChatBot):
     ):
         try:
             import litellm  # pyright: ignore[reportMissingImports]
+            from litellm.exceptions import (
+                APIConnectionError,
+                AuthenticationError,
+                BadRequestError,
+                InternalServerError,
+                NotFoundError,
+                PermissionDeniedError,
+                RateLimitError,
+                ServiceUnavailableError,
+                Timeout,
+                UnprocessableEntityError,
+            )
         except ImportError:
             raise ImportError(
                 "litellm is required for the litellm: provider. Install with: pip install 'openlrc-mac[litellm]'"
@@ -939,7 +951,7 @@ class LiteLLMBot(ChatBot):
             completion_kwargs["api_base"] = self.api_base
         completion_kwargs.update(self.extra_body)
 
-        response = None
+        response: Any = None
         validated = False
         for i in range(self.retry):
             self._check_cancelled()
@@ -964,21 +976,16 @@ class LiteLLMBot(ChatBot):
 
                 validated = True
                 break
-            except litellm.AuthenticationError as e:
+            except AuthenticationError as e:
                 raise ChatBotException(f"Authentication failed: {e}") from e
-            except (
-                litellm.BadRequestError,
-                litellm.NotFoundError,
-                litellm.PermissionDeniedError,
-                litellm.UnprocessableEntityError,
-            ) as e:
+            except (BadRequestError, NotFoundError, PermissionDeniedError, UnprocessableEntityError) as e:
                 raise ChatBotException(f"Client error: {e}") from e
             except (
-                litellm.RateLimitError,
-                litellm.APIConnectionError,
-                litellm.InternalServerError,
-                litellm.ServiceUnavailableError,
-                litellm.Timeout,
+                RateLimitError,
+                APIConnectionError,
+                InternalServerError,
+                ServiceUnavailableError,
+                Timeout,
                 json.decoder.JSONDecodeError,
             ) as e:
                 sleep_time = self._get_sleep_time(e)

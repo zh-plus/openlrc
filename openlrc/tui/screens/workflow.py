@@ -200,7 +200,6 @@ class WorkflowOptionsScreen(OpenLRCScreen):
                 [
                     ActionItem("whisper-model", "Whisper model", draft.whisper_model),
                     ActionItem("vad-model", "VAD model", draft.vad_model or "Disabled"),
-                    ActionItem("noise-suppress", "Noise suppression", _on_off(draft.noise_suppress)),
                     ActionItem("skip-preprocess", "Skip preprocess", _on_off(draft.skip_preprocess)),
                     ActionItem("whisper-gpu", "Whisper GPU", _on_off(draft.whisper_use_gpu)),
                     ActionItem("whisper-flash-attn", "Whisper flash attention", _on_off(draft.whisper_flash_attn)),
@@ -273,12 +272,17 @@ class WorkflowOptionsScreen(OpenLRCScreen):
                         [
                             ActionItem("context-provider", "Context provider", draft.context_provider or "Not set"),
                             ActionItem("context-model", "Context model", draft.context_model or "Not set"),
-                            ActionItem(
-                                "context-base-url", "Context base URL", draft.context_base_url or "Provider default"
-                            ),
-                            ActionItem("context-fee-limit", "Context fee limit", f"{draft.context_fee_limit:.2f}"),
                         ]
                     )
+                    if draft.context_provider != "local":
+                        advanced_items.extend(
+                            [
+                                ActionItem(
+                                    "context-base-url", "Context base URL", draft.context_base_url or "Provider default"
+                                ),
+                                ActionItem("context-fee-limit", "Context fee limit", f"{draft.context_fee_limit:.2f}"),
+                            ]
+                        )
                 if draft.mode != TranslationMode.FAST.value:
                     off = draft.context_assistance == ContextAssistance.OFF.value
                     advanced_items.extend(
@@ -319,12 +323,9 @@ class WorkflowOptionsScreen(OpenLRCScreen):
                     ActionItem("clear-checkpoint", "Clear checkpoints", _on_off(draft.clear_checkpoint)),
                 ]
             )
-        advanced_items.extend(
-            [
-                ActionItem("optimization", "Subtitle optimization", draft.subtitle_optimization.title()),
-                ActionItem("clear-temp", "Clear temporary files", _on_off(draft.clear_temp)),
-            ]
-        )
+        advanced_items.append(ActionItem("optimization", "Subtitle optimization", draft.subtitle_optimization.title()))
+        if draft.workflow != WorkflowKind.TRANSLATE.value:
+            advanced_items.append(ActionItem("clear-temp", "Clear temporary files", _on_off(draft.clear_temp)))
         continue_item = ActionItem(
             "continue", "Continue to Preflight", "Validate the real request and resource plan", classes="action-primary"
         )
@@ -347,8 +348,7 @@ class WorkflowOptionsScreen(OpenLRCScreen):
     def on_screen_resume(self) -> None:
         """Refresh values changed on a nested editor before restoring focus."""
 
-        self.refresh(recompose=True)
-        self.call_after_refresh(self.focus_default_action_list)
+        self.recompose_preserving_action()
 
     def on_action_list_activated(self, event: ActionList.Activated) -> None:
         action = event.action_id
@@ -560,8 +560,7 @@ class WorkflowOptionsScreen(OpenLRCScreen):
         self._recompose()
 
     def _recompose(self) -> None:
-        self.refresh(recompose=True)
-        self.call_after_refresh(self.focus_default_action_list)
+        self.recompose_preserving_action()
 
 
 class InputFilesScreen(OpenLRCScreen):
@@ -667,8 +666,7 @@ class InputFilesScreen(OpenLRCScreen):
             self._recompose()
 
     def _recompose(self) -> None:
-        self.refresh(recompose=True)
-        self.call_after_refresh(self.focus_default_action_list)
+        self.recompose_preserving_action()
 
 
 class ConfirmWorkflowScreen(OpenLRCScreen):
@@ -848,17 +846,7 @@ class RunningWorkflowScreen(OpenLRCScreen):
         self._recompose_terminal_view()
 
     def _recompose_terminal_view(self) -> None:
-        self.refresh(recompose=True)
-        self.call_after_refresh(self._after_terminal_recompose)
-
-    def _after_terminal_recompose(self) -> None:
-        # Recompose unmounts the original ActionList after the first refresh
-        # callback. Defer once more so focus and bindings belong to the new tree.
-        self.call_later(self._restore_terminal_view)
-
-    def _restore_terminal_view(self) -> None:
-        self._restore_runtime_output()
-        self.focus_action()
+        self.recompose_preserving_action(after_recompose=self._restore_runtime_output)
 
     def on_action_list_activated(self, event: ActionList.Activated) -> None:
         if event.action_id == "logs":
@@ -1001,7 +989,6 @@ _MULTILINE_TEXT_FIELDS = {
 }
 
 _TOGGLE_FIELDS = {
-    "noise-suppress": "noise_suppress",
     "skip-preprocess": "skip_preprocess",
     "whisper-gpu": "whisper_use_gpu",
     "whisper-flash-attn": "whisper_flash_attn",

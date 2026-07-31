@@ -24,8 +24,7 @@ class ModelsScreen(OpenLRCScreen):
         yield PageHeader("Models & Setup", "Local resources only")
         yield ActionList(
             *action_group(
-                "Resources",
-                ActionItem("status", "Model Status", "Installed binaries, models, and locations"),
+                "Resources", ActionItem("status", "Model Status", "Installed binaries, models, and locations")
             ),
             *action_group(
                 "Setup",
@@ -55,9 +54,7 @@ class ModelStatusScreen(OpenLRCScreen):
         translation_items = []
         for index, status in enumerate(statuses):
             item = ActionItem(
-                f"resource:{index}",
-                f"{tr('OK') if status.available else tr('MISSING')}  {status.name}",
-                status.detail,
+                f"resource:{index}", f"{tr('OK') if status.available else tr('MISSING')}  {status.name}", status.detail
             )
             if status.role == "transcription" or "whisper" in status.name.lower():
                 transcription_items.append(item)
@@ -66,10 +63,7 @@ class ModelStatusScreen(OpenLRCScreen):
         items = [
             *action_group("Transcription", *transcription_items),
             *action_group("Translation", *translation_items),
-            *action_group(
-                "Actions",
-                ActionItem("refresh", "Run checks again", "Refresh the shared resource snapshot"),
-            ),
+            *action_group("Actions", ActionItem("refresh", "Run checks again", "Refresh the shared resource snapshot")),
         ]
         yield PageHeader("Model Status", f"{sum(status.available for status in statuses)}/{len(statuses)} available")
         yield ActionList(*items, id="model-status", classes="page-list")
@@ -81,7 +75,7 @@ class ModelStatusScreen(OpenLRCScreen):
     def on_action_list_activated(self, event: ActionList.Activated) -> None:
         if event.action_id == "refresh":
             self.app.clear_resource_cache()
-            self.refresh(recompose=True)
+            self.recompose_preserving_action()
             return
         index = int(event.action_id.partition(":")[2])
         status = self.app.model_statuses()[index]
@@ -243,8 +237,7 @@ class SetupConfigScreen(OpenLRCScreen):
             self.app.start_setup(self.request)
 
     def _recompose(self) -> None:
-        self.refresh(recompose=True)
-        self.call_after_refresh(self.focus_default_action_list)
+        self.recompose_preserving_action()
 
 
 class SetupRunningScreen(OpenLRCScreen):
@@ -291,11 +284,11 @@ class SetupRunningScreen(OpenLRCScreen):
 
     def finish(self, result: SetupResult) -> None:
         self.result = result
-        self.refresh(recompose=True)
+        self.recompose_preserving_action()
 
     def fail(self, message: str) -> None:
         self.start_error = message
-        self.refresh(recompose=True)
+        self.recompose_preserving_action()
 
     def on_action_list_activated(self, event: ActionList.Activated) -> None:
         if event.action_id == "logs":

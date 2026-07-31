@@ -63,6 +63,28 @@ def _execute_with_fake(request, outputs: list[Path]):
     return result, lrcer
 
 
+def test_removed_noise_api_and_optional_positional_arguments_fail_explicitly() -> None:
+    paths = (Path("input.wav"),)
+    translation = WorkflowTranslationConfig(TranslationMode.STANDARD, TranslationConfig())
+
+    with pytest.raises(TypeError):
+        LRCer.transcribe(object(), paths, None)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        LRCer.run(object(), paths, None)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        LRCer.transcribe(object(), paths, noise_suppress=True)  # type: ignore[arg-type,call-arg]
+    with pytest.raises(TypeError):
+        TranscriptionConfig(preprocess_options={})  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        TranscribeRequest(paths, TranscriptionConfig())  # type: ignore[misc]
+    with pytest.raises(TypeError):
+        RunRequest(paths, TranscriptionConfig())  # type: ignore[misc]
+    with pytest.raises(TypeError):
+        TranslateRequest(paths, translation)  # type: ignore[misc]
+    with pytest.raises(TypeError):
+        TranscribeRequest(paths, noise_suppress=True)  # type: ignore[call-arg]
+
+
 @pytest.mark.parametrize(
     "provider",
     [
@@ -77,7 +99,7 @@ def test_standard_accepts_all_online_providers(tmp_path: Path, provider: ModelPr
     source = tmp_path / "source.json"
     source.write_text("{}", encoding="utf-8")
     config = TranslationConfig(chatbot=ModelConfig(provider=provider, name="test-model"))
-    request = TranslateRequest((source,), WorkflowTranslationConfig(TranslationMode.STANDARD, config))
+    request = TranslateRequest((source,), translation=WorkflowTranslationConfig(TranslationMode.STANDARD, config))
 
     result, _ = _execute_with_fake(request, [tmp_path / "source.lrc"])
 
@@ -88,7 +110,7 @@ def test_standard_accepts_managed_local_qwen(tmp_path: Path) -> None:
     source = tmp_path / "source.json"
     source.write_text("{}", encoding="utf-8")
     config = TranslationConfig.local_qwen35_9b(model="qwen.gguf")
-    request = TranslateRequest((source,), WorkflowTranslationConfig(TranslationMode.STANDARD, config))
+    request = TranslateRequest((source,), translation=WorkflowTranslationConfig(TranslationMode.STANDARD, config))
 
     result, _ = _execute_with_fake(request, [tmp_path / "source.lrc"])
 
@@ -119,7 +141,7 @@ def test_canonical_hymt2_mode_matrix(tmp_path: Path) -> None:
     ]
 
     for mode, config in configs:
-        request = TranslateRequest((source,), WorkflowTranslationConfig(mode, config))
+        request = TranslateRequest((source,), translation=WorkflowTranslationConfig(mode, config))
         result, _ = _execute_with_fake(request, [tmp_path / f"{mode.value}.lrc"])
         assert result.status is WorkflowStatus.SUCCEEDED
 
@@ -130,7 +152,7 @@ def test_deprecated_config_alias_is_reported_canonically(tmp_path: Path) -> None
     complete = TranslationBriefInput(summary="Story", characters=[], tone_style="Natural")
     with pytest.warns(FutureWarning, match="deprecated"):
         config = TranslationConfig.local_hy_mt2_7b(mode="context", translation_brief=complete)
-    request = TranslateRequest((source,), WorkflowTranslationConfig(TranslationMode.NORMAL, config))
+    request = TranslateRequest((source,), translation=WorkflowTranslationConfig(TranslationMode.NORMAL, config))
 
     result, _ = _execute_with_fake(request, [tmp_path / "normal.lrc"])
 
@@ -147,7 +169,7 @@ def test_normal_plus_with_semantic_rounds_requires_context_model(tmp_path: Path)
         context_llm=ContextLLMConfig.online(provider=ModelProvider.OPENAI, model="reviewer"),
     )
     config.context_llm = None
-    request = TranslateRequest((source,), WorkflowTranslationConfig(TranslationMode.NORMAL_PLUS, config))
+    request = TranslateRequest((source,), translation=WorkflowTranslationConfig(TranslationMode.NORMAL_PLUS, config))
 
     result = WorkflowExecutor().execute(request)
 
@@ -164,7 +186,7 @@ def test_workflow_validation_rejects_context_model_hidden_by_assistance_off(tmp_
         mode=HyMT2Mode.NORMAL, context_assistance=ContextAssistance.OFF, translation_brief=complete
     )
     config.context_llm = ContextLLMConfig.online(provider=ModelProvider.OPENAI, model="hidden")
-    request = TranslateRequest((source,), WorkflowTranslationConfig(TranslationMode.NORMAL, config))
+    request = TranslateRequest((source,), translation=WorkflowTranslationConfig(TranslationMode.NORMAL, config))
 
     with patch("openlrc.workflow.executor.LRCer") as lrcer_cls:
         result = WorkflowExecutor().execute(request)
@@ -180,7 +202,7 @@ def test_mode_config_mismatch_is_structured_failure(tmp_path: Path) -> None:
     source = tmp_path / "source.json"
     source.write_text("{}", encoding="utf-8")
     config = TranslationConfig.local_hy_mt2_7b(mode=HyMT2Mode.FAST)
-    request = TranslateRequest((source,), WorkflowTranslationConfig(TranslationMode.NORMAL, config))
+    request = TranslateRequest((source,), translation=WorkflowTranslationConfig(TranslationMode.NORMAL, config))
 
     result = WorkflowExecutor().execute(request)
 
@@ -237,11 +259,14 @@ def test_invalid_mode_is_structured_and_does_not_leave_executor_locked(tmp_path:
     source = tmp_path / "source.json"
     source.write_text("{}", encoding="utf-8")
     config = TranslationConfig(chatbot=ModelConfig(provider=ModelProvider.OPENAI, name="test-model"))
-    invalid = TranslateRequest((source,), WorkflowTranslationConfig("legacy", config))  # type: ignore[arg-type]
+    invalid = TranslateRequest(
+        (source,),
+        translation=WorkflowTranslationConfig("legacy", config),  # type: ignore[arg-type]
+    )
     executor = WorkflowExecutor()
 
     failed = executor.execute(invalid)
-    valid = TranslateRequest((source,), WorkflowTranslationConfig(TranslationMode.STANDARD, config))
+    valid = TranslateRequest((source,), translation=WorkflowTranslationConfig(TranslationMode.STANDARD, config))
     lrcer = _fake_lrcer([tmp_path / "source.lrc"])
     with patch("openlrc.workflow.executor.LRCer", return_value=lrcer):
         succeeded = executor.execute(valid)
@@ -470,7 +495,7 @@ def test_incomplete_review_returns_success_with_warnings_and_recovery_artifact(t
     source.write_text("{}", encoding="utf-8")
     checkpoint.write_text("{}", encoding="utf-8")
     config = TranslationConfig(chatbot=ModelConfig(provider=ModelProvider.OPENAI, name="test-model"))
-    request = TranslateRequest((source,), WorkflowTranslationConfig(TranslationMode.STANDARD, config))
+    request = TranslateRequest((source,), translation=WorkflowTranslationConfig(TranslationMode.STANDARD, config))
     lrcer = _fake_lrcer([tmp_path / "source.lrc"])
     lrcer.review_statuses = {"source": {"incomplete": True, "checkpoint": checkpoint}}
 
@@ -633,7 +658,7 @@ def test_runtime_failures_are_structured_and_secrets_are_redacted(
     source = tmp_path / "source.json"
     source.write_text("{}", encoding="utf-8")
     config = TranslationConfig(chatbot=ModelConfig(provider=ModelProvider.OPENAI, name="test-model"))
-    request = TranslateRequest((source,), WorkflowTranslationConfig(TranslationMode.STANDARD, config))
+    request = TranslateRequest((source,), translation=WorkflowTranslationConfig(TranslationMode.STANDARD, config))
     lrcer = _fake_lrcer([])
     lrcer.translate.side_effect = error
 

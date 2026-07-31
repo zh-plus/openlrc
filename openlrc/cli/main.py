@@ -10,7 +10,7 @@ import shutil
 import signal
 import threading
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
@@ -95,24 +95,24 @@ def tui_command() -> None:
     run()
 
 
-class TranslationBackend(str, Enum):
+class TranslationBackend(StrEnum):
     none = "none"
     local = "local"
     online = "online"
 
 
-class TranslationOnlyBackend(str, Enum):
+class TranslationOnlyBackend(StrEnum):
     local = "local"
     online = "online"
 
 
-class LocalModelProfile(str, Enum):
+class LocalModelProfile(StrEnum):
     qwen35_9b = QWEN35_9B_PROFILE
     hy_mt2_7b = HY_MT2_7B_PROFILE
     hy_mt2_30b_a3b = HY_MT2_30B_A3B_PROFILE
 
 
-class ContextProvider(str, Enum):
+class ContextProvider(StrEnum):
     openai = "openai"
     anthropic = "anthropic"
     google = "google"
@@ -238,8 +238,14 @@ def _model_checks() -> list[CheckResult]:
     return [CheckResult(item.name, item.available, item.detail, item.hint) for item in ResourceStatusService().models()]
 
 
-def _transcription_config(whisper_model: str, vad_model: str) -> TranscriptionConfig:
-    return TranscriptionConfig(whisper_model=whisper_model, vad_model=vad_model)
+def _transcription_config(
+    whisper_model: str, vad_model: str, *, whisper_gpu: bool = True, whisper_flash_attn: bool = True
+) -> TranscriptionConfig:
+    return TranscriptionConfig(
+        whisper_model=whisper_model,
+        vad_model=vad_model,
+        asr_options={"use_gpu": whisper_gpu, "flash_attn": whisper_flash_attn},
+    )
 
 
 def _glossary_and_edit_options(
@@ -798,9 +804,19 @@ def transcribe(
     vad_model: Annotated[
         str, typer.Option("--vad-model", help="VAD model name, filename, or path. Empty disables VAD.")
     ] = DEFAULT_VAD_MODEL_NAME,
-    noise_suppress: Annotated[
-        bool, typer.Option("--noise-suppress", help="Apply noise suppression before transcription.")
-    ] = False,
+    whisper_gpu: Annotated[
+        bool,
+        typer.Option(
+            "--whisper-gpu/--no-whisper-gpu", help="Enable Whisper GPU acceleration; disable for an explicit CPU run."
+        ),
+    ] = True,
+    whisper_flash_attn: Annotated[
+        bool,
+        typer.Option(
+            "--whisper-flash-attn/--no-whisper-flash-attn",
+            help="Enable Whisper flash attention; disable for compatibility diagnostics.",
+        ),
+    ] = True,
     skip_preprocess: Annotated[
         bool, typer.Option("--skip-preprocess", help="Use existing preprocessed audio files.")
     ] = False,
@@ -808,9 +824,10 @@ def transcribe(
     """Transcribe audio/video files and write transcription JSON."""
     request = TranscribeRequest(
         paths=tuple(paths),
-        transcription=_transcription_config(whisper_model, vad_model),
+        transcription=_transcription_config(
+            whisper_model, vad_model, whisper_gpu=whisper_gpu, whisper_flash_attn=whisper_flash_attn
+        ),
         src_lang=src_lang,
-        noise_suppress=noise_suppress,
         skip_preprocess=skip_preprocess,
     )
     result = _execute_workflow(request, WorkflowKind.TRANSCRIBE)
@@ -940,9 +957,19 @@ def run(
     vad_model: Annotated[
         str, typer.Option("--vad-model", help="VAD model name, filename, or path. Empty disables VAD.")
     ] = DEFAULT_VAD_MODEL_NAME,
-    noise_suppress: Annotated[
-        bool, typer.Option("--noise-suppress", help="Apply noise suppression before transcription.")
-    ] = False,
+    whisper_gpu: Annotated[
+        bool,
+        typer.Option(
+            "--whisper-gpu/--no-whisper-gpu", help="Enable Whisper GPU acceleration; disable for an explicit CPU run."
+        ),
+    ] = True,
+    whisper_flash_attn: Annotated[
+        bool,
+        typer.Option(
+            "--whisper-flash-attn/--no-whisper-flash-attn",
+            help="Enable Whisper flash attention; disable for compatibility diagnostics.",
+        ),
+    ] = True,
     bilingual_sub: Annotated[bool, typer.Option("--bilingual-sub", help="Generate bilingual subtitle files.")] = False,
     subtitle_optimization: Annotated[
         SubtitleOptimizationMode, typer.Option("--subtitle-optimization", help="Subtitle cleanup profile.")
@@ -1023,7 +1050,9 @@ def run(
         context_assistance=context_assistance,
         mode=hy_mt2_mode,
     )
-    transcription_config = _transcription_config(whisper_model, vad_model)
+    transcription_config = _transcription_config(
+        whisper_model, vad_model, whisper_gpu=whisper_gpu, whisper_flash_attn=whisper_flash_attn
+    )
     workflow_translation = None
     if translation is not TranslationBackend.none:
         workflow_translation = _workflow_translation_for(
@@ -1051,7 +1080,6 @@ def run(
         translation=workflow_translation,
         src_lang=src_lang,
         target_lang=target_lang,
-        noise_suppress=noise_suppress,
         bilingual_sub=bilingual_sub,
         subtitle_optimization=subtitle_optimization,
         clear_temp=clear_temp,

@@ -248,16 +248,12 @@ class WorkflowExecutor:
                     list(request.paths),
                     src_lang=request.src_lang,
                     skip_trans=True,
-                    noise_suppress=request.noise_suppress,
                     clear_temp=request.clear_temp,
                     skip_preprocess=request.skip_preprocess,
                     execution_strategy=RunExecutionStrategy.TRANSCRIBE_ONLY,
                 )
             return lrcer.transcribe(
-                list(request.paths),
-                src_lang=request.src_lang,
-                noise_suppress=request.noise_suppress,
-                skip_preprocess=request.skip_preprocess,
+                list(request.paths), src_lang=request.src_lang, skip_preprocess=request.skip_preprocess
             )
         if isinstance(request, TranslateRequest):
             return lrcer.translate(
@@ -271,7 +267,6 @@ class WorkflowExecutor:
             src_lang=request.src_lang,
             target_lang=request.target_lang,
             skip_trans=request.translation is None,
-            noise_suppress=request.noise_suppress,
             bilingual_sub=request.bilingual_sub,
             clear_temp=request.clear_temp,
             clear_checkpoint=request.clear_checkpoint,

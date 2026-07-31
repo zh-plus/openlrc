@@ -15,9 +15,7 @@ class DoctorScreen(OpenLRCScreen):
         statuses = self.app.doctor_statuses()
         items = [
             ActionItem(
-                f"check:{index}",
-                f"{tr('OK') if status.available else tr('CHECK')}  {status.name}",
-                status.detail,
+                f"check:{index}", f"{tr('OK') if status.available else tr('CHECK')}  {status.name}", status.detail
             )
             for index, status in enumerate(statuses)
         ]
@@ -40,7 +38,7 @@ class DoctorScreen(OpenLRCScreen):
     def on_action_list_activated(self, event: ActionList.Activated) -> None:
         if event.action_id == "refresh":
             self.app.clear_resource_cache()
-            self.refresh(recompose=True)
+            self.recompose_preserving_action()
         elif event.action_id == "setup":
             self.app.push_screen(ModelsScreen())
         else:

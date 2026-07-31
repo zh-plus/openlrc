@@ -1,17 +1,18 @@
 # OpenLRC Mac To Do List
 
-Last verified: 2026-07-29
+Last verified: 2026-07-31
 
-本文档记录 OpenLRC Mac 在 0.4.1 基线上的已完成能力、当前风险和后续优先级。
+本文档记录 OpenLRC Mac 在 0.4.2 基线上的已完成能力、当前风险和后续优先级。
 它不是发布承诺。项目仍以 macOS 本地字幕工作流为核心，优先保证转写稳定性、
 翻译一致性和可恢复性。产品最终提供 CLI、TUI、GUI 三种访问模式：CLI 与 TUI
 优先获得新功能，GUI 在交互和服务稳定后跟进。
 
-## 当前基线：0.4.1
+## 当前基线：0.4.2
 
 ### 核心流水线
 
-- [x] 保留上游 OpenLRC 的预处理、字幕切分、优化、翻译和输出 pipeline。
+- [x] 保留上游 OpenLRC 的响度标准化、字幕切分、优化、翻译和输出 pipeline；
+      预处理只保留 ffmpeg 响度标准化和视频音轨提取。
 - [x] 将默认转写后端切换为本地 `whisper.cpp`。
 - [x] 支持本地音频/视频转写和 `.lrc` / `.srt` 输出。
 - [x] 支持 native Whisper VAD，并允许通过空配置禁用。
@@ -26,7 +27,9 @@ Last verified: 2026-07-29
 
 ### whisper.cpp 与资源
 
-- [x] 以 submodule 管理 `vendor/whisper.cpp`，当前 pin 为 `v1.9.1`。
+- [x] 以 submodule 管理 `vendor/whisper.cpp`，当前 pin 为 commit `f049fff9`；
+      由该源码构建的本机 `whisper-cli` 报告接口版本 `1.9.1`，不把它误写成
+      submodule Git tag。
 - [x] 提供 `openlrc.setup.whisper_cpp` 和兼容 wrapper
       `scripts/setup_whisper_cpp.py`。
 - [x] 提供 `openlrc setup whisper` CLI。
@@ -70,7 +73,7 @@ Last verified: 2026-07-29
 
 ### CLI、发行与文档
 
-- [x] 发行身份为 `openlrc-mac`，当前版本 0.4.1，同时保留 `import openlrc`。
+- [x] 发行身份为 `openlrc-mac`，当前版本 0.4.2，同时保留 `import openlrc`。
 - [x] 提供等价的 `openlrc` / `openlrc-mac` console scripts。
 - [x] CLI 覆盖 `doctor`、`models status`、`setup`、`transcribe`、`translate`、
       `run`、`glossary` 和 `edit`。
@@ -78,41 +81,126 @@ Last verified: 2026-07-29
 - [x] CLI 暴露本地模型 profile、Hy-MT2 模式、context provider/model 和
       checkpoint/temp 保留选项。
 - [x] 删除旧 Streamlit GUI、`openlrc gui` 和主要 faster-whisper/CUDA 配置。
+- [x] 删除 DeepFilterNet、DeepFilterLib、Torch、Torchaudio、ONNX Runtime、
+      `full` extra 和所有 Noise Suppression 产品入口；不保留旧参数兼容层。
+- [x] 项目 Python 支持范围为 `>=3.11,<3.15`，CI 完整覆盖 3.11、3.12、3.13、
+      3.14；`.python-version` 和本地 uv 环境固定 Python 3.13.14。
 - [x] 维护 README、CLI reference、英文/中文 changelog。
 - [x] 将 `AGENTS.md`、`PROJECT_ARCHITECTURE.md` 和 Hy-MT2 适配文档设为
       local-only；架构或整体信息变化时同步维护架构文档。
 
-## P0 - 稳定本地转写后端
+## P0 - CI 与发布门禁
 
-- [x] 修复并测试 `WhisperCLIBackend` 在长音频/大 JSON 输出下不会因
-      stdout/stderr pipe 填满而阻塞。
-- [ ] 增加真实 whisper.cpp JSON fixture：正常、多 segment、空结果、异常 JSON、
-      缺少 word timestamp、缺少 offset、不同语言。
-- [ ] 明确 native VAD 的完整错误边界：启用、禁用、模型缺失、参数错误、
-      whisper.cpp 不支持相关参数。
-- [ ] 验证当前 v1.9.1 pin 的关键 CLI 参数和 JSON schema。
-- [ ] 增加音频与视频两条真实转写 smoke 流程，并记录输出检查项。
-- [ ] 为 `openlrc.setup.whisper_cpp` 增加 mock/dry-run 测试，避免验证依赖真实
-      build 和下载。
-- [ ] 增加 Metal 是否实际启用的诊断信息，而不是只依赖构建默认值。
+> 本节及下列 P0 的 `[x]` 表示代码或文档已经在当前工作区实现，并完成相应本地
+> 验证；不表示这些改动已经 Git commit、push，或已经在 GitHub Actions 远端运行。
+> 必须依赖远端或非受限硬件环境的验收继续单独保留为 `[ ]`。
 
-## P0 - 开发体验和测试基线
+- [x] 重建 `.github/workflows/ci.yml`：只在 `master` push、以 `master` 为 base 的
+      pull request 和 GitHub 手动触发时运行；使用 `contents: read` 最小权限，并按
+      workflow/ref 取消已经过时的同分支运行。
+- [x] 主测试 job 使用 `python -m pytest -q` 收集完整 pytest 测试，替换
+      `unittest discover`；后者无法正确收集 pytest 函数、fixture 和 marker。
+- [x] 主测试矩阵在 `macos-latest` 上覆盖 Python 3.11、3.12、3.13、3.14；每个 job 先执行
+      `uname -m` 并要求结果为 `arm64`，防止 runner 标签变化后静默改用非 Apple
+      Silicon 架构。
+- [x] 四个 Python 版本都安装 core、dev 和 `litellm` extra，并分别运行完整 pytest；
+      默认 CI 不再解析或安装 DeepFilterNet/PyTorch/ONNX Runtime。
+- [x] 建立独立的 Python 3.13 `Quality and build` job，依次运行 Ruff lint、
+      全库 Ruff format check、生产代码 Pyright、`openlrc --version`、`uv build`
+      、wheel metadata 检查和当前 push/PR 变更范围的空白错误检查。
+- [x] 主 CI 显式设置 `OPENLRC_TEST_LIVE_API=0`、
+      `OPENLRC_TEST_STRESS=0`、`OPENLRC_TEST_REAL_WHISPER=0` 和
+      `OPENLRC_TEST_REAL_WHISPER_METAL=0`；普通 checkout 不初始化 submodule，
+      测试中的 setup/download 只使用 mock，因此不会下载模型、构建 vendor 或运行
+      真实 Whisper/LLM 推理。
+- [x] 新增 `.github/workflows/live_api.yml`：只允许 GitHub 手动触发，在
+      Ubuntu/Python 3.13 上把仓库 `OPENROUTER_API_KEY` secret 映射为测试专用变量，
+      运行 agents/chatbot/translate/lean-translator provider 测试；缺少 secret
+      时立即失败但不输出密钥。该 workflow 不加入主 CI；是否配置为 branch
+      protection required check 也不在本任务范围内。
+- [x] 删除上游遗留的 `.github/workflows/dispatch_CI.yml`，同时移除该 workflow
+      中的 Python 3.9、Poetry、faster-whisper/CUDA 和写入 API key 的旧流程；不恢复
+      Windows/Linux 主 CI 兼容承诺。
+- [x] Python 3.11 最低版本基线直接使用标准库 `StrEnum` / `datetime.UTC`，并对
+      本轮实际修改文件完成 Ruff 格式化。
+- [x] 在 Python 3.13.14 本地完成两个 workflow 的 YAML 解析、完整 pytest、聚焦回归、
+      Ruff、Pyright、CLI version/Doctor、`uv build`、wheel 隔离安装和
+      `git diff --check`；完整测试为 `635 passed, 25 skipped`，CPU 音频/VAD及
+      视频/ffmpeg 真实 smoke 为 `2 passed`。
+- [ ] 获得明确推送许可后，在 GitHub Actions 验证 `Tests / Python 3.11`、
+      `Tests / Python 3.12`、`Tests / Python 3.13`、`Tests / Python 3.14` 和
+      `Quality and build` 首次
+      全绿；本任务没有修改 GitHub branch protection，因此哪些 job 被设为 required
+      仍由仓库设置决定。
+- [x] pytest 8、Pyright、lazy-import guard、llama setup、checkpoint 和 Hy-MT2
+      staged/resume 测试基线已经建立。
 
-- [x] 全量 Ruff format check 已通过。
-- [x] 修复或配置 Pyright 对 LiteLLM、Torch、DeepFilterNet 可选依赖的 4 个
-      missing-import 问题。
-- [x] 将 pytest 8.x 纳入稳定开发依赖，避免临时 `--with pytest` 解析到不兼容版本。
-- [ ] 保持 `tests/test_lazy_imports.py` 对 heavy import 和 `faster_whisper`
-      forbidden import 的保护。
-- [ ] 补充 app bundle resource 优先级测试；现有测试已覆盖显式配置、环境变量、
-      user dir、vendor build 和 `PATH`。
-- [x] 为 llama.cpp setup 下载与 build 结果提供 mock 单元测试。
-- [x] 为 checkpoint 原子替换和失败保留旧文件提供测试。
-- [x] 为 Hy-MT2 三阶段顺序、草稿保留和 incomplete review 恢复提供测试。
-- [ ] 清理或重写过时的 `.github/workflows/dispatch_CI.yml`：该工作流仍使用
-      Python 3.9、Poetry 和 faster-whisper，应改为当前 Python 3.10-3.12、`uv`
-      和 whisper.cpp 技术栈，或在确认无用途后删除。
-- [ ] 增加 macOS / Apple Silicon 的基础 CI；真实 Metal/模型测试可先保持手动。
+现有 `.github/workflows/bandit.yml` 和 `.github/workflows/codeql.yml` 继续作为
+独立安全扫描，不属于上述主测试/质量 workflow。Bandit 当前设置 `exit_zero: true`，
+因此只上传发现而不阻断合并；CodeQL 负责 Python 静态安全分析。两者是否列为 branch
+protection required check 仍取决于 GitHub 仓库设置，本轮没有重写这两个 workflow。
+
+## P0 - whisper.cpp 输入契约与错误边界
+
+- [x] 并发排空 `whisper-cli` stdout/stderr，避免长音频和大 JSON 输出死锁。
+- [x] 锁定并记录 `vendor/whisper.cpp` submodule commit
+      `f049fff95a089aa9969deb009cdd4892b3e74916`。该 commit 的 `git describe`
+      可能显示 `v1.8.5-95-gf049fff9`，但由它构建的本机
+      `whisper-cli --version` 明确输出 `whisper.cpp version: 1.9.1`。这里的
+      `1.9.1` 指 CLI 输出/JSON 接口版本，不是 OpenLRC Mac 版本、Whisper 模型版本，
+      也不声称该 commit 带有 `v1.9.1` Git tag。
+- [x] 使用当前 `whisper-cli --help` 核验本项目实际依赖的参数：`-ojf`/`-of`
+      生成 owned JSON，`--vad`/`-vm` 启用并指定 VAD，`-ng` 禁用 GPU，
+      `-nfa` 禁用 flash attention；未来升级 binary 时必须重新核验这些参数。
+- [x] 新增版本化 fixture
+      `tests/data/whisper_cpp/v1.9.1/test_audio_vad_cpu.json`。它由上述本机
+      `whisper-cli 1.9.1` 使用 `tests/data/test_audio.wav`、Whisper base 模型、
+      Silero VAD v6.2.0 和 `-ng -nfa`（CPU、关闭 flash attention）真实生成；只截取
+      覆盖契约所需的真实 segment，并把模型绝对路径替换为
+      `<WHISPER_MODEL_PATH>`。生成条件和刷新规则记录在同目录 `README.md`，
+      这里的“新增”不代表已经完成 Git commit。
+- [x] 基于真实 fixture 及其参数化变体覆盖：空 `transcription`、token 时间缺失、
+      segment 数值 offsets 缺失、检测语言变化、错误字段类型、损坏 JSON 和非 object
+      JSON 根结构。
+- [x] 将 `whisper-cli` 非零退出、没有 JSON 输出、损坏 JSON、非 object 根结构、
+      owned JSON 读取失败和不可恢复 schema 错误统一转换为
+      `TranscribeException`；错误包含输出来源、退出码或 JSON 行列，stderr 只保留
+      最后约 4096 个字符，避免把整份 JSON 或无限日志写进错误信息。
+- [x] segment 优先使用毫秒 offsets，缺失或无效时回退字符串 timestamps；两者都
+      无效时报告具体 segment 序号并失败。token 优先使用自身时间，两种 token 时间
+      都无效时继承已经验证的所属 segment 时间范围。
+- [x] 覆盖 VAD 配置非空时追加 `--vad -vm`、空配置时完全禁用 VAD、VAD 模型缺失
+      以及 `whisper-cli` 拒绝 VAD 参数并非零退出等边界。
+- [x] 为 `openlrc.setup.whisper_cpp` 增加直接 mock 测试，验证 submodule 初始化、
+      CMake configure/build、模型下载命令和产物 postcondition；不为生产代码增加
+      只服务于测试的 dry-run 接口。
+
+## P0 - macOS 真实转写与 Metal 诊断
+
+- [x] 为 `transcribe` 和 `run` 增加
+      `--whisper-gpu/--no-whisper-gpu` 与
+      `--whisper-flash-attn/--no-whisper-flash-attn`。两项默认开启并映射到
+      `TranscriptionConfig.asr_options`；GPU 失败不会自动重试 CPU，避免掩盖 Metal
+      初始化故障。
+- [x] Doctor 通过有界 `whisper-cli --version` 探测版本，不运行推理。本仓库 vendor
+      binary 读取 `vendor/whisper.cpp/build/CMakeCache.txt` 判断 Metal build
+      capability；外部或未来 App Bundle binary 显示“构建能力未知、运行时未探测”。
+      Metal 未构建或未知不否定 CPU 可用，因此不会仅凭该状态让 Doctor 失败。
+- [x] 在 `tests/test_whisper_smoke.py` 增加
+      `OPENLRC_TEST_REAL_WHISPER=1` 才运行的真实音频 smoke：复制测试 WAV 到 pytest
+      临时目录，启用 Silero VAD，显式关闭 GPU/flash attention，解析真实
+      `whisper-cli 1.9.1` JSON，并检查时间非负、单调和 owned process 回收。
+- [x] 在同一测试文件增加相同 opt-in 开关控制的真实视频 smoke：复制测试 MP4 到
+      pytest 临时目录，禁用 VAD，真实执行 ffmpeg 音轨预处理和 CPU Whisper
+      Workflow，并确认所有输出/artifact 都位于临时目录。
+- [x] 增加 `OPENLRC_TEST_REAL_WHISPER_METAL=1` 才运行的 macOS-only Metal smoke；
+      它要求真实转写成功、JSON 契约有效、日志表明 GPU/Metal 已启用且没有 Metal
+      buffer 初始化错误。默认 CI 明确禁用该开关。
+- [ ] 在不限制 Metal buffer 的 Apple Silicon macOS 终端运行上述 Metal smoke 并
+      实际通过；当前受限 Codex 环境的 CPU 通过结果不能替代这项验收。
+- [x] 在本地 `DevelopDocument/whisper.cpp v1.9.1 升级与 Smoke 核验清单.md`
+      记录 submodule/binary 身份、参数核验、fixture 刷新步骤、CPU smoke 结果和
+      Metal 待验收项；该文档继续 local-only，不进入 Git。
 
 ## P1 - 术语表（Glossary）与定向多轮编辑
 
@@ -182,7 +270,7 @@ Last verified: 2026-07-29
 - [x] 保持 CLI 为当前完整、可脚本化的主入口。
 - [ ] 为真实常见失败补充 CLI 文档和 smoke：缺 ffmpeg、缺 submodule、缺模型、
       端口冲突、context 配置不完整、review incomplete。
-- [ ] 让 doctor 显示可选 Hy-MT2 profile、Metal/build 信息和更具体的修复命令。
+- [ ] 让 doctor 显示可选 Hy-MT2 profile 和更具体的修复命令。
 - [x] 抽出 CLI/TUI/GUI 共用的同步 `WorkflowExecutor` 和 typed request/result 接口。
 - [x] 统一 progress event，覆盖预处理、转写、优化、Brief、Timeline、翻译、
       deterministic repair、semantic review、导出和清理。
@@ -213,6 +301,11 @@ Last verified: 2026-07-29
       English/简体中文设置、持久化与两主题/中文 snapshot。
 - [x] 完成 Home Logo/介绍中心轴、卡片内部标题位置、显式分组 spacer 和 disabled
       Save 连续结构边框，并通过 80×24、100×30、160×50 Pilot/SVG/PTY 验收。
+- [x] 完成 TUI v2 中低优先级可靠性收口：动态重组统一恢复 stable action/focus，
+      Jobs `d` 局部快捷键、有效 Preflight 摘要、持久化 warning、Glossary 竞态、
+      active-field recipe、Terminal picker Space 和 i18n 私有依赖 fallback 均有回归。
+- [x] 删除未进入渲染层的 ASCII Status 设置；旧 Settings JSON 继续兼容，并在下次
+      保存时自然移除废弃字段。
 
 ## P2 - macOS GUI 与打包
 
@@ -224,6 +317,10 @@ Last verified: 2026-07-29
 - [ ] 保留高级路径覆盖，但不放在普通用户主流程中心。
 - [ ] GUI 优先接入已经在 CLI、当前 TUI v2 验证稳定的功能，不要求与实验性命令同步发布。
 - [ ] 在服务边界稳定后再处理 app bundle 资源、签名、notarization 和 packaging。
+- [ ] 打包实现后补充 app bundle resource 优先级测试；当前测试已覆盖显式配置、
+      环境变量、user dir、vendor build 和 `PATH`。
+- [ ] 调研仍在维护、适合 Apple Silicon 且不强制引入大型 Torch 依赖链的降噪方案；
+      在替代方案的质量、许可、体积和取消语义验证完成前，不恢复 Noise Suppression。
 
 ## 文档与发布维护
 

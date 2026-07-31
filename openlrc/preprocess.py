@@ -6,6 +6,7 @@ import logging
 import subprocess
 import sys
 import uuid
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -14,11 +15,9 @@ if TYPE_CHECKING:
     from openlrc.workflow import ExecutionContext
 
 from ffmpeg_normalize import FFmpegNormalize
-from tqdm import tqdm
 
-from openlrc.defaults import LOUDNORM_SUFFIX, NOISE_SUPPRESSED_SUFFIX, PREPROCESSED_DIR, default_preprocess_options
+from openlrc.defaults import LOUDNORM_SUFFIX, PREPROCESSED_DIR
 from openlrc.logger import logger
-from openlrc.media_utils import release_memory
 from openlrc.utils import get_preprocessed_path
 
 
@@ -49,94 +48,19 @@ class Preprocessor:
 
     def __init__(
         self,
-        audio_paths: str | Path | list[str] | list[Path],
+        audio_paths: str | Path | Sequence[str | Path],
+        *,
         output_folder: str = PREPROCESSED_DIR,
-        options: dict | None = None,
         execution_context: ExecutionContext | None = None,
     ):
-        if options is None:
-            options = dict(default_preprocess_options)
-        paths_list = audio_paths if isinstance(audio_paths, list) else [audio_paths]
+        paths_list = [audio_paths] if isinstance(audio_paths, (str, Path)) else list(audio_paths)
         self.audio_paths: list[Path] = [Path(p) for p in paths_list]
         self.output_paths = [p.parent / output_folder for p in self.audio_paths]
-        self.options = options
         self.execution_context = execution_context
 
         for path in self.output_paths:
             if not path.exists():
                 path.mkdir()
-
-    def noise_suppression(self, audio_paths: list[Path], atten_lim_db: int = 15):
-        """
-        Suppress noise in audio.
-        """
-        if not audio_paths:
-            return []
-
-        try:
-            import torch  # pyright: ignore[reportMissingImports]
-            from df.enhance import enhance, init_df, load_audio, save_audio  # pyright: ignore[reportMissingImports]
-        except ImportError:
-            raise ImportError(
-                "Noise suppression requires torch and deepfilternet. Install them with: pip install 'openlrc-mac[full]'"
-            )
-
-        if "atten_lim_db" in self.options:
-            atten_lim_db = self.options["atten_lim_db"]
-
-        model, df_state, _ = init_df()
-        chunk_size = 180  # 3 min
-
-        try:
-            ns_audio_paths = []
-            for audio_path, output_path in zip(audio_paths, self.output_paths):
-                audio_name = audio_path.stem
-                ns_path = output_path / f"{audio_name}{NOISE_SUPPRESSED_SUFFIX}.wav"
-
-                if not ns_path.exists():
-                    audio, info = load_audio(str(audio_path), sr=df_state.sr())
-
-                    # Split audio into 3 min chunks
-                    audio_chunks = [
-                        audio[:, i : i + chunk_size * info.sample_rate]
-                        for i in range(0, audio.shape[1], chunk_size * info.sample_rate)
-                    ]
-
-                    enhanced_chunks = []
-                    chunks = (
-                        audio_chunks
-                        if self.execution_context is not None
-                        else tqdm(audio_chunks, desc=f"Noise suppressing for {audio_name}")
-                    )
-                    for index, ac in enumerate(chunks, start=1):
-                        if self.execution_context is not None:
-                            self.execution_context.check_cancelled()
-                        enhanced_chunks.append(enhance(model, df_state, ac, atten_lim_db=atten_lim_db))
-                        if self.execution_context is not None:
-                            from openlrc.workflow import WorkflowStage
-
-                            self.execution_context.stage_progress(
-                                WorkflowStage.PREPROCESS,
-                                index,
-                                len(audio_chunks),
-                                item=audio_path,
-                                message="Noise suppression",
-                            )
-
-                    enhanced = torch.cat(enhanced_chunks, dim=1)
-
-                    if enhanced.shape != audio.shape:
-                        raise ValueError(
-                            f"Enhanced audio shape does not match original audio shape: {enhanced.shape} != {audio.shape}"
-                        )
-
-                    save_audio(str(ns_path), enhanced, sr=df_state.sr())
-
-                ns_audio_paths.append(ns_path)
-
-            return ns_audio_paths
-        finally:
-            release_memory(model)
 
     def loudness_normalization(self, audio_paths: list[Path]):
         """
@@ -215,12 +139,8 @@ class Preprocessor:
                 self.execution_context.processes.unregister(process)
             partial_path.unlink(missing_ok=True)
 
-    def run(self, noise_suppress=False):
+    def run(self):
         """
-        Args:
-            noise_suppress (bool, optional): A boolean flag indicating whether to perform noise suppression.
-                Defaults to False.
-
         Returns:
             list of Path: A list of Path objects representing the final processed audio paths.
         """
@@ -247,10 +167,7 @@ class Preprocessor:
             else:
                 need_process.append(audio_path)
 
-        ns_paths = need_process
-        if noise_suppress:
-            ns_paths = self.noise_suppression(need_process)
-        ln_paths: list[Path] = self.loudness_normalization(ns_paths)
+        ln_paths: list[Path] = self.loudness_normalization(need_process)
 
         for path, audio_path in zip(ln_paths, need_process):
             if self.execution_context is not None:

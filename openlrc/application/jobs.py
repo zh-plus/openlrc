@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from openlrc.application.credentials import CredentialStore
@@ -289,7 +289,7 @@ class JobController:
             WorkflowStatus.CANCELLED: JobRecordStatus.CANCELLED,
         }
         record.status = status_map[result.status]
-        record.completed_at = datetime.now(timezone.utc).isoformat()
+        record.completed_at = datetime.now(UTC).isoformat()
         record.progress = (
             100.0
             if result.status in {WorkflowStatus.SUCCEEDED, WorkflowStatus.SUCCEEDED_WITH_WARNINGS}

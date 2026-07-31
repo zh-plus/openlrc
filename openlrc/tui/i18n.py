@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import re
 
-from textual._context import active_app
-
 DEFAULT_LANGUAGE = "en"
 SUPPORTED_LANGUAGES = ("en", "zh-cn")
 
@@ -159,7 +157,6 @@ ZH_CN: dict[str, str] = {
     "Whisper model": "Whisper 模型",
     "Whisper VAD model": "Whisper VAD 模型",
     "VAD model": "VAD 模型",
-    "Noise suppression": "降噪",
     "Skip preprocess": "跳过预处理",
     "Whisper GPU": "Whisper GPU",
     "Whisper flash attention": "Whisper Flash Attention",
@@ -302,11 +299,6 @@ ZH_CN: dict[str, str] = {
     "Framework dark palette": "紫色系框架深色调色板",
     "Logo animation": "Logo 动效",
     "Reduced motion": "减少动效",
-    "ASCII-only status symbols": "仅使用 ASCII 状态符号",
-    "ASCII-only Status": "仅使用 ASCII 状态符号",
-    "Use terminal capability": "根据终端能力",
-    "ASCII only": "仅 ASCII",
-    "Allow Unicode status symbols": "允许 Unicode 状态符号",
     "Shared by Workflow and future GUI": "供任务流程与未来 GUI 共享",
     "Base URL": "Base URL",
     "Proxy": "代理",
@@ -547,11 +539,23 @@ def normalize_language(value: str) -> str:
 
 
 def current_language() -> str:
-    try:
-        app = active_app.get()
-    except LookupError:
+    app = _active_textual_app()
+    if app is None:
         return DEFAULT_LANGUAGE
     return normalize_language(str(getattr(app, "ui_language", DEFAULT_LANGUAGE)))
+
+
+def _active_textual_app() -> object | None:
+    """Return Textual's active App while tolerating private API changes."""
+
+    try:
+        from textual._context import active_app
+    except ImportError:
+        return None
+    try:
+        return active_app.get()
+    except LookupError:
+        return None
 
 
 def tr(text: str, *, language: str | None = None) -> str:

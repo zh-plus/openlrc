@@ -83,6 +83,7 @@ class TestTranscriber(unittest.TestCase):
         result, info = transcriber.transcribe(self.audio_path)
         self.assertIsNotNone(result)
         self.assertEqual(round(info.duration), 30)
+        self.assertEqual(info.language, "xx")
 
     @patch("openlrc.transcribe.WhisperCLIBackend")
     def test_audio_file_not_found(self, MockBackend):
@@ -164,7 +165,7 @@ class TestWhisperCLIBackend(unittest.TestCase):
             output_base.with_suffix(".json").write_text(
                 '{"result": {"language": "en"}, "transcription": []}', encoding="utf-8"
             )
-            return real_popen([sys.executable, "-c", "print(\"human-readable transcript\")"], **kwargs)
+            return real_popen([sys.executable, "-c", 'print("human-readable transcript")'], **kwargs)
 
         with patch("openlrc.whisper_backend.subprocess.Popen", side_effect=launch):
             result = backend.transcribe("audio.wav")
