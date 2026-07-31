@@ -130,11 +130,12 @@ Last verified: 2026-07-31
       Ruff、Pyright、CLI version/Doctor、`uv build`、wheel 隔离安装和
       `git diff --check`；完整测试为 `641 passed, 25 skipped`，CPU 音频/VAD及
       视频/ffmpeg 真实 smoke 为 `2 passed`。
-- [ ] 获得明确推送许可后，在 GitHub Actions 验证 `Tests / Python 3.11`、
+- [x] 获得明确推送许可后，在 GitHub Actions 验证 `Tests / Python 3.11`、
       `Tests / Python 3.12`、`Tests / Python 3.13`、`Tests / Python 3.14` 和
-      `Quality and build` 首次
-      全绿；本任务没有修改 GitHub branch protection，因此哪些 job 被设为 required
-      仍由仓库设置决定。
+      `Quality and build` 首次全绿；2026-07-31 的
+      [Actions run 30620600378](https://github.com/infinitebook/openlrc_mac/actions/runs/30620600378)
+      五个 job 均成功。本任务没有修改 GitHub branch protection，因此哪些 job
+      被设为 required 仍由仓库设置决定。
 - [x] pytest 8、Pyright、lazy-import guard、llama setup、checkpoint 和 Hy-MT2
       staged/resume 测试基线已经建立。
 

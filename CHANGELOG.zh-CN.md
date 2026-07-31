@@ -71,7 +71,8 @@
   80×24 Home -> Doctor -> Home -> Quit PTY 导航 smoke 也通过。
 - Ruff lint/format、Pyright、YAML 解析、CLI version、Doctor/strict、包构建和
   wheel metadata/入口隔离安装、`git diff --check` 均在本地通过。首次远端 CI
-  全绿和非受限 Apple Silicon Metal smoke 仍待完成。
+  的 Python 3.11-3.14 测试矩阵与 Python 3.13 quality/build job 均已全绿；
+  非受限 Apple Silicon Metal smoke 仍待完成。
 
 ## OpenLRC Mac 0.4.1
 

@@ -83,8 +83,9 @@ environment, Python 3.11-3.14 CI, and removal of the abandoned denoising stack.
   navigation smoke also passed.
 - Ruff lint/format, Pyright, YAML parsing, CLI version, Doctor/strict, package
   build, wheel metadata/entrypoint installation, and `git diff --check` passed
-  locally. The first remote CI green run and non-sandboxed Apple Silicon Metal
-  smoke remain pending.
+  locally. The first remote CI run passed all Python 3.11-3.14 test jobs and the
+  Python 3.13 quality/build job. The non-sandboxed Apple Silicon Metal smoke
+  remains pending.
 
 ## OpenLRC Mac 0.4.1
 
