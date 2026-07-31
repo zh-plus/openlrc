@@ -21,7 +21,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       OPENLRC_TEST_LLM_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      TIKTOKEN_CACHE_DIR: ${{ runner.temp }}/openlrc-tiktoken-cache
     steps:
       - uses: actions/checkout@v7
 
@@ -46,9 +45,13 @@ jobs:
         run: uv sync --python 3.13 --group dev --extra litellm
 
       - name: Prime tokenizer data
+        env:
+          TIKTOKEN_CACHE_DIR: ${{ runner.temp }}/openlrc-tiktoken-cache
         run: uv run python -c 'import tiktoken; tiktoken.get_encoding("cl100k_base")'
 
       - name: Run provider live tests
+        env:
+          TIKTOKEN_CACHE_DIR: ${{ runner.temp }}/openlrc-tiktoken-cache
         run: >-
           uv run python -m pytest -q
           tests/test_agents.py

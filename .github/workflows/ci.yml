@@ -25,8 +25,6 @@ jobs:
   tests:
     name: Tests / Python ${{ matrix.python-version }}
     runs-on: macos-latest
-    env:
-      TIKTOKEN_CACHE_DIR: ${{ runner.temp }}/openlrc-tiktoken-cache
     strategy:
       fail-fast: false
       matrix:
@@ -62,9 +60,13 @@ jobs:
         run: uv sync --python ${{ matrix.python-version }} --group dev --extra litellm
 
       - name: Prime tokenizer data
+        env:
+          TIKTOKEN_CACHE_DIR: ${{ runner.temp }}/openlrc-tiktoken-cache
         run: uv run python -c 'import tiktoken; tiktoken.get_encoding("cl100k_base")'
 
       - name: Run tests
+        env:
+          TIKTOKEN_CACHE_DIR: ${{ runner.temp }}/openlrc-tiktoken-cache
         run: uv run python -m pytest -q
 
   quality:
