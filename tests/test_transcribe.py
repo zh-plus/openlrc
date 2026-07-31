@@ -100,7 +100,7 @@ class TestTranscriber(unittest.TestCase):
         self.assertIn("-nfa", transcriber._build_extra_args())
 
     @patch("openlrc.transcribe.WhisperCLIBackend")
-    def test_sentence_split_does_not_require_spacy_model(self, MockBackend):
+    def test_sentence_split_does_not_require_external_language_model(self, MockBackend):
         transcriber = Transcriber()
         words = [
             Word(index, index + 1, word, probability=0.9)

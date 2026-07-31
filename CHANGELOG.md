@@ -26,6 +26,9 @@ environment, Python 3.11-3.14 CI, and removal of the abandoned denoising stack.
 - Updated tiktoken, Lingua, and LiteLLM constraints for Python 3.14 support.
   Python 3.11+ standard-library `StrEnum` and `datetime.UTC` now replace the
   former Python 3.10 compatibility patterns.
+- Replaced spaCy reference-sentence similarity in manual Live API tests with
+  deterministic output, target-language, and preserved-fact contracts backed
+  by the existing Lingua detector.
 - Simplified preprocessing to video audio extraction plus ffmpeg loudness
   normalization. Optional `LRCer` and Workflow request arguments are now
   keyword-only so removed positional parameters cannot silently shift.
@@ -35,6 +38,8 @@ environment, Python 3.11-3.14 CI, and removal of the abandoned denoising stack.
 - Removed DeepFilterNet, DeepFilterLib, Torch, Torchaudio, the CUDA PyTorch
   package source, and the `full` extra.
 - Removed the unused ONNX Runtime dependency left behind by faster-whisper.
+- Removed spaCy, its runtime model-download helpers, and the direct Click
+  declaration that had only been added for spaCy/Weasel compatibility.
 - Removed Noise Suppression from `LRCer`, `TranscriptionConfig`, Workflow
   requests, settings, recipes, CLI, and TUI. The old `--noise-suppress` option
   now fails as an unknown option and old Python arguments raise `TypeError`.
@@ -66,7 +71,7 @@ environment, Python 3.11-3.14 CI, and removal of the abandoned denoising stack.
 
 ### Validation
 
-- Full pytest on Python 3.13.14: `635 passed, 25 skipped, 22 warnings`;
+- Full pytest on Python 3.13.14: `640 passed, 25 skipped, 19 warnings`;
   focused preprocessing/Workflow/application/CLI/TUI/lazy-import/package
   metadata coverage: `193 passed`.
 - Opt-in real CPU Whisper audio/VAD and video/ffmpeg smoke tests passed with the

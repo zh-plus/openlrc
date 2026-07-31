@@ -4,12 +4,10 @@
 import unittest
 from pathlib import Path
 
-import openai
-
 from openlrc.agents import create_chatbot
-from openlrc.media_utils import get_similarity
 from openlrc.translate import LLMTranslator
 from tests.conftest import LIVE_API, TEST_LLM_API_KEY, TEST_MODELS
+from tests.live_api_contract import assert_translation_contract
 
 
 @unittest.skipUnless(LIVE_API, "Requires OPENLRC_TEST_LIVE_API=1 and valid API keys")
@@ -25,7 +23,7 @@ class TestLLMTranslator(unittest.TestCase):
 
     def test_single_chunk_translation(self):
         for chatbot_model in TEST_MODELS.values():
-            text = "Hello, how are you?"
+            text = "John paid 12 dollars on July 5."
             chatbot = create_chatbot(chatbot_model)
             try:
                 translator = LLMTranslator(chatbot=chatbot)
@@ -33,7 +31,7 @@ class TestLLMTranslator(unittest.TestCase):
             finally:
                 chatbot.close()
 
-            self.assertGreater(get_similarity(translation, "Hola, ¿cómo estás?"), 0.5)
+            assert_translation_contract(text, translation, "es", preserved_terms=("John", "12", "5"))
 
     def test_multiple_chunk_translation(self):
         for chatbot_model in TEST_MODELS.values():
@@ -44,8 +42,9 @@ class TestLLMTranslator(unittest.TestCase):
                 translations = translator.translate(texts, "en", "es")
             finally:
                 chatbot.close()
-            self.assertGreater(get_similarity(translations[0], "Hola, ¿cómo estás?"), 0.5)
-            self.assertGreater(get_similarity(translations[1], "Estoy bien, gracias."), 0.5)
+            self.assertEqual(len(translations), len(texts))
+            for source, translation in zip(texts, translations, strict=True):
+                assert_translation_contract(source, translation, "es")
 
     def test_different_language_translation(self):
         for chatbot_model in TEST_MODELS.values():
@@ -54,16 +53,9 @@ class TestLLMTranslator(unittest.TestCase):
             try:
                 translator = LLMTranslator(chatbot=chatbot)
                 translation = translator.translate(text, "en", "ja")[0]
-                self.assertTrue(
-                    get_similarity(translation, "こんにちは、お元気ですか？") > 0.5
-                    or get_similarity(translation, "こんにちは、調子はどうですか?") > 0.5
-                )
-            except openai.OpenAIError:
-                pass
-            except AssertionError:
-                print(f"Translation failed: {text} -> {translation}")
             finally:
                 chatbot.close()
+            assert_translation_contract(text, translation, "ja")
 
     def test_empty_text_list_translation(self):
         for chatbot_model in TEST_MODELS.values():
@@ -85,23 +77,6 @@ class TestLLMTranslator(unittest.TestCase):
                 translations = translator.atomic_translate(chatbot, texts, "en", "zh")
             finally:
                 chatbot.close()
-            self.assertGreater(get_similarity(translations[0], "你好，你好吗？"), 0.5)
-            self.assertGreater(get_similarity(translations[1], "我很好，谢谢。"), 0.5)
-
-
-# Not integrated by the openlrc main function because of performance
-#
-# class TestDeepLTranslator(unittest.TestCase):
-#     def test_single_chunk_translation(self):
-#         text = 'Hello, how are you?'
-#         translator = DeepLTranslator()
-#         translation = translator.translate(text, 'en', 'es')[0]
-#
-#         assert get_similarity(translation, 'Hola, ¿cómo estás?') > 0.5
-#
-#     def test_multiple_chunk_translation(self):
-#         texts = ['Hello, how are you?', 'I am fine, thank you.']
-#         translator = DeepLTranslator()
-#         translations = translator.translate(texts, 'en', 'es')
-#         assert get_similarity(translations[0], 'Hola, ¿cómo estás?') > 0.5
-#         assert get_similarity(translations[1], 'Estoy bien, gracias.') > 0.5
+            self.assertEqual(len(translations), len(texts))
+            for source, translation in zip(texts, translations, strict=True):
+                assert_translation_contract(source, translation, "zh")

@@ -24,6 +24,8 @@
   Python 3.13 同时作为 quality、包构建和手动 Live API 默认版本。
 - 更新 tiktoken、Lingua 与 LiteLLM 约束以支持 Python 3.14；直接使用 Python
   3.11 标准库 `StrEnum` 与 `datetime.UTC`，删除 Python 3.10 兼容写法。
+- 手动 Live API 测试不再使用 spaCy 对固定参考译文评分，改用现有 Lingua 检查
+  非空输出、目标语言和关键事实保留等确定性契约。
 - 预处理简化为视频音轨提取和 ffmpeg 响度标准化。`LRCer` 与 Workflow 请求的可选
   参数改为 keyword-only，删除旧位置参数后不会发生静默错位。
 
@@ -32,6 +34,8 @@
 - 删除 DeepFilterNet、DeepFilterLib、Torch、Torchaudio、CUDA PyTorch package
   source 和 `full` extra。
 - 删除 faster-whisper 遗留且产品代码未使用的 ONNX Runtime。
+- 删除 spaCy、运行时语言模型下载辅助函数，以及此前仅为 spaCy/Weasel 兼容而
+  直接声明的 Click 依赖。
 - 从 `LRCer`、`TranscriptionConfig`、Workflow request、Settings、recipe、CLI 和
   TUI 删除 Noise Suppression。旧 `--noise-suppress` 会报告 unknown option，旧
   Python 参数会直接产生 `TypeError`。
@@ -57,7 +61,7 @@
 
 ### 验证
 
-- Python 3.13.14 完整 pytest 为 `635 passed, 25 skipped, 22 warnings`；
+- Python 3.13.14 完整 pytest 为 `640 passed, 25 skipped, 19 warnings`；
   预处理、Workflow、application、CLI、TUI、lazy-import 与包 metadata
   聚焦回归为 `193 passed`。
 - 使用已安装 v1.9.1 binary 的 opt-in CPU 音频/VAD与视频/ffmpeg 真实 smoke 通过；

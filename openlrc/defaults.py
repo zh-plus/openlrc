@@ -31,7 +31,7 @@ LOUDNORM_SUFFIX = "_ln"
 # Directory name for preprocessed audio files.
 PREPROCESSED_DIR = "preprocessed"
 
-# Currently bottleneck-ed by Spacy
+# Languages shared by translation and language-detection features.
 supported_languages = {
     "ca",
     "zh",

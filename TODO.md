@@ -104,7 +104,10 @@ Last verified: 2026-07-31
       `uname -m` 并要求结果为 `arm64`，防止 runner 标签变化后静默改用非 Apple
       Silicon 架构。
 - [x] 四个 Python 版本都安装 core、dev 和 `litellm` extra，并分别运行完整 pytest；
-      默认 CI 不再解析或安装 DeepFilterNet/PyTorch/ONNX Runtime。
+      默认 CI 不再解析或安装 DeepFilterNet/PyTorch/ONNX Runtime/spaCy。
+- [x] 删除仅供旧 Live API 相似度断言使用的 spaCy 及运行时模型下载辅助函数；
+      provider smoke 改为使用现有 Lingua 验证非空输出、目标语言和关键事实保留，
+      并通过 wheel metadata 回归禁止重新引入 spaCy。
 - [x] 建立独立的 Python 3.13 `Quality and build` job，依次运行 Ruff lint、
       全库 Ruff format check、生产代码 Pyright、`openlrc --version`、`uv build`
       、wheel metadata 检查和当前 push/PR 变更范围的空白错误检查。
@@ -125,7 +128,7 @@ Last verified: 2026-07-31
       本轮实际修改文件完成 Ruff 格式化。
 - [x] 在 Python 3.13.14 本地完成两个 workflow 的 YAML 解析、完整 pytest、聚焦回归、
       Ruff、Pyright、CLI version/Doctor、`uv build`、wheel 隔离安装和
-      `git diff --check`；完整测试为 `635 passed, 25 skipped`，CPU 音频/VAD及
+      `git diff --check`；完整测试为 `640 passed, 25 skipped`，CPU 音频/VAD及
       视频/ffmpeg 真实 smoke 为 `2 passed`。
 - [ ] 获得明确推送许可后，在 GitHub Actions 验证 `Tests / Python 3.11`、
       `Tests / Python 3.12`、`Tests / Python 3.13`、`Tests / Python 3.14` 和

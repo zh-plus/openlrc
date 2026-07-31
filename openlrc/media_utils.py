@@ -1,13 +1,12 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
-"""Media-related utility functions that depend on heavy external libraries.
+"""Media-related utility functions that depend on optional external libraries.
 
-Functions in this module import packages such as ``ffmpeg``, ``filetype``,
-``audioread``, and ``spacy`` inside their bodies.  Keeping them
-separate from :mod:`openlrc.utils` ensures that the lightweight translation
-path never triggers those imports — critical for Nuitka ``--nofollow-import-to``
-builds where the heavy packages are intentionally excluded.
+Functions in this module import packages such as ``ffmpeg``, ``filetype``, and
+``audioread`` inside their bodies. Keeping them separate from
+:mod:`openlrc.utils` ensures that translation-only paths do not load media
+dependencies.
 """
 
 from __future__ import annotations
@@ -19,12 +18,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from spacy.language import Language as SpacyLanguage
-
     from openlrc.workflow import ExecutionContext
 
 from openlrc.logger import logger
-from openlrc.utils import detect_lang
 
 
 def extract_audio(path: Path, *, execution_context: ExecutionContext | None = None) -> Path:
@@ -145,47 +141,6 @@ def get_audio_duration(path: str | Path) -> float:
 
     with audioread.audio_open(str(path)) as audio:
         return audio.duration
-
-
-def get_spacy_lib(lang):
-    special_case = {"core_web": ["zh", "en"], "ent_wiki": ["xx"]}
-
-    mid_str = "core_news"
-    for k, v in special_case.items():
-        if lang in v:
-            mid_str = k
-
-    return f"{lang}_{mid_str}_sm"
-
-
-def spacy_load(lang) -> SpacyLanguage:
-    import spacy
-    import spacy.cli
-
-    lib_name = get_spacy_lib(lang)
-    try:
-        nlp = spacy.load(lib_name)
-    except (ImportError, OSError):
-        logger.warning(f"Spacy model {lib_name} missed, downloading")
-        spacy.cli.download(lib_name)  # pyright: ignore[reportPrivateImportUsage]
-        nlp = spacy.load(lib_name)
-
-    return nlp
-
-
-def get_similarity(text1, text2):
-    lang1 = detect_lang(text1)
-    lang2 = detect_lang(text2)
-
-    if lang1 != lang2:
-        raise ValueError(f'language of "{text1}" ({lang1}) is not the same as "{text2}" ({lang2})')
-
-    nlp = spacy_load(lang1)
-
-    doc1 = nlp(text1)
-    doc2 = nlp(text2)
-
-    return doc1.similarity(doc2)
 
 
 def merge_subtitle(video_path, subtitle_path, output_path):

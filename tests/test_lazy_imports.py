@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 class TestLazyImports(unittest.TestCase):
-    FORBIDDEN_ROOTS = {"faster_whisper", "spacy", "tiktoken", "torch", "lingua"}
+    FORBIDDEN_ROOTS = {"faster_whisper", "tiktoken", "torch", "lingua"}
     PROBE_MARKER = "__OPENLRC_LAZY_IMPORTS__="
 
     def _loaded_modules_after(self, statement: str):
@@ -59,7 +59,7 @@ class TestLazyImports(unittest.TestCase):
         # The translate path legitimately loads lingua (via validators.py) and
         # tiktoken (via utils.get_text_token_number).  Only check for the truly
         # heavy packages that would bloat a Nuitka binary.
-        heavy_roots = {"faster_whisper", "spacy", "torch"}
+        heavy_roots = {"faster_whisper", "torch"}
         loaded = self._loaded_modules_after(
             "from openlrc.agents import create_chatbot; "
             "from openlrc.context import TranslateInfo; "

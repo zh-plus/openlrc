@@ -7,7 +7,7 @@ from pathlib import Path
 import openlrc
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-BANNED_METADATA_TEXT = ("deepfilter", "onnxruntime", "torch", "torchaudio")
+BANNED_METADATA_TEXT = ("deepfilter", "onnxruntime", "spacy", "torch", "torchaudio")
 
 
 def test_runtime_version_matches_installed_distribution() -> None:

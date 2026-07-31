@@ -14,7 +14,7 @@ from openlrc import __version__
 EXPECTED_NAME = "openlrc-mac"
 EXPECTED_PYTHON = {">=3.11", "<3.15"}
 EXPECTED_EXTRA = "litellm"
-BANNED_DEPENDENCIES = {"deepfilterlib", "deepfilternet", "onnxruntime", "torch", "torchaudio"}
+BANNED_DEPENDENCIES = {"deepfilterlib", "deepfilternet", "onnxruntime", "spacy", "torch", "torchaudio"}
 EXPECTED_ENTRY_POINTS = {
     "openlrc = openlrc.cli.main:main",
     "openlrc-mac = openlrc.cli.main:main",

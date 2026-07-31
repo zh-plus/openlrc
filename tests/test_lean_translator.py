@@ -13,7 +13,6 @@ from openlrc.chunking import CHUNK_PLANNER_VERSION, chunk_plan_signature, plan_t
 from openlrc.context import CharacterBrief, ContextTimeline, GlossaryBrief, ProChunkContext, TranslationBrief
 from openlrc.glossary import GlossaryCatalog, GlossaryEntry, GlossaryService
 from openlrc.llama_resources import HY_MT2_PROMPT_PROFILE
-from openlrc.media_utils import get_similarity
 from openlrc.prompter import (
     LeanContextReviewPrompter,
     LeanTranslatePrompter,
@@ -23,6 +22,7 @@ from openlrc.prompter import (
 from openlrc.translate import LeanTranslator
 from openlrc.validators import HyMT2DelimiterTranslateValidator, LeanTranslateValidator
 from tests.conftest import LIVE_API, TEST_LLM_API_KEY, TEST_MODELS
+from tests.live_api_contract import assert_translation_contract
 
 
 def _make_mock_chatbot(name: str = "gpt-4.1-nano") -> MagicMock:
@@ -1111,8 +1111,7 @@ class TestLeanTranslatorLive(unittest.TestCase):
             chatbot.close()
 
         self.assertEqual(len(translations), 1)
-        self.assertTrue(translations[0].strip())
-        self.assertGreater(get_similarity(translations[0], "Hola, ¿cómo estás?"), 0.5)
+        assert_translation_contract("Hello, how are you?", translations[0], "es")
 
     def test_multiple_chunk_no_cr(self):
         """Multiple chunks without CR, verifying all lines are translated."""
@@ -1125,7 +1124,8 @@ class TestLeanTranslatorLive(unittest.TestCase):
             chatbot.close()
 
         self.assertEqual(len(translations), len(texts))
-        self.assertTrue(all(t.strip() for t in translations))
+        for source, translation in zip(texts, translations, strict=True):
+            assert_translation_contract(source, translation, "es")
 
     def test_with_cr(self):
         """Full pipeline: CR generates guideline, then translation uses it."""
@@ -1138,7 +1138,8 @@ class TestLeanTranslatorLive(unittest.TestCase):
             chatbot.close()
 
         self.assertEqual(len(translations), len(texts))
-        self.assertTrue(all(t.strip() for t in translations))
+        for source, translation in zip(texts, translations, strict=True):
+            assert_translation_contract(source, translation, "zh")
 
     def test_cr_chatbot_separation(self):
         """Mixed-model: GPT does CR, Gemini does translation."""
@@ -1153,7 +1154,8 @@ class TestLeanTranslatorLive(unittest.TestCase):
             mt_bot.close()
 
         self.assertEqual(len(translations), len(texts))
-        self.assertTrue(all(t.strip() for t in translations))
+        for source, translation in zip(texts, translations, strict=True):
+            assert_translation_contract(source, translation, "zh")
         self.assertGreater(translator.api_fee, 0)
 
     def test_empty_texts(self):
