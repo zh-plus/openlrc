@@ -2,6 +2,7 @@
 #  All rights reserved.
 
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,6 +25,12 @@ from openlrc.workflow import (
     WorkflowResult,
     WorkflowStatus,
 )
+
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _plain_output(output: str) -> str:
+    return _ANSI_ESCAPE.sub("", output)
 
 
 class TestCLI(unittest.TestCase):
@@ -506,7 +513,7 @@ class TestCLI(unittest.TestCase):
         )
 
         self.assertNotEqual(result.exit_code, 0)
-        self.assertIn("requires --llama-model", result.output)
+        self.assertIn("requires --llama-model", _plain_output(result.output))
 
     def test_edit_verify_and_restore_reject_manual_brief(self):
         for action in ("verify", "restore"):
@@ -652,7 +659,7 @@ class TestCLI(unittest.TestCase):
         )
 
         self.assertNotEqual(result.exit_code, 0)
-        self.assertIn("--context-assistance off is only", result.output)
+        self.assertIn("--context-assistance off is only", _plain_output(result.output))
 
     def test_run_keep_temp_disables_cleanup(self):
         lrcer = MagicMock()
@@ -723,8 +730,9 @@ class TestCLI(unittest.TestCase):
         )
 
         self.assertNotEqual(result.exit_code, 0)
-        self.assertIn("requires both --context-provider", result.output)
-        self.assertIn("--context-model", result.output)
+        output = _plain_output(result.output)
+        self.assertIn("requires both --context-provider", output)
+        self.assertIn("--context-model", output)
 
     def test_run_hy_mt2_local_context_builds_staged_qwen_config(self):
         lrcer = MagicMock()
@@ -877,7 +885,7 @@ class TestCLI(unittest.TestCase):
         result = self.runner.invoke(app, ["run", "--help"])
 
         self.assertEqual(result.exit_code, 0)
-        self.assertNotIn("--translate-mode", result.output)
+        self.assertNotIn("--translate-mode", _plain_output(result.output))
 
     def test_run_local_translation_30b_requires_model_path(self):
         result = self.runner.invoke(
@@ -885,7 +893,7 @@ class TestCLI(unittest.TestCase):
         )
 
         self.assertNotEqual(result.exit_code, 0)
-        self.assertIn("requires --llama-model", result.output)
+        self.assertIn("requires --llama-model", _plain_output(result.output))
 
     def test_run_local_translation_rejects_conflicting_profile_alias(self):
         result = self.runner.invoke(
@@ -904,7 +912,7 @@ class TestCLI(unittest.TestCase):
 
         self.assertNotEqual(result.exit_code, 0)
         self.assertIn("conflicts with", result.output)
-        self.assertIn("--local-model-profile", result.output)
+        self.assertIn("--local-model-profile", _plain_output(result.output))
 
     def test_run_local_translation_rejects_qwen_profile_with_hy_mt2_alias(self):
         result = self.runner.invoke(
@@ -923,7 +931,7 @@ class TestCLI(unittest.TestCase):
 
         self.assertNotEqual(result.exit_code, 0)
         self.assertIn("conflicts with", result.output)
-        self.assertIn("--local-model-profile", result.output)
+        self.assertIn("--local-model-profile", _plain_output(result.output))
 
     def test_translate_local_uses_local_lrcer_and_closes(self):
         lrcer = MagicMock()
@@ -997,11 +1005,12 @@ class TestCLI(unittest.TestCase):
         result = self.runner.invoke(app, ["transcribe", "--help"], terminal_width=160)
 
         self.assertEqual(result.exit_code, 0, result.output)
-        self.assertIn("--whisper-gpu", result.output)
-        self.assertIn("--no-whisper-gpu", result.output)
-        self.assertIn("--whisper-flash-attn", result.output)
-        self.assertIn("--no-whisper-flash", result.output)
-        self.assertNotIn("--noise-suppress", result.output)
+        output = _plain_output(result.output)
+        self.assertIn("--whisper-gpu", output)
+        self.assertIn("--no-whisper-gpu", output)
+        self.assertIn("--whisper-flash-attn", output)
+        self.assertIn("--no-whisper-flash", output)
+        self.assertNotIn("--noise-suppress", output)
 
     def test_removed_noise_suppress_option_is_rejected(self):
         for command in ("transcribe", "run"):

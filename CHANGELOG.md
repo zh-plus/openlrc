@@ -68,6 +68,8 @@ environment, Python 3.11-3.14 CI, and removal of the abandoned denoising stack.
 - Added Space activation to focused Terminal picker buttons without changing
   spaces in path inputs, removed the unused ASCII-status setting, and isolated
   Textual's private language-context lookup behind an English fallback.
+- Made CLI option-name assertions insensitive to GitHub Actions ANSI styling
+  and gave asynchronous TUI completion checks enough time on shared runners.
 
 ### Validation
 

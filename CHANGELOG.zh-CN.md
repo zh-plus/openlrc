@@ -58,6 +58,8 @@
   的字段。旧 recipe 仍可加载，但隐藏的陈旧设置不会再次进入 dirty/history/Resume。
 - Terminal picker 中获得焦点的按钮支持 Space，路径输入中的空格不受影响；删除未被渲染
   使用的 ASCII Status 设置，并为 Textual 私有语言 context 增加惰性英文 fallback。
+- CLI 选项名断言不再受 GitHub Actions ANSI 样式影响；异步 TUI 完成检查为共享
+  runner 保留更充足的等待窗口。
 
 ### 验证
 

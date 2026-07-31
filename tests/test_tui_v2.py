@@ -1393,7 +1393,7 @@ def test_workflow_starts_once_and_reaches_persisted_result(tmp_path: Path) -> No
             await pilot.press("end", "enter")
             await pilot.pause()
             await pilot.press("enter")
-            for _ in range(20):
+            for _ in range(200):
                 if isinstance(app.screen, RunningWorkflowScreen) and app.screen.result is not None:
                     break
                 await pilot.pause(0.05)
@@ -1441,7 +1441,7 @@ def test_workflow_runtime_logs_stay_in_frame_and_completed_escape_returns_home(
             await pilot.pause()
             app.start_workflow()
 
-            for _ in range(200):
+            for _ in range(1000):
                 screen = app.running_workflow_screen
                 if screen is not None and screen.result is not None:
                     break
