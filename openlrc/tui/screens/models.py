@@ -284,11 +284,13 @@ class SetupRunningScreen(OpenLRCScreen):
 
     def finish(self, result: SetupResult) -> None:
         self.result = result
-        self.recompose_preserving_action()
+        if self.is_mounted:
+            self.recompose_preserving_action()
 
     def fail(self, message: str) -> None:
         self.start_error = message
-        self.recompose_preserving_action()
+        if self.is_mounted:
+            self.recompose_preserving_action()
 
     def on_action_list_activated(self, event: ActionList.Activated) -> None:
         if event.action_id == "logs":

@@ -600,7 +600,7 @@ class OpenLRCTUI(App[None]):
             # Keep the consumed Draft only while its result screen is mounted;
             # leaving the result removes the entire configuration stack.
             self._draft_baseline = self._draft.to_recipe()
-        if self.running_workflow_screen is not None and self.running_workflow_screen.is_mounted:
+        if self.running_workflow_screen is not None:
             self.running_workflow_screen.finish(result)
         persistence_warning = self.job_controller.persistence_warning
         if persistence_warning:
@@ -652,7 +652,7 @@ class OpenLRCTUI(App[None]):
         self.active_operation_kind = None
         self._active_cancellation_token = None
         self.clear_resource_cache()
-        if self.setup_running_screen is not None and self.setup_running_screen.is_mounted:
+        if self.setup_running_screen is not None:
             self.setup_running_screen.finish(result)
         self._operation_complete()
 
@@ -678,11 +678,9 @@ class OpenLRCTUI(App[None]):
         self.active_operation_kind = None
         self._active_cancellation_token = None
         if operation_kind == "workflow" and self.running_workflow_screen is not None:
-            if self.running_workflow_screen.is_mounted:
-                self.running_workflow_screen.fail(message)
+            self.running_workflow_screen.fail(message)
         elif operation_kind == "setup" and self.setup_running_screen is not None:
-            if self.setup_running_screen.is_mounted:
-                self.setup_running_screen.fail(message)
+            self.setup_running_screen.fail(message)
         self.notify(message, severity="error", timeout=10)
         self._operation_complete()
 

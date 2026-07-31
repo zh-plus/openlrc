@@ -68,12 +68,13 @@ environment, Python 3.11-3.14 CI, and removal of the abandoned denoising stack.
 - Added Space activation to focused Terminal picker buttons without changing
   spaces in path inputs, removed the unused ASCII-status setting, and isolated
   Textual's private language-context lookup behind an English fallback.
-- Made CLI option-name assertions insensitive to GitHub Actions ANSI styling
-  and gave asynchronous TUI completion checks enough time on shared runners.
+- Made CLI option-name assertions insensitive to GitHub Actions ANSI styling.
+  Workflow and Setup results that complete before their TUI screen mounts are
+  now retained and rendered after mounting instead of being dropped.
 
 ### Validation
 
-- Full pytest on Python 3.13.14: `640 passed, 25 skipped, 19 warnings`;
+- Full pytest on Python 3.13.14: `641 passed, 25 skipped, 19 warnings`;
   focused preprocessing/Workflow/application/CLI/TUI/lazy-import/package
   metadata coverage: `193 passed`.
 - Opt-in real CPU Whisper audio/VAD and video/ffmpeg smoke tests passed with the

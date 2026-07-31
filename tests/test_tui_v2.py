@@ -1408,6 +1408,36 @@ def test_workflow_starts_once_and_reaches_persisted_result(tmp_path: Path) -> No
     asyncio.run(scenario())
 
 
+def test_operation_result_is_preserved_before_running_screen_mounts(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    workflow_draft = WorkflowDraft(task="transcribe-json", workflow="transcribe")
+    app.begin_workflow(workflow_draft)
+    app.running_workflow_screen = RunningWorkflowScreen(workflow_draft)
+    workflow_result = WorkflowResult(
+        job_id="instant-workflow", workflow=WorkflowKind.TRANSCRIBE, status=WorkflowStatus.SUCCEEDED
+    )
+
+    app.operation_state = "starting"
+    app.active_operation_kind = "workflow"
+    app._workflow_finished(workflow_result)
+
+    assert app.running_workflow_screen.result is workflow_result
+    assert app.operation_state == "idle"
+
+    setup_request = WhisperSetupRequest()
+    app.setup_running_screen = SetupRunningScreen(setup_request)
+    setup_result = SetupResult(
+        operation_id="instant-setup", kind=setup_request.kind, status=SetupStatus.SUCCEEDED, paths=()
+    )
+
+    app.operation_state = "starting"
+    app.active_operation_kind = "setup"
+    app._setup_finished(setup_result)
+
+    assert app.setup_running_screen.result is setup_result
+    assert app.operation_state == "idle"
+
+
 def test_workflow_runtime_logs_stay_in_frame_and_completed_escape_returns_home(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

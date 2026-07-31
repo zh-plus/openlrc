@@ -128,7 +128,7 @@ Last verified: 2026-07-31
       本轮实际修改文件完成 Ruff 格式化。
 - [x] 在 Python 3.13.14 本地完成两个 workflow 的 YAML 解析、完整 pytest、聚焦回归、
       Ruff、Pyright、CLI version/Doctor、`uv build`、wheel 隔离安装和
-      `git diff --check`；完整测试为 `640 passed, 25 skipped`，CPU 音频/VAD及
+      `git diff --check`；完整测试为 `641 passed, 25 skipped`，CPU 音频/VAD及
       视频/ffmpeg 真实 smoke 为 `2 passed`。
 - [ ] 获得明确推送许可后，在 GitHub Actions 验证 `Tests / Python 3.11`、
       `Tests / Python 3.12`、`Tests / Python 3.13`、`Tests / Python 3.14` 和

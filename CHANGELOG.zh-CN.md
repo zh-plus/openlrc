@@ -58,12 +58,12 @@
   的字段。旧 recipe 仍可加载，但隐藏的陈旧设置不会再次进入 dirty/history/Resume。
 - Terminal picker 中获得焦点的按钮支持 Space，路径输入中的空格不受影响；删除未被渲染
   使用的 ASCII Status 设置，并为 Textual 私有语言 context 增加惰性英文 fallback。
-- CLI 选项名断言不再受 GitHub Actions ANSI 样式影响；异步 TUI 完成检查为共享
-  runner 保留更充足的等待窗口。
+- CLI 选项名断言不再受 GitHub Actions ANSI 样式影响；Workflow 或 Setup 在结果页
+  挂载前完成时会保留结果并在挂载后渲染，不再丢失终态。
 
 ### 验证
 
-- Python 3.13.14 完整 pytest 为 `640 passed, 25 skipped, 19 warnings`；
+- Python 3.13.14 完整 pytest 为 `641 passed, 25 skipped, 19 warnings`；
   预处理、Workflow、application、CLI、TUI、lazy-import 与包 metadata
   聚焦回归为 `193 passed`。
 - 使用已安装 v1.9.1 binary 的 opt-in CPU 音频/VAD与视频/ffmpeg 真实 smoke 通过；

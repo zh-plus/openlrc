@@ -839,11 +839,13 @@ class RunningWorkflowScreen(OpenLRCScreen):
 
     def finish(self, result: WorkflowResult) -> None:
         self.result = result
-        self._recompose_terminal_view()
+        if self.is_mounted:
+            self._recompose_terminal_view()
 
     def fail(self, message: str) -> None:
         self.start_error = message
-        self._recompose_terminal_view()
+        if self.is_mounted:
+            self._recompose_terminal_view()
 
     def _recompose_terminal_view(self) -> None:
         self.recompose_preserving_action(after_recompose=self._restore_runtime_output)
