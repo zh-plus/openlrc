@@ -3,6 +3,52 @@
 这个文件只记录 OpenLRC Mac fork 自己的变更。英文版见
 [CHANGELOG.md](CHANGELOG.md) 中的 OpenLRC Mac 条目；两个文件需要同步更新。
 
+## OpenLRC Mac 0.5.0（未发布）
+
+这是 OpenLRC 首个桌面 GUI 的开发版本目标。本版本加入 Electron 应用及其与
+Python 共享服务的集成；桌面应用打包与发行仍不属于当前版本范围。
+
+### 新增
+
+- 新增基于 Electron 43、React 19 和 TypeScript 的桌面 GUI，包含 Home、New
+  Task、Tasks、History、Resources、Settings 与 About 路由。Renderer 使用 React
+  Aria Components、OpenLRC 自定义设计系统，以及 Tailwind CSS 与专用自定义 CSS。
+- 新增窄接口、强类型的 `contextBridge` API 和带版本的 JSONL Python sidecar
+  protocol。GUI 复用现有 application 与 workflow 服务，不在 Node 或 Renderer
+  中重复实现字幕流水线。
+- 新增持久化 FIFO 任务队列：单 active worker、多 queued task、暂停/恢复、取消、
+  队列重排、重启恢复，以及实时进度与日志更新。
+- 新增 System、Light、Dark 三态主题、可持久化折叠 Sidebar、英文与简体中文界面、
+  键盘和焦点行为、reduced motion，以及 React Aria 提供的可访问交互语义。
+- 新增桌面 Resources 状态与修复提示、GUI Settings 与安全凭据访问、Vitest 组件
+  测试、Electron E2E，以及真实 development-mode Electron workflow smoke。
+
+### 变更
+
+- 确立桌面视觉基线：Sidebar 展开宽度 `224px`、折叠宽度 `80px`，窗口顶部完整
+  drag region，横向主题控件、带滑块的 segmented control、居中的 Switch、Button
+  hover 亮度反馈，以及更宽松的 Resources 卡片间距。
+- History 筛选简化为“全部、已完成、失败”。“失败”统一包含带警告完成、失败和
+  中断的任务，同时在列表行与详情中保留每条任务的真实终态。
+- 用户主动取消的任务不进入桌面 History，也不出现在 Home 最近任务摘要中。取消
+  仍保留为内部任务生命周期的一部分，以便安全终止 active 或 queued task。
+- Development GUI 使用现有 uv 环境并通过 `--no-sync` 启动，打开 Electron 时不会
+  重新解析、下载或修改 Python 依赖。
+
+### 验证
+
+- 当前 GUI 验证覆盖 17 项组件/集成测试、20 项 Python Bridge 与 Queue 聚焦测试，
+  以及 8 项 Electron E2E 场景。
+- 真实短 CPU workflow smoke 已验证串行执行，并确认用户主动取消的 active task
+  不会由桌面 History API 返回。
+
+### 当前版本目标不包含
+
+- `.app`、Windows/Linux 打包、冻结 Python runtime、installer、签名、公证，以及
+  packaged cross-platform acceptance test，均保留为后续 Distribution 工作。
+- 条件式字幕 Editor 继续保持关闭，直到后端 handshake 声明受支持的 editing
+  capability。
+
 ## OpenLRC Mac 0.4.2
 
 本版本以旧模块和旧依赖清理为主线，同时把默认开发环境升级为 Python 3.13，

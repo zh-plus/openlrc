@@ -8,6 +8,7 @@ from openlrc.application.jobs import JobController
 from openlrc.application.operations import ActiveOperation, OperationGuard
 from openlrc.application.preflight import PreflightIssue, PreflightReport, preflight
 from openlrc.application.providers import build_provider_model, test_provider_connection
+from openlrc.application.queue_repository import QueueEntry, QueueEntryState, QueueRepository, QueueState
 from openlrc.application.resources import ResourceStatus, ResourceStatusService
 from openlrc.application.settings import AppSettings, SettingsStore
 from openlrc.application.setup import (
@@ -27,6 +28,7 @@ from openlrc.application.setup import (
     SetupStatus,
     WhisperSetupRequest,
 )
+from openlrc.application.workflow_queue import QueueFullError, WorkflowQueueController
 
 __all__ = (
     "AppSettings",
@@ -44,6 +46,11 @@ __all__ = (
     "ResolvedCredential",
     "PreflightIssue",
     "PreflightReport",
+    "QueueEntry",
+    "QueueEntryState",
+    "QueueFullError",
+    "QueueRepository",
+    "QueueState",
     "ResourceStatus",
     "ResourceStatusService",
     "SettingsStore",
@@ -63,6 +70,7 @@ __all__ = (
     "SetupStatus",
     "WhisperSetupRequest",
     "WorkflowDraft",
+    "WorkflowQueueController",
     "build_provider_model",
     "normalize_input_paths",
     "parse_brief_characters",

@@ -1,5 +1,60 @@
 # Changelog
 
+## OpenLRC Mac 0.5.0 (Unreleased)
+
+This is the development target for the first OpenLRC desktop GUI. It adds the
+Electron application and its shared Python integration while keeping packaged
+desktop distribution outside the current release scope.
+
+### Added
+
+- Added an Electron 43, React 19, and TypeScript desktop GUI with Home, New
+  Task, Tasks, History, Resources, Settings, and About routes. The Renderer is
+  built on React Aria Components, the OpenLRC design system, and a combination
+  of Tailwind CSS and focused custom CSS.
+- Added a narrow, typed `contextBridge` API and a versioned JSONL Python sidecar
+  protocol. The GUI reuses the existing application and workflow services
+  instead of duplicating the subtitle pipeline in Node or the Renderer.
+- Added a persistent FIFO task queue with one active worker, multiple queued
+  tasks, pause/resume, cancellation, queue reordering, restart recovery, and
+  progress/log updates.
+- Added System, Light, and Dark appearance modes; a persistent collapsible
+  sidebar; English and Simplified Chinese UI; keyboard/focus behavior; reduced
+  motion support; and accessible React Aria interaction semantics.
+- Added desktop resource inspection and repair guidance, GUI settings and secure
+  credential access, Vitest component coverage, Electron end-to-end tests, and
+  a real development-mode Electron workflow smoke test.
+
+### Changed
+
+- Established the desktop visual baseline with a `224px` expanded and `80px`
+  collapsed sidebar, full-width window drag region, horizontal theme controls,
+  sliding segmented controls, centered switches, button hover feedback, and
+  more spacious Resources cards.
+- Simplified History filters to All, Completed, and Failed. Failed groups jobs
+  that ended with warnings, failed, or were interrupted while preserving each
+  job's actual status in its row and detail view.
+- User-cancelled tasks are excluded from the desktop History and recent-job
+  summaries. Cancellation remains part of the internal task lifecycle so an
+  active or queued task can still be stopped safely.
+- Development GUI startup uses the existing uv environment with `--no-sync`,
+  so opening Electron never resolves, downloads, or mutates Python dependencies.
+
+### Validation
+
+- GUI verification currently covers 17 component/integration tests, 20 focused
+  Python bridge and queue tests, and 8 Electron end-to-end scenarios.
+- A real short CPU workflow smoke validates serial execution and confirms that
+  a user-cancelled active task is not returned by the desktop History API.
+
+### Not included in this release target
+
+- Packaged `.app`/Windows/Linux builds, a frozen Python runtime, installers,
+  signing, notarization, and packaged cross-platform acceptance tests remain
+  future distribution work.
+- The conditional subtitle editor remains disabled until the backend advertises
+  a supported editing capability.
+
 ## OpenLRC Mac 0.4.2
 
 Dependency and compatibility cleanup release centered on a Python 3.13 default

@@ -73,7 +73,7 @@ class TestCLI(unittest.TestCase):
 
         version_result = self.runner.invoke(app, ["--version"])
         self.assertEqual(version_result.exit_code, 0)
-        self.assertIn("OpenLRC Mac 0.4.2", version_result.output)
+        self.assertIn("OpenLRC Mac 0.5.0", version_result.output)
         self.assertIn("openlrc-mac", version_result.output)
         self.assertIn("OpenLRC 1.7.0a1", version_result.output)
 

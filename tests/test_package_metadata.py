@@ -11,7 +11,7 @@ BANNED_METADATA_TEXT = ("deepfilter", "onnxruntime", "spacy", "torch", "torchaud
 
 
 def test_runtime_version_matches_installed_distribution() -> None:
-    assert openlrc.__version__ == "0.4.2"
+    assert openlrc.__version__ == "0.5.0"
     assert importlib.metadata.version("openlrc-mac") == openlrc.__version__
 
 

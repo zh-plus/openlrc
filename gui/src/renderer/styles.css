@@ -1,0 +1,32 @@
+@import "tailwindcss";
+@import "./styles/tokens.css" layer(base);
+@import "./styles/electron-shell.css" layer(components);
+@import "./styles/pages.css" layer(components);
+@import "./styles/complex-components.css" layer(components);
+
+@plugin "tailwindcss-react-aria-components" {
+  prefix: rac;
+}
+
+@theme inline {
+  --color-app-canvas: var(--color-canvas);
+  --color-app-sidebar: var(--color-sidebar);
+  --color-app-surface: var(--color-surface);
+  --color-app-surface-subtle: var(--color-surface-subtle);
+  --color-app-border: var(--color-border);
+  --color-app-text: var(--color-text);
+  --color-app-text-secondary: var(--color-text-secondary);
+  --color-app-primary: var(--color-primary);
+  --color-app-primary-soft: var(--color-primary-soft);
+  --color-app-secondary: var(--color-secondary);
+  --color-app-secondary-soft: var(--color-secondary-soft);
+  --color-app-success: var(--color-success);
+  --color-app-success-soft: var(--color-success-soft);
+  --color-app-warning: var(--color-warning);
+  --color-app-warning-soft: var(--color-warning-soft);
+  --color-app-danger: var(--color-danger);
+  --color-app-danger-soft: var(--color-danger-soft);
+  --font-app-ui: var(--font-ui);
+  --font-app-mono: var(--font-mono);
+  --shadow-app-card: var(--shadow-card);
+}

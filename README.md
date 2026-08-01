@@ -16,9 +16,13 @@ workflows:
 - A keyboard-first Textual TUI v2 with mouse-equivalent actions for workflows,
   jobs and recovery, models and setup, diagnostics, and settings, with two
   runtime themes and English/Simplified Chinese presentation.
-- A typed in-process Workflow API for transcription, the five canonical
-  translation modes, full runs, progress events, cancellation, and structured
-  results shared by the CLI, TUI, and future GUI.
+- A typed Workflow API for transcription, the five canonical translation
+  modes, full runs, progress events, cancellation, and structured results
+  shared by the CLI, TUI, and desktop GUI.
+- An Electron + React desktop GUI development checkout with a persistent task
+  queue, History, Resources, Settings, System/Light/Dark themes, and English or
+  Simplified Chinese presentation. Packaged desktop distribution is not yet
+  included.
 
 The distribution name is `openlrc-mac`. The Python import package remains
 `openlrc` for compatibility with upstream-style scripts.
@@ -43,6 +47,9 @@ Working:
   changes preview immediately and support persisted English or Simplified
   Chinese UI text, two distinct dark themes, and a static blue Logo when motion
   is disabled.
+- Run the Electron GUI from the `gui/` development checkout. It reuses the
+  Python application and Workflow layers through a versioned local sidecar
+  protocol and keeps Node capabilities outside the Renderer.
 
 Still in progress:
 

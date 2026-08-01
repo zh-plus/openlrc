@@ -113,7 +113,7 @@ jobs:
         run: uv build
 
       - name: Check wheel metadata
-        run: uv run python scripts/check_wheel_metadata.py dist/openlrc_mac-0.4.2-py3-none-any.whl
+        run: uv run python scripts/check_wheel_metadata.py dist/openlrc_mac-0.5.0-py3-none-any.whl
 
       - name: Check patch whitespace
         env:

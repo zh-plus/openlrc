@@ -55,7 +55,7 @@ uv run openlrc --version
 当前输出类似：
 
 ```text
-OpenLRC Mac 0.4.2 (distribution: openlrc-mac; upstream base: OpenLRC 1.7.0a1)
+OpenLRC Mac 0.5.0 (distribution: openlrc-mac; upstream base: OpenLRC 1.7.0a1)
 ```
 
 ### `openlrc doctor`

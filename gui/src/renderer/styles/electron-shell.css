@@ -1,0 +1,245 @@
+.app-shell {
+  position: relative;
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  transition: grid-template-columns 180ms ease;
+}
+
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 80px minmax(0, 1fr);
+}
+
+.sidebar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 32px 12px 12px;
+  background: var(--color-sidebar);
+  border-right: 1px solid var(--color-border);
+  z-index: 3;
+}
+
+.window-drag-region {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 29px;
+  -webkit-app-region: drag;
+  user-select: none;
+  z-index: 5;
+}
+
+.brand-row {
+  height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px;
+  margin-bottom: 12px;
+}
+
+.brand-mark,
+.about-mark {
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  gap: 3px;
+  width: 27px;
+  height: 27px;
+  padding: 6px;
+  border-radius: 8px;
+  flex: 0 0 auto;
+  background: linear-gradient(145deg, var(--color-primary), var(--color-secondary));
+  box-shadow: 0 5px 14px rgb(38 119 245 / 24%);
+}
+
+.brand-mark span,
+.about-mark span {
+  width: 3px;
+  border-radius: 99px;
+  background: white;
+}
+
+.brand-mark span:nth-child(1),
+.about-mark span:nth-child(1) {
+  height: 8px;
+}
+
+.brand-mark span:nth-child(2),
+.about-mark span:nth-child(2) {
+  height: 14px;
+}
+
+.brand-mark span:nth-child(3),
+.about-mark span:nth-child(3) {
+  height: 10px;
+}
+
+.brand-name {
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.collapse-button {
+  margin-left: auto;
+}
+
+.sidebar-collapsed .brand-row {
+  width: 44px;
+  justify-content: center;
+  align-self: center;
+  padding: 0;
+}
+
+.sidebar-collapsed .brand-mark {
+  display: none;
+}
+
+.sidebar-collapsed .collapse-button {
+  margin-left: 0;
+}
+
+.primary-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sidebar-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  position: relative;
+}
+
+.sidebar-collapsed .primary-nav {
+  gap: 8px;
+}
+
+.nav-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  gap: 12px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: var(--color-text-secondary);
+  font-weight: 540;
+  position: relative;
+  white-space: nowrap;
+}
+
+.nav-item[data-hovered] {
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
+}
+
+.nav-item.active {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  font-weight: 650;
+}
+
+.sidebar-collapsed .nav-item {
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  justify-content: center;
+  align-self: center;
+  margin-inline: auto;
+  padding: 0;
+}
+
+.nav-badge {
+  margin-left: auto;
+  min-width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: white;
+  font-size: 11px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-collapsed .nav-badge {
+  position: absolute;
+  right: 4px;
+  top: 3px;
+  min-width: 16px;
+  height: 16px;
+  font-size: 9px;
+}
+
+.resource-dot {
+  margin-left: auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-warning);
+}
+
+.resource-dot.healthy {
+  background: var(--color-success);
+}
+
+.sidebar-collapsed .resource-dot {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 2px var(--color-sidebar);
+}
+
+.theme-wrap {
+  position: relative;
+  margin: 4px 0;
+}
+
+.sidebar-collapsed .theme-wrap {
+  width: 44px;
+  margin: 0 auto;
+}
+
+.theme-segment {
+  width: 100%;
+  max-width: 100%;
+}
+
+.theme-option {
+  min-width: 0;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  background: transparent;
+}
+
+.nav-icon-button {
+  width: 44px !important;
+  height: 44px !important;
+}
+
+.icon-button.danger-text[data-hovered],
+.danger-text {
+  color: var(--color-danger);
+}
+
+.content {
+  min-width: 0;
+  height: 100%;
+  overflow: auto;
+  background: var(--color-canvas);
+}

@@ -1,0 +1,131 @@
+:root {
+  color-scheme: light;
+  --color-canvas: #f6f8fb;
+  --color-sidebar: #fbfcfe;
+  --color-surface: #ffffff;
+  --color-surface-subtle: #f0f4fa;
+  --color-border: #d9e1ec;
+  --color-text: #172033;
+  --color-text-secondary: #5e6a7d;
+  --color-primary: #2677f5;
+  --color-primary-soft: #eaf2ff;
+  --color-secondary: #7c5ce5;
+  --color-secondary-soft: #f0edff;
+  --color-success: #16865a;
+  --color-success-soft: #e7f8f0;
+  --color-warning: #9c6700;
+  --color-warning-soft: #fff5dc;
+  --color-danger: #d6424f;
+  --color-danger-soft: #ffebed;
+  --shadow-card: 0 8px 24px rgb(39 62 96 / 7%);
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-canvas: #242424;
+  --color-sidebar: #212121;
+  --color-surface: #2c2c2c;
+  --color-surface-subtle: #333333;
+  --color-border: #424242;
+  --color-text: #ffffff;
+  --color-text-secondary: #ffffff;
+  --color-primary-soft: #273958;
+  --color-secondary-soft: #3a3156;
+  --color-success: #44c98a;
+  --color-success-soft: #253d33;
+  --color-warning: #f2b84b;
+  --color-warning-soft: #423822;
+  --color-danger: #ef6b73;
+  --color-danger-soft: #492d30;
+  --shadow-card: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  font: 14px/20px var(--font-ui);
+  color: var(--color-text);
+  background: var(--color-canvas);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+a,
+input,
+select,
+textarea,
+summary {
+  -webkit-app-region: no-drag;
+}
+
+button,
+a {
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+[data-disabled] {
+  cursor: not-allowed;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-primary) 34%, transparent);
+}
+
+a {
+  text-decoration: none;
+}
+
+code,
+pre {
+  font-family: var(--font-mono);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.muted {
+  color: var(--color-text-secondary);
+}

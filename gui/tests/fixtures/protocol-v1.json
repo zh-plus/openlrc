@@ -1,0 +1,68 @@
+{
+  "ready": {
+    "type": "event",
+    "protocol": 1,
+    "event": "app.ready",
+    "payload": {
+      "service_version": "0.5.0",
+      "min_protocol": 1,
+      "max_protocol": 1,
+      "runtime_mode": "development",
+      "capabilities": [
+        "workflow.transcribe",
+        "workflow.translate",
+        "workflow.run",
+        "queue",
+        "settings",
+        "credentials",
+        "resources",
+        "jobs"
+      ]
+    }
+  },
+  "queue": {
+    "paused": false,
+    "active": null,
+    "entries": [
+      {
+        "queue_id": "queue-1",
+        "state": "pending",
+        "workflow": "transcribe",
+        "display_name": "sample.wav",
+        "draft_recipe": { "workflow": "transcribe", "paths": ["/tmp/sample.wav"] },
+        "settings_snapshot": { "schema_version": 1 },
+        "credential_requirements": [],
+        "enqueued_at": "2026-08-01T00:00:00+00:00",
+        "operation_id": null,
+        "job_id": null,
+        "blocked_reason": null
+      }
+    ],
+    "total": 1,
+    "pending_count": 1
+  },
+  "preflight": {
+    "status": "ready",
+    "blocked": false,
+    "issues": [],
+    "summary": { "pipeline": "Transcribe", "inputs": "1" }
+  },
+  "workflow_event": {
+    "type": "event",
+    "protocol": 1,
+    "event": "workflow.stage_progress",
+    "queue_id": "queue-1",
+    "operation_id": "operation-1",
+    "job_id": "job-1",
+    "sequence": 4,
+    "payload": {
+      "stage": "transcribe",
+      "completed": 38,
+      "total": 100,
+      "percent": 38,
+      "item": "/tmp/sample.wav",
+      "workflow": "transcribe",
+      "timestamp": "2026-08-01T00:00:01+00:00"
+    }
+  }
+}

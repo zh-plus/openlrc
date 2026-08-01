@@ -5,6 +5,13 @@ run.py
 test_run.py
 /data/
 /dist/
+/gui/node_modules/
+/gui/.webpack/
+/gui/out/
+/gui/dist/
+/gui/coverage/
+/gui/test-results/
+/gui/.vite/
 /.uv-cache/
 /.venv/
 /openfaker.egg-info/

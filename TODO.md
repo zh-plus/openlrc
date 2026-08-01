@@ -1,13 +1,13 @@
 # OpenLRC Mac To Do List
 
-Last verified: 2026-07-31
+Last verified: 2026-08-02
 
-本文档记录 OpenLRC Mac 在 0.4.2 基线上的已完成能力、当前风险和后续优先级。
+本文档记录 OpenLRC Mac 在 0.5.0 基线上的已完成能力、当前风险和后续优先级。
 它不是发布承诺。项目仍以 macOS 本地字幕工作流为核心，优先保证转写稳定性、
 翻译一致性和可恢复性。产品最终提供 CLI、TUI、GUI 三种访问模式：CLI 与 TUI
 优先获得新功能，GUI 在交互和服务稳定后跟进。
 
-## 当前基线：0.4.2
+## 当前基线：0.5.0
 
 ### 核心流水线
 
@@ -73,7 +73,7 @@ Last verified: 2026-07-31
 
 ### CLI、发行与文档
 
-- [x] 发行身份为 `openlrc-mac`，当前版本 0.4.2，同时保留 `import openlrc`。
+- [x] 发行身份为 `openlrc-mac`，当前版本 0.5.0，同时保留 `import openlrc`。
 - [x] 提供等价的 `openlrc` / `openlrc-mac` console scripts。
 - [x] CLI 覆盖 `doctor`、`models status`、`setup`、`transcribe`、`translate`、
       `run`、`glossary` 和 `edit`。
@@ -311,15 +311,16 @@ protection required check 仍取决于 GitHub 仓库设置，本轮没有重写�
 - [x] 删除未进入渲染层的 ASCII Status 设置；旧 Settings JSON 继续兼容，并在下次
       保存时自然移除废弃字段。
 
-## P2 - macOS GUI 与打包
+## P2 - Desktop GUI 与打包
 
-- [ ] 选择 GUI 技术路线，并确认可稳定调用 Python service/job runner。
-- [ ] 文件选择、输出格式、语言、Whisper 模型和翻译 profile 选择。
-- [ ] 模型安装状态、下载/定位入口和磁盘占用提示。
-- [ ] 展示各阶段 progress、日志、错误和取消状态。
+- [x] 采用 Electron + React + TypeScript、React Aria Components 和
+      Tailwind/custom CSS，并通过 versioned JSONL sidecar 调用共享 Python service。
+- [x] 提供原生文件选择、输出格式、语言、Whisper 模型和翻译 profile 选择。
+- [x] 提供 Resources 状态检查和明确的修复提示。
+- [x] 展示各阶段 progress、日志、错误和取消状态。
 - [ ] 预览 `.srt` / `.lrc`，并集成术语表与定向编辑工作流。
-- [ ] 保留高级路径覆盖，但不放在普通用户主流程中心。
-- [ ] GUI 优先接入已经在 CLI、当前 TUI v2 验证稳定的功能，不要求与实验性命令同步发布。
+- [x] 使用可渐进展开的 Advanced 配置，不把高级选项放在普通用户主流程中心。
+- [x] GUI V1 优先接入已经在 CLI、当前 TUI v2 验证稳定的功能，不与实验性命令同步发布。
 - [ ] 在服务边界稳定后再处理 app bundle 资源、签名、notarization 和 packaging。
 - [ ] 打包实现后补充 app bundle resource 优先级测试；当前测试已覆盖显式配置、
       环境变量、user dir、vendor build 和 `PATH`。
