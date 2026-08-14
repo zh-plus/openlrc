@@ -409,7 +409,7 @@ If you prefer GitHub Actions publishing, configure PyPI trusted publishing for t
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=zh-plus/Open-Lyrics&type=Date)](https://star-history.com/#zh-plus/Open-Lyrics&Date)
+[![Star History Chart](https://star-history.dera.page/svg?repos=zh-plus/Open-Lyrics&type=Date)](https://star-history.dera.page/#zh-plus/Open-Lyrics&Date)
 
 ## Citation
 
