@@ -211,6 +211,10 @@ class Models:
         latest_alias="gpt-3.5-turbo",
     )
 
+    GPT_56_LUNA = ModelInfo(
+        name="gpt-5.6-luna", provider=ModelProvider.OPENAI, input_price=0.20, output_price=1.20, vision_support=True
+    )
+
     GPT_41_NANO = ModelInfo(
         name="gpt-4.1-nano",
         provider=ModelProvider.OPENAI,

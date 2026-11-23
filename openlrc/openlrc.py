@@ -49,7 +49,7 @@ class LRCer:
         lrcer = LRCer(
             transcription=TranscriptionConfig(whisper_model='large-v3', device='cuda'),
             translation=TranslationConfig(
-                chatbot=ModelConfig(provider=ModelProvider.OPENAI, name='gpt-4.1-nano'),
+                chatbot=ModelConfig(provider=ModelProvider.OPENAI, name='gpt-5.6-luna'),
                 fee_limit=1.0,
             ),
         )
@@ -119,14 +119,10 @@ class LRCer:
         """Lazily initialize and return the primary ChatBot instance (thread-safe)."""
         if self._chatbot is None:
             from openlrc.agents import create_chatbot
-            from openlrc.models import ModelConfig, ModelProvider
 
             with self._chatbot_lock:
                 if self._chatbot is None:
-                    model_config = self._translation_config.chatbot or ModelConfig(
-                        provider=ModelProvider.OPENAI, name="gpt-4.1-nano"
-                    )
-                    self._chatbot = create_chatbot(model_config, self.fee_limit)
+                    self._chatbot = create_chatbot(self._translation_config.chatbot, self.fee_limit)
         return self._chatbot
 
     @property
