@@ -43,7 +43,8 @@ class TranslationConfig:
 
     Args:
         chatbot: Configuration for the primary chatbot model, or None.
-            Default: ``None`` (which defaults to OpenAI's ``gpt-4.1-nano``)
+            Default: ``None`` (uses ``gpt-5.6-luna`` for native OpenAI; compatible gateways retain
+            the previous default unless a model is specified).
         retry_chatbot: Configuration for the fallback chatbot model for translation retries, or None.
         cr_chatbot: Configuration for the Context Review chatbot model, or None.
             When None and lean mode is active, the primary ``chatbot`` is used for CR.

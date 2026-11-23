@@ -10,6 +10,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from typing import cast
+from urllib.parse import urlsplit
 
 import anthropic
 import httpx
@@ -276,10 +277,12 @@ class GPTBot(ChatBot):
     # request body — useful for vLLM / custom endpoint parameters like
     # ``repetition_penalty``, ``top_k``, or ``chat_template_kwargs``).
     _NATIVE_EXTRA_KEYS = frozenset({"frequency_penalty", "presence_penalty", "seed"})
+    _NATIVE_DEFAULT_MODEL = Models.GPT_56_LUNA.name
+    _COMPATIBLE_DEFAULT_MODEL = Models.GPT_41_NANO.name
 
     def __init__(
         self,
-        model_name: str = "gpt-4.1-nano",
+        model_name: str | None = None,
         temperature: float = 1,
         top_p: float = 1,
         retry: int = 8,
@@ -294,15 +297,21 @@ class GPTBot(ChatBot):
         # clamp temperature to 0-2
         temperature = max(0, min(2, temperature))
 
-        is_beta = False
-        if base_url_config and base_url_config["openai"] == "https://api.deepseek.com/beta":
-            is_beta = True
-
-        super().__init__(model_name, temperature, top_p, retry, max_async, fee_limit, is_beta)
-
         resolved_api_key, resolved_base_url = self._resolve_client_settings(
             api_key=api_key, base_url_config=base_url_config
         )
+        # Match the SDK's OPENAI_BASE_URL / first-party default when there is no explicit URL.
+        effective_base_url = resolved_base_url
+        if effective_base_url is None:
+            effective_base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        endpoint = urlsplit(effective_base_url)
+        is_native = endpoint.scheme == "https" and endpoint.hostname == "api.openai.com"
+        if model_name is None:
+            model_name = self._NATIVE_DEFAULT_MODEL if is_native else self._COMPATIBLE_DEFAULT_MODEL
+        self._native_luna = is_native and model_name == self._NATIVE_DEFAULT_MODEL
+        is_beta = bool(base_url_config and base_url_config.get("openai") == "https://api.deepseek.com/beta")
+
+        super().__init__(model_name, temperature, top_p, retry, max_async, fee_limit, is_beta)
 
         self.client = OpenAI(
             api_key=resolved_api_key, http_client=httpx.Client(proxy=proxy), base_url=resolved_base_url
@@ -390,6 +399,7 @@ class GPTBot(ChatBot):
                 passthrough[key] = value
 
         max_tokens = self._compute_max_tokens(messages, min_tokens=min_tokens)
+        reasoning = passthrough.pop("reasoning_effort", "none") if self._native_luna else None
 
         response = None
         validated = False
@@ -404,8 +414,14 @@ class GPTBot(ChatBot):
                     "stop": stop_sequences,
                     **native_kwargs,
                 }
+                if self._native_luna:
+                    create_kwargs["reasoning_effort"] = reasoning
+                    if reasoning != "none":
+                        create_kwargs.pop("temperature")
+                        create_kwargs.pop("top_p")
                 if max_tokens is not None:
-                    create_kwargs["max_tokens"] = max_tokens
+                    cap_key = "max_completion_tokens" if self._native_luna else "max_tokens"
+                    create_kwargs[cap_key] = max_tokens
                 if passthrough:
                     create_kwargs["extra_body"] = passthrough
 

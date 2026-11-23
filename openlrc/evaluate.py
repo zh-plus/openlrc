@@ -25,7 +25,7 @@ class LLMTranslationEvaluator(TranslationEvaluator):
     Evaluate the translated texts using large language models.
     """
 
-    def __init__(self, chatbot_model: str | ModelConfig = "gpt-4.1-nano"):
+    def __init__(self, chatbot_model: str | ModelConfig | None = None):
         self._chatbot = create_chatbot(chatbot_model)
         self.agent = TranslationEvaluatorAgent(chatbot=self._chatbot)
 

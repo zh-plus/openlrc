@@ -25,16 +25,18 @@ from openlrc.validators import POTENTIAL_PREFIX_COMBOS
 
 
 def create_chatbot(
-    chatbot_model: str | ModelConfig,
+    chatbot_model: str | ModelConfig | None,
     fee_limit: float = 0.8,
     proxy: str | None = None,
     base_url_config: dict | None = None,
 ) -> ChatBot:
-    """Create a ChatBot instance from a model name or ModelConfig.
+    """Create a ChatBot from a model name or ModelConfig, or use the default when omitted.
 
     The caller is responsible for closing the returned ChatBot when done
     (via ``close()`` or a ``with`` statement).
     """
+    if chatbot_model is None:
+        return GPTBot(fee_limit=fee_limit, proxy=proxy, retry=4, base_url_config=base_url_config)
     if isinstance(chatbot_model, str):
         chatbot_cls, model_name = route_chatbot(chatbot_model)
         return chatbot_cls(
